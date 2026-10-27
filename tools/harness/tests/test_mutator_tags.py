@@ -27,6 +27,10 @@ def generated(fault=None):
     if fault == 'whole':
         tags = mutated(tags, '\t/* (all of them checked before any is made) */\n\twhile (offset < size)',
                        '\twhile (FALSE)')
+    if fault == 'runtime':
+        tags = mutated(tags, '\t\t*(real *)(address - field->offset + field->runtime_offset) = value;\n', '')
+    if fault == 'speed':
+        tags = mutated(tags, 'value = edit->number / (real)TICKS_PER_SECOND;', 'value = edit->number;')
     if fault == 'append':
         tags = mutated(tags, 'count = (edit->append ? block->count : 0) +', 'count =')
     source = read('port/linux/src/port_mutators.c').replace(
@@ -41,14 +45,15 @@ def generated(fault=None):
                     ('port_mutators_source.inc', source))
 
 
-@pytest.mark.parametrize('case', ['ma5b', 'missing', 'refused', 'bytes'])
+@pytest.mark.parametrize('case', ['ma5b', 'plasma', 'missing', 'refused', 'bytes'])
 def test_case(case):
     status, output = run(build('mutator_tags', generated()), case)
     assert status == 0, output
 
 
 @pytest.mark.parametrize('fault,case', [('range', 'refused'), ('element', 'missing'), ('undo', 'ma5b'),
-                                        ('whole', 'bytes'), ('append', 'ma5b')])
+                                        ('whole', 'bytes'), ('append', 'ma5b'), ('runtime', 'plasma'),
+                                        ('speed', 'plasma')])
 def test_negative(fault, case):
     status, output = run(build('mutator_tags', generated(fault)), case)
     assert status == CHECK_FAILED, output

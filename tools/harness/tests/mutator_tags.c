@@ -1,7 +1,8 @@
 /*
 The mutators' tag edits (port/linux/game/mutator_tags.c) in a fake map's tags,
 made from mutator.toml by port/linux/src/port_mutators.c: the built-in
-accurized MA5B's every value, undone; tags, elements and tags named that a
+accurized MA5B's and revolved plasma rifle's every value, undone; a time's
+step a tick worked out with it; tags, elements and tags named that a
 map lacks passed over; edits refused for a field, value or path this build
 does not take; and edits' bytes that are not edits' refused whole.
 */
@@ -22,6 +23,7 @@ typedef unsigned short word;
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define NUMBEROF(array) (sizeof(array) / sizeof(array[0]))
 #define _pi ((real)3.14159265358979323846f)
+enum { TICKS_PER_SECOND = 30 };
 enum { _error_log };
 static int logged_errors;
 #define error(kind, ...) ((void)(kind), logged_errors++)
@@ -33,6 +35,7 @@ enum
 	PROJECTILE_DEFINITION_TAG = 'proj',
 	SOUND_DEFINITION_TAG = 'snd!',
 	EFFECT_DEFINITION_TAG = 'effe',
+	DAMAGE_EFFECT_DEFINITION_TAG = 'jpt!',
 	HUD_GROUP_TAG = 'wphi',
 };
 struct real_orientation;
@@ -43,22 +46,42 @@ struct tag_block { long count; void *address; void *definition; };
 struct weapon_trigger_definition
 {
 	unsigned long flags;
+	real initial_rate_of_fire;
+	real final_rate_of_fire;
+	real rate_of_fire_acceleration_time;
+	real rate_of_fire_deceleration_time;
+	real error_acceleration_time;
+	real error_deceleration_time;
 	real projectile_error_angle_lower_bound;
 	real projectile_error_angle_upper_bound;
+	real heat_generated_per_round;
+	real age_generated_per_round;
 	short rounds_between_tracers;
 	short pad;
+	real runtime_rate_of_fire_acceleration_time;
+	real runtime_rate_of_fire_deceleration_time;
+	real runtime_error_acceleration_time;
+	real runtime_error_deceleration_time;
 };
 struct weapon_definition
 {
 	struct
 	{
 		long flags;
+		real heat_recovery_threshold;
+		real heat_loss_per_second;
 		short pad;
 		short zoom_level_count;
 		real zoom_magnification_minimum;
 		real zoom_magnification_maximum;
 		struct tag_reference zoom_in_sound;
 		struct tag_reference zoom_out_sound;
+		real age_heat_recovery_penalty;
+		real age_rate_of_fire_penalty;
+		real age_misfire_start;
+		real age_misfire_chance;
+		real active_camo_ding;
+		real active_camo_regrowth_rate;
 		struct tag_block triggers;
 	} weapon;
 };
@@ -79,8 +102,26 @@ struct projectile_definition
 	struct
 	{
 		real maximum_range;
+		real air_damage_range_lower_bound;
+		real air_damage_range_upper_bound;
+		real water_damage_range_lower_bound;
+		real water_damage_range_upper_bound;
+		real initial_velocity;
+		real final_velocity;
 		struct tag_block material_responses;
 	} projectile;
+};
+struct damage_effect_definition
+{
+	real falloff_radius;
+	struct
+	{
+		real damage_minimum;
+		real damage_lower_bound;
+		real damage_upper_bound;
+		real active_camouflage_damage;
+		real material_modifiers[40];
+	} damage;
 };
 struct weapon_hud_interface_definition
 {
@@ -96,7 +137,7 @@ struct hud_screen_effect_definition { word mask_flags; word pad; struct tag_refe
 enum
 {
 	_tag_rifle, _tag_bullet, _tag_rifle_hud, _tag_pistol_hud, _tag_zoom_in, _tag_zoom_out, _tag_stone, _tag_hollow,
-	_tag_thin, _tag_thick, _tag_ice, NUMBER_OF_TAGS
+	_tag_thin, _tag_thick, _tag_ice, _tag_plasma, _tag_bolt, _tag_bolt_damage, _tag_plasma_hud, NUMBER_OF_TAGS
 };
 #define TAG_INDEX(index) ((long)(0xE1740000UL | (unsigned long)(index)))
 static struct { unsigned long group_tag; char name[80]; void *data; int present; } tags[NUMBER_OF_TAGS];
@@ -108,6 +149,14 @@ static struct weapon_hud_interface_definition rifle_hud, pistol_hud;
 static byte rifle_crosshairs[1][CROSSHAIR_BYTES], pistol_crosshairs[3][CROSSHAIR_BYTES];
 static struct hud_screen_effect_definition pistol_effects[1];
 static int other_tag_data;
+/* the plasma rifle's */
+static struct weapon_definition plasma;
+static struct weapon_trigger_definition plasma_triggers[1];
+static struct projectile_definition bolt;
+static struct projectile_material_response_definition bolt_responses[NUMBER_OF_MATERIAL_TYPES];
+static struct damage_effect_definition bolt_damage;
+static struct weapon_hud_interface_definition plasma_hud;
+static byte plasma_crosshairs[2][CROSSHAIR_BYTES];
 
 static long tag_loaded(long group_tag, char const *name)
 {
@@ -214,6 +263,35 @@ static void world(void)
 	tag(_tag_thick, EFFECT_DEFINITION_TAG, "weapons\\assault rifle\\effects\\impact metal thick reflect",
 		&other_tag_data);
 	tag(_tag_ice, EFFECT_DEFINITION_TAG, "weapons\\assault rifle\\effects\\impact ice", &other_tag_data);
+	memset(&plasma, 0, sizeof(plasma));
+	memset(plasma_triggers, 0, sizeof(plasma_triggers));
+	plasma.weapon.heat_recovery_threshold = 0.25f;
+	plasma.weapon.age_rate_of_fire_penalty = 0.2f;
+	plasma.weapon.triggers.count = 1;
+	plasma.weapon.triggers.address = plasma_triggers;
+	plasma_triggers[0].error_acceleration_time = 2.5f;
+	plasma_triggers[0].runtime_error_acceleration_time = 1.f / 75.f;
+	plasma_triggers[0].runtime_error_deceleration_time = 1.f;
+	plasma_triggers[0].projectile_error_angle_lower_bound = 0.01f;
+	memset(&bolt, 0, sizeof(bolt));
+	memset(bolt_responses, 0, sizeof(bolt_responses));
+	bolt_responses[_material_hunter_shield].default_response = _projectile_material_response_reflect;
+	bolt.projectile.initial_velocity = 50.f / 30.f;
+	bolt.projectile.final_velocity = 25.f / 30.f;
+	bolt.projectile.material_responses.count = NUMBER_OF_MATERIAL_TYPES;
+	bolt.projectile.material_responses.address = bolt_responses;
+	memset(&bolt_damage, 0, sizeof(bolt_damage));
+	for (index = 0; index < 40; index++)
+		bolt_damage.damage.material_modifiers[index] = 0.75f;
+	memset(&plasma_hud, 0, sizeof(plasma_hud));
+	memset(plasma_crosshairs, 'p', sizeof(plasma_crosshairs));
+	plasma_hud.valid_crosshair_types_flags = 0x41;
+	plasma_hud.crosshairs.count = 2;
+	plasma_hud.crosshairs.address = plasma_crosshairs;
+	tag(_tag_plasma, WEAPON_DEFINITION_TAG, "weapons\\plasma rifle\\plasma rifle", &plasma);
+	tag(_tag_bolt, PROJECTILE_DEFINITION_TAG, "weapons\\plasma rifle\\bolt", &bolt);
+	tag(_tag_bolt_damage, DAMAGE_EFFECT_DEFINITION_TAG, "weapons\\plasma rifle\\bolt", &bolt_damage);
+	tag(_tag_plasma_hud, HUD_GROUP_TAG, "weapons\\plasma rifle\\plasma rifle", &plasma_hud);
 	mutator_tags_loaded();
 }
 
@@ -225,6 +303,12 @@ struct snapshot
 	struct projectile_definition bullet;
 	struct projectile_material_response_definition responses[NUMBER_OF_MATERIAL_TYPES + 1];
 	struct weapon_hud_interface_definition rifle_hud, pistol_hud;
+	struct weapon_definition plasma;
+	struct weapon_trigger_definition plasma_triggers[1];
+	struct projectile_definition bolt;
+	struct projectile_material_response_definition bolt_responses[NUMBER_OF_MATERIAL_TYPES];
+	struct damage_effect_definition bolt_damage;
+	struct weapon_hud_interface_definition plasma_hud;
 };
 
 static void snapshot(struct snapshot *taken)
@@ -235,6 +319,12 @@ static void snapshot(struct snapshot *taken)
 	memcpy(taken->responses, responses, sizeof(responses));
 	taken->rifle_hud = rifle_hud;
 	taken->pistol_hud = pistol_hud;
+	taken->plasma = plasma;
+	memcpy(taken->plasma_triggers, plasma_triggers, sizeof(plasma_triggers));
+	taken->bolt = bolt;
+	memcpy(taken->bolt_responses, bolt_responses, sizeof(bolt_responses));
+	taken->bolt_damage = bolt_damage;
+	taken->plasma_hud = plasma_hud;
 }
 
 static int unchanged(struct snapshot const *taken)
@@ -370,6 +460,72 @@ int main(int argc, char **argv)
 		mutator_tags_undo();
 		CHECK(unchanged(&stock), "edits of a map's tags no longer loaded undone");
 	}
+	else if (!strcmp(case_name, "plasma"))
+	{
+		struct weapon_trigger_definition const *trigger = &plasma_triggers[0];
+		static int const modified[] = { _material_dirt, _material_sand, _material_stone, _material_snow, _material_wood,
+			_material_rubber, _material_hunter_skin, _material_cyborg, _material_monitor, _material_plastic,
+			_material_water, _material_leaves, _material_ice };
+
+		size = edits_of("revolved_plasma_rifle", edits, sizeof(edits));
+		CHECK(port_mutators_status(find("revolved_plasma_rifle"), NULL, 0) == _port_mutator_fine, "%s",
+			refusal("revolved_plasma_rifle"));
+		CHECK(mutator_tags_play(edits, size) && mutator_tags.made == 55 && mutator_tags.passed_over == 0,
+			"made %d, passed over %d", mutator_tags.made, mutator_tags.passed_over);
+		/* the weapon: its heat, its age, the camouflage it costs, the zoom */
+		CHECK(plasma.weapon.heat_recovery_threshold == 0.15f && plasma.weapon.heat_loss_per_second == 0.36f &&
+			plasma.weapon.age_heat_recovery_penalty == 0.f && plasma.weapon.age_rate_of_fire_penalty == 0.f &&
+			plasma.weapon.age_misfire_start == 0.85f && plasma.weapon.age_misfire_chance == 0.25f &&
+			plasma.weapon.active_camo_ding == 0.25f && plasma.weapon.active_camo_regrowth_rate == 0.075f, "the weapon");
+		CHECK(plasma.weapon.zoom_level_count == 1 && plasma.weapon.zoom_magnification_maximum == 2.f &&
+			plasma.weapon.zoom_in_sound.index == TAG_INDEX(_tag_zoom_in), "the zoom");
+		/* the trigger, each time with its step a tick: 1/(0.8 x 30), 1/(0.6 x 30) */
+		CHECK(trigger->initial_rate_of_fire == 6.f && trigger->final_rate_of_fire == 9.f &&
+			trigger->rounds_between_tracers == 0 && trigger->heat_generated_per_round == 0.0861f &&
+			trigger->age_generated_per_round == 0.003f, "the trigger");
+		CHECK(trigger->rate_of_fire_acceleration_time == 0.8f &&
+			trigger->runtime_rate_of_fire_acceleration_time == 1.f / (0.8f * 30.f) &&
+			trigger->rate_of_fire_deceleration_time == 0.6f &&
+			trigger->runtime_rate_of_fire_deceleration_time == 1.f / (0.6f * 30.f) &&
+			trigger->error_acceleration_time == 0.8f && trigger->runtime_error_acceleration_time == 1.f / (0.8f * 30.f) &&
+			trigger->error_deceleration_time == 0.6f && trigger->runtime_error_deceleration_time == 1.f / (0.6f * 30.f),
+			"the times' steps: %g %g %g %g", trigger->runtime_rate_of_fire_acceleration_time,
+			trigger->runtime_rate_of_fire_deceleration_time, trigger->runtime_error_acceleration_time,
+			trigger->runtime_error_deceleration_time);
+		CHECK(degrees(trigger->projectile_error_angle_upper_bound, 0.75f) &&
+			trigger->projectile_error_angle_lower_bound == 0.01f, "the error");
+		/* the bolt: 27 world units a second (0.9 a tick), its ranges */
+		CHECK(bolt.projectile.initial_velocity == 0.9f && bolt.projectile.final_velocity == 0.9f, "the speeds: %.9g",
+			bolt.projectile.initial_velocity);
+		CHECK(bolt.projectile.maximum_range == 45.f && bolt.projectile.air_damage_range_lower_bound == 15.f &&
+			bolt.projectile.air_damage_range_upper_bound == 45.f && bolt.projectile.water_damage_range_lower_bound == 15.f &&
+			bolt.projectile.water_damage_range_upper_bound == 45.f, "the ranges");
+		CHECK(bolt_responses[_material_hunter_shield].default_response == _projectile_material_response_disappear,
+			"the hunter's shield");
+		/* its damage, and each material's modifier */
+		CHECK(bolt_damage.damage.damage_minimum == 13.f && bolt_damage.damage.damage_lower_bound == 13.f &&
+			bolt_damage.damage.damage_upper_bound == 13.f && bolt_damage.damage.active_camouflage_damage == 1.f,
+			"the damage");
+		for (index = 0; index < (int)NUMBEROF(modified); index++)
+			CHECK(bolt_damage.damage.material_modifiers[modified[index]] == 1.f, "material %d", modified[index]);
+		CHECK(bolt_damage.damage.material_modifiers[_material_hollow_metal] == 0.5f &&
+			bolt_damage.damage.material_modifiers[_material_hunter_armor] == 0.25f &&
+			bolt_damage.damage.material_modifiers[_material_jackal_energy_shield] == 2.f &&
+			bolt_damage.damage.material_modifiers[_material_engineer_force_field] == 2.f, "the other modifiers");
+		CHECK(bolt_damage.damage.material_modifiers[_material_elite] == 0.75f &&
+			bolt_damage.damage.material_modifiers[_material_hunter_shield] == 0.75f &&
+			bolt_damage.damage.material_modifiers[NUMBER_OF_MATERIAL_TYPES] == 0.75f, "a modifier it does not set");
+		/* the HUD: its own two crosshairs, then the pistol's scope */
+		CHECK(plasma_hud.valid_crosshair_types_flags == 0x43 && plasma_hud.crosshairs.count == 4 &&
+			plasma_hud.screen_effects.count == 1, "the HUD");
+		mutator_tags_undo();
+		CHECK(unchanged(&stock), "the stock tags not put back");
+		/* (a time of 0: a step of 1, as the tools make it) */
+		folder("instant", "[[tags]]\ngroup = \"weapon\"\ntag = 'weapons\\plasma rifle\\plasma rifle'\n"
+			"[tags.triggers.0]\nerror_acceleration_time = 0\n");
+		size = edits_of("instant", edits, sizeof(edits));
+		CHECK(mutator_tags_play(edits, size) && trigger->runtime_error_acceleration_time == 1.f, "a time of 0's step");
+	}
 	else if (!strcmp(case_name, "missing"))
 	{
 		/* a map without the pistol's HUD or the sniper rifle's zoom: the rest made */
@@ -409,7 +565,7 @@ int main(int argc, char **argv)
 		static struct { char const *id; char const *text; char const *reason; } const cases[] =
 		{
 			{ "group", "[[tags]]\ngroup = \"biped\"\ntag = 'x'\njump_velocity = 1\n", "group biped" },
-			{ "field", "[[tags]]\ngroup = \"weapon\"\ntag = 'x'\nheat_loss_per_second = 1\n", "no field" },
+			{ "field", "[[tags]]\ngroup = \"weapon\"\ntag = 'x'\nready_time = 1\n", "no field" },
 			{ "range", "[[tags]]\ngroup = \"weapon\"\ntag = 'x'\n[tags.triggers.0]\n"
 				"projectile_error_angle_upper_bound = 200\n", "from 0 to 180" },
 			{ "whole", "[[tags]]\ngroup = \"weapon\"\ntag = 'x'\nzoom_level_count = 1.5\n", "whole number" },
@@ -432,6 +588,14 @@ int main(int argc, char **argv)
 			{ "nameless", "[[tags]]\ngroup = \"weapon\"\nzoom_level_count = 1\n", "names its group and its tag" },
 			{ "reference", "[[tags]]\ngroup = \"weapon\"\ntag = 'x'\nzoom_in_sound = 3\n", "a tag's name" },
 			{ "nothing", "name = \"Nothing\"\n", "no effect and edits no tag" },
+			{ "array", "[[tags]]\ngroup = \"damage_effect\"\ntag = 'x'\n[tags.material_modifiers]\nlava = 1\n",
+				"name one of material_modifiers" },
+			{ "array_range", "[[tags]]\ngroup = \"damage_effect\"\ntag = 'x'\n[tags.material_modifiers]\n"
+				"elite = 11\n", "from 0 to 10" },
+			{ "array_past", "[[tags]]\ngroup = \"damage_effect\"\ntag = 'x'\n[tags.material_modifiers]\n"
+				"33 = 1\n", "name one of" },
+			{ "array_whole", "[[tags]]\ngroup = \"damage_effect\"\ntag = 'x'\nmaterial_modifiers = 1\n",
+				"name one of" },
 			{ "later", "format = 3\n[[tags]]\ngroup = \"weapon\"\ntag = 'x'\nzoom_level_count = 1\n", "later build" },
 		};
 		for (index = 0; index < (int)NUMBEROF(cases); index++)

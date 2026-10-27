@@ -1,8 +1,7 @@
 /*
 The mutators' files (port/linux/src/port_mutators.c), whole, over a fake
-mutators folder: the built-in big head and accurized MA5B, mutator.toml read
-and refused, the order, the ids game.mutators turns on, and what the Mods
-menu keeps.
+mutators folder: the built-in mutators, mutator.toml read and refused, the
+order, the ids game.mutators turns on, and what the Mods menu keeps.
 */
 
 #include "harness.h"
@@ -53,9 +52,11 @@ int main(int argc, char **argv)
 	if (!strcmp(case_name, "built_in"))
 	{
 		CHECK(port_mutators_scan() == 0, "a mutator on with game.mutators empty");
-		CHECK(port_mutators_count() == 2 && find("big_head") == 0 && find("accurized_ma5b") == 1, "the built-ins");
+		CHECK(port_mutators_count() == 3 && find("big_head") == 0 && find("accurized_ma5b") == 1 &&
+			find("revolved_plasma_rifle") == 2, "the built-ins");
 		CHECK(port_mutators_status(0, text, sizeof(text)) == _port_mutator_fine, "%s", text);
 		CHECK(port_mutators_status(1, text, sizeof(text)) == _port_mutator_fine, "%s", text);
+		CHECK(port_mutators_status(2, text, sizeof(text)) == _port_mutator_fine, "%s", text);
 		CHECK(port_mutators_keys(keys, values, 16) == 0, "keys of a mutator off");
 		strcpy(setting, " Big_Head ");
 		CHECK(port_mutators_scan() == 1 && port_mutators_on(0), "game.mutators's id (any case, spaced)");
@@ -81,11 +82,11 @@ int main(int argc, char **argv)
 		folder("unknown", "script = \"run()\"\n[effects.big_head]\n");
 		strcpy(setting, "zeta,moon,big_head,copy,range,large,unknown");
 		port_mutators_scan();
-		CHECK(port_mutators_count() == 9, "the folders with a mutator.toml, and the built-ins (%ld)",
+		CHECK(port_mutators_count() == 10, "the folders with a mutator.toml, and the built-ins (%ld)",
 			port_mutators_count());
-		CHECK(find("big_head") == 0 && find("accurized_ma5b") == 1 && find("moon") == 2 && find("broken") == 3 &&
-			find("BIG_HEAD") == 4 && find("large") == 5 && find("range") == 6 && find("unknown") == 7 &&
-			find("zeta") == 8, "the built-ins first, then the folders by name");
+		CHECK(find("big_head") == 0 && find("accurized_ma5b") == 1 && find("revolved_plasma_rifle") == 2 &&
+			find("moon") == 3 && find("broken") == 4 && find("BIG_HEAD") == 5 && find("large") == 6 && find("range") == 7 &&
+			find("unknown") == 8 && find("zeta") == 9, "the built-ins first, then the folders by name");
 		CHECK(reads == 6, "the large file read, or one without mutator.toml (%d)", reads);
 		CHECK(port_mutators_status(find("moon"), text, sizeof(text)) == _port_mutator_unplayable &&
 			strstr(text, "moon_gravity"), "an effect this build lacks: %s", text);

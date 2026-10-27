@@ -43,6 +43,7 @@ a client undoes its last game's before it plays the host's.
 #include "items/weapon_definitions.h"
 #include "main/console.h"
 #include "math/real_math.h"
+#include "objects/damage_effect_definitions.h"
 #include "sound/sound_definitions.h"
 #include "tag_files/tag_files.h"
 #include "tag_files/tag_groups.h"
@@ -61,6 +62,13 @@ enum
 	_mutator_field_real,
 	/* degrees in a mutator, radians in the tag */
 	_mutator_field_angle,
+	/* seconds, with the step a tick that the game takes (at the field's
+	runtime offset) worked out as the tools do: 1/(seconds x 30), 1 for 0 */
+	_mutator_field_time,
+	/* world units a second in a mutator, a tick in the tag */
+	_mutator_field_speed,
+	/* a real of an array, by its index or the field's names */
+	_mutator_field_array,
 	/* a short: one of the field's names */
 	_mutator_field_enum,
 	/* an unsigned long (or a word, by its size): some of the field's names,
@@ -123,6 +131,8 @@ struct mutator_tag_field
 	short maximum_count;
 	/* a block's elements' fields */
 	struct mutator_tag_definition const *definition;
+	/* a time's step a tick, where it is in the field's structure */
+	long runtime_offset;
 };
 
 struct mutator_tag_definition
@@ -202,15 +212,31 @@ static char const *const mutator_crosshair_type_names[] =
 #define MUTATOR_BLOCK_FIELD(structure, field, element, names, name_count, definition) \
 	{ #field, _mutator_field_block, (short)sizeof(element), (long)offsetof(structure, field), 0.f, 0.f, 0, (names), \
 		(name_count), 0, &(definition) }
+#define MUTATOR_TIME_FIELD(structure, field, runtime_field, maximum) \
+	{ #field, _mutator_field_time, (short)sizeof(real), (long)offsetof(structure, field), 0.f, (maximum), 0, NULL, 0, 0, \
+		NULL, (long)offsetof(structure, runtime_field) }
+#define MUTATOR_ARRAY_FIELD(structure, field, names, minimum, maximum) \
+	{ #field, _mutator_field_array, (short)sizeof(((structure *)0)->field[0]), (long)offsetof(structure, field), \
+		(minimum), (maximum), 0, (names), NUMBEROF(names), 0, NULL }
 #define MUTATOR_COPY_FIELD(structure, field, element_size, maximum_count) \
 	{ #field, _mutator_field_copy, (short)(element_size), (long)offsetof(structure, field), 0.f, 0.f, 0, NULL, 0, \
 		(maximum_count), NULL }
 
 static struct mutator_tag_field const mutator_weapon_trigger_fields[] =
 {
+	MUTATOR_FIELD(struct weapon_trigger_definition, initial_rate_of_fire, _mutator_field_real, 0.f, 300.f),
+	MUTATOR_FIELD(struct weapon_trigger_definition, final_rate_of_fire, _mutator_field_real, 0.f, 300.f),
+	MUTATOR_TIME_FIELD(struct weapon_trigger_definition, rate_of_fire_acceleration_time,
+		runtime_rate_of_fire_acceleration_time, 60.f),
+	MUTATOR_TIME_FIELD(struct weapon_trigger_definition, rate_of_fire_deceleration_time,
+		runtime_rate_of_fire_deceleration_time, 60.f),
+	MUTATOR_FIELD(struct weapon_trigger_definition, rounds_between_tracers, _mutator_field_short, 0.f, 32767.f),
+	MUTATOR_TIME_FIELD(struct weapon_trigger_definition, error_acceleration_time, runtime_error_acceleration_time, 60.f),
+	MUTATOR_TIME_FIELD(struct weapon_trigger_definition, error_deceleration_time, runtime_error_deceleration_time, 60.f),
 	MUTATOR_FIELD(struct weapon_trigger_definition, projectile_error_angle_lower_bound, _mutator_field_angle, 0.f, 180.f),
 	MUTATOR_FIELD(struct weapon_trigger_definition, projectile_error_angle_upper_bound, _mutator_field_angle, 0.f, 180.f),
-	MUTATOR_FIELD(struct weapon_trigger_definition, rounds_between_tracers, _mutator_field_short, 0.f, 32767.f),
+	MUTATOR_FIELD(struct weapon_trigger_definition, heat_generated_per_round, _mutator_field_real, 0.f, 1.f),
+	MUTATOR_FIELD(struct weapon_trigger_definition, age_generated_per_round, _mutator_field_real, 0.f, 1.f),
 };
 
 static struct mutator_tag_definition const mutator_weapon_trigger_definition =
@@ -220,11 +246,19 @@ static struct mutator_tag_definition const mutator_weapon_trigger_definition =
 
 static struct mutator_tag_field const mutator_weapon_fields[] =
 {
+	MUTATOR_FIELD(struct weapon_definition, weapon.heat_recovery_threshold, _mutator_field_real, 0.f, 1.f),
+	MUTATOR_FIELD(struct weapon_definition, weapon.heat_loss_per_second, _mutator_field_real, 0.f, 30.f),
 	MUTATOR_FIELD(struct weapon_definition, weapon.zoom_level_count, _mutator_field_short, 0.f, 8.f),
 	MUTATOR_FIELD(struct weapon_definition, weapon.zoom_magnification_minimum, _mutator_field_real, 1.f, 32.f),
 	MUTATOR_FIELD(struct weapon_definition, weapon.zoom_magnification_maximum, _mutator_field_real, 1.f, 32.f),
 	MUTATOR_REFERENCE_FIELD(struct weapon_definition, weapon.zoom_in_sound, SOUND_DEFINITION_TAG),
 	MUTATOR_REFERENCE_FIELD(struct weapon_definition, weapon.zoom_out_sound, SOUND_DEFINITION_TAG),
+	MUTATOR_FIELD(struct weapon_definition, weapon.age_heat_recovery_penalty, _mutator_field_real, 0.f, 1.f),
+	MUTATOR_FIELD(struct weapon_definition, weapon.age_rate_of_fire_penalty, _mutator_field_real, 0.f, 10.f),
+	MUTATOR_FIELD(struct weapon_definition, weapon.age_misfire_start, _mutator_field_real, 0.f, 1.f),
+	MUTATOR_FIELD(struct weapon_definition, weapon.age_misfire_chance, _mutator_field_real, 0.f, 1.f),
+	MUTATOR_FIELD(struct weapon_definition, weapon.active_camo_ding, _mutator_field_real, 0.f, 1.f),
+	MUTATOR_FIELD(struct weapon_definition, weapon.active_camo_regrowth_rate, _mutator_field_real, 0.f, 1.f),
 	MUTATOR_BLOCK_FIELD(struct weapon_definition, weapon.triggers, struct weapon_trigger_definition, NULL, 0,
 		mutator_weapon_trigger_definition),
 };
@@ -255,6 +289,16 @@ static struct mutator_tag_definition const mutator_projectile_material_response_
 static struct mutator_tag_field const mutator_projectile_fields[] =
 {
 	MUTATOR_FIELD(struct projectile_definition, projectile.maximum_range, _mutator_field_real, 0.f, 10000.f),
+	MUTATOR_FIELD(struct projectile_definition, projectile.air_damage_range_lower_bound, _mutator_field_real, 0.f,
+		10000.f),
+	MUTATOR_FIELD(struct projectile_definition, projectile.air_damage_range_upper_bound, _mutator_field_real, 0.f,
+		10000.f),
+	MUTATOR_FIELD(struct projectile_definition, projectile.water_damage_range_lower_bound, _mutator_field_real, 0.f,
+		10000.f),
+	MUTATOR_FIELD(struct projectile_definition, projectile.water_damage_range_upper_bound, _mutator_field_real, 0.f,
+		10000.f),
+	MUTATOR_FIELD(struct projectile_definition, projectile.initial_velocity, _mutator_field_speed, 0.f, 3000.f),
+	MUTATOR_FIELD(struct projectile_definition, projectile.final_velocity, _mutator_field_speed, 0.f, 3000.f),
 	MUTATOR_BLOCK_FIELD(struct projectile_definition, projectile.material_responses,
 		struct projectile_material_response_definition, mutator_material_names, NUMBEROF(mutator_material_names),
 		mutator_projectile_material_response_definition),
@@ -270,6 +314,19 @@ static struct mutator_tag_field const mutator_weapon_hud_interface_fields[] =
 		MAXIMUM_SCREEN_EFFECTS_PER_WEAPON_HUD),
 };
 
+static struct mutator_tag_field const mutator_damage_effect_fields[] =
+{
+	MUTATOR_FIELD(struct damage_effect_definition, damage.damage_minimum, _mutator_field_real, 0.f, 10000.f),
+	MUTATOR_FIELD(struct damage_effect_definition, damage.damage_lower_bound, _mutator_field_real, 0.f, 10000.f),
+	MUTATOR_FIELD(struct damage_effect_definition, damage.damage_upper_bound, _mutator_field_real, 0.f, 10000.f),
+	MUTATOR_FIELD(struct damage_effect_definition, damage.active_camouflage_damage, _mutator_field_real, 0.f, 1.f),
+	MUTATOR_ARRAY_FIELD(struct damage_effect_definition, damage.material_modifiers, mutator_material_names, 0.f, 10.f),
+};
+
+/* (each material's modifier is in the array) */
+typedef char mutator_material_modifiers_assert[
+	NUMBEROF(((struct damage_effect_definition *)0)->damage.material_modifiers) >= NUMBER_OF_MATERIAL_TYPES ? 1 : -1];
+
 /* each group a mutator can edit, by the name a mutator gives it */
 static struct mutator_tag_definition const mutator_tag_groups[] =
 {
@@ -277,6 +334,8 @@ static struct mutator_tag_definition const mutator_tag_groups[] =
 	{ "projectile", PROJECTILE_DEFINITION_TAG, mutator_projectile_fields, NUMBEROF(mutator_projectile_fields) },
 	{ "weapon_hud_interface", WEAPON_HUD_INTERFACE_GROUP_TAG, mutator_weapon_hud_interface_fields,
 		NUMBEROF(mutator_weapon_hud_interface_fields) },
+	{ "damage_effect", DAMAGE_EFFECT_DEFINITION_TAG, mutator_damage_effect_fields,
+		NUMBEROF(mutator_damage_effect_fields) },
 };
 
 static struct
@@ -406,6 +465,21 @@ static struct mutator_tag_field const *mutator_tags_path_find(struct mutator_tag
 			snprintf(reason, size, "%.24s has no field %.*s", definition->name, (int)MIN(length, 48), segment);
 			return NULL;
 		}
+		if (field->type == _mutator_field_array)
+		{
+			/* (its element, by index or name, last) */
+			short index = dot ? mutator_tags_index_find(field->names, field->name_count, dot + 1, strlen(dot + 1)) :
+				NONE;
+
+			if (index == NONE || index >= field->name_count)
+			{
+				snprintf(reason, size, "%.48s: name one of %.24s's elements", path, mutator_tags_field_name(field));
+				return NULL;
+			}
+			if (base)
+				*address = base + field->offset + (long)index * field->size;
+			return field;
+		}
 		if (field->type != _mutator_field_block)
 		{
 			if (dot)
@@ -534,6 +608,9 @@ static boolean mutator_tags_value_valid(struct mutator_tag_field const *field, s
 	case _mutator_field_short:
 	case _mutator_field_real:
 	case _mutator_field_angle:
+	case _mutator_field_time:
+	case _mutator_field_speed:
+	case _mutator_field_array:
 		/* (not a NaN, not infinite) */
 		if (edit->kind != _mutator_tag_edit_number || !(edit->number == edit->number &&
 			edit->number - edit->number == 0.f))
@@ -746,7 +823,8 @@ static boolean mutator_tags_make(struct mutator_tag_edit const *edit, char *reas
 		reference->index = index;
 		return TRUE;
 	}
-	if (!mutator_tags_undo_add(address, field->size))
+	if (!mutator_tags_undo_add(address, field->size) || (field->type == _mutator_field_time &&
+		!mutator_tags_undo_add(address - field->offset + field->runtime_offset, (short)sizeof(real))))
 	{
 		snprintf(reason, size, "more than %d edits", MAXIMUM_MUTATOR_TAG_UNDOS);
 		return FALSE;
@@ -758,7 +836,19 @@ static boolean mutator_tags_make(struct mutator_tag_edit const *edit, char *reas
 		break;
 
 	case _mutator_field_real:
+	case _mutator_field_array:
 		*(real *)address = edit->number;
+		break;
+
+	case _mutator_field_time:
+		*(real *)address = edit->number;
+		value = edit->number > 0.f ? 1.f / (edit->number * (real)TICKS_PER_SECOND) : 1.f;
+		*(real *)(address - field->offset + field->runtime_offset) = value;
+		break;
+
+	case _mutator_field_speed:
+		value = edit->number / (real)TICKS_PER_SECOND;
+		*(real *)address = value;
 		break;
 
 	case _mutator_field_angle:

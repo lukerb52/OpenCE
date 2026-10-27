@@ -276,7 +276,10 @@ is ready, which the client plays instead of its own. Then version 40 sends
 before them the host's mutators' tag edits (distributed message 113,
 `mutator_tags.c`): their bytes in pieces of 4000, in order, which the client
 takes only from the host and only where the last piece ended, and makes in
-its map's tags once it has them all.
+its map's tags once it has them all. Then version 41 lets the edits set more fields
+(a weapon's heat, age and camouflage, a trigger's rates of fire and times, a
+projectile's speeds and damage ranges, a damage effect's damage): a build of
+40 would refuse a host's edits of them, and play the stock tags.
 
 `port/linux/network_format.txt` records the wire format of the current
 version (`tools/network_format.py`): `test_linux_port.py` fails when the

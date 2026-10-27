@@ -79,12 +79,23 @@ The fields that a mutator can set:
 
 | Group | Field | Value |
 | --- | --- | --- |
-| `weapon` | `zoom_level_count` | 0 to 8 |
+| `weapon` | `heat_recovery_threshold` | 0 to 1 |
+| | `heat_loss_per_second` | 0 to 30 |
+| | `zoom_level_count` | 0 to 8 |
 | | `zoom_magnification_minimum`, `zoom_magnification_maximum` | 1 to 32 |
 | | `zoom_in_sound`, `zoom_out_sound` | a sound's name |
+| | `age_heat_recovery_penalty`, `age_misfire_start`, `age_misfire_chance` | 0 to 1 |
+| | `age_rate_of_fire_penalty` | 0 to 10 |
+| | `active_camo_ding`, `active_camo_regrowth_rate` | 0 to 1 |
+| | `triggers.<index>.initial_rate_of_fire`, `.final_rate_of_fire` | 0 to 300 a second |
+| | `triggers.<index>.rate_of_fire_acceleration_time`, `..._deceleration_time` | 0 to 60 seconds |
+| | `triggers.<index>.error_acceleration_time`, `..._deceleration_time` | 0 to 60 seconds |
 | | `triggers.<index>.projectile_error_angle_lower_bound`, `..._upper_bound` | 0 to 180 degrees |
+| | `triggers.<index>.heat_generated_per_round`, `.age_generated_per_round` | 0 to 1 |
 | | `triggers.<index>.rounds_between_tracers` | 0 to 32767 |
 | `projectile` | `maximum_range` | 0 to 10000 world units |
+| | `air_damage_range_lower_bound`, `..._upper_bound`, `water_damage_range_lower_bound`, `..._upper_bound` | 0 to 10000 world units |
+| | `initial_velocity`, `final_velocity` | 0 to 3000 world units a second |
 | | `material_responses.<material>.default_response`, `.potential_response` | `disappear`, `detonate`, `reflect`, `overpenetrate`, `attach` |
 | | `material_responses.<material>.default_effect`, `.potential_effect` | an effect's name |
 | | `material_responses.<material>.potential_flags` | `only_against_units` |
@@ -93,6 +104,12 @@ The fields that a mutator can set:
 | `weapon_hud_interface` | `valid_crosshair_types` | `aim`, `zoom`, `charge`, `flash_ammo`, ... (`mutator_tags.c` lists them) |
 | | `crosshairs` | copied, 19 elements at most |
 | | `screen_effects` | copied, 1 element at most |
+| `damage_effect` | `damage_minimum`, `damage_lower_bound`, `damage_upper_bound` | 0 to 10000 |
+| | `active_camouflage_damage` | 0 to 1 |
+| | `material_modifiers.<material>` | 0 to 10 |
+
+A trigger's times are set with the step a tick that the game takes them by
+(`1 / (seconds x 30)`, or 1 for 0), as the editing kit's tools work it out.
 
 A material is one of `dirt`, `sand`, `stone`, `snow`, `wood`, `hollow_metal`,
 `thin_metal`, `thick_metal`, `rubber`, `glass`, `force_field`, `grunt`,
@@ -124,9 +141,35 @@ On a map without the pistol (some campaign levels), the rifle zooms without
 the scope's crosshairs and mask; on one without the sniper rifle's zoom
 sounds, silently.
 
+### Revolved plasma rifle
+
+The plasma rifle as Combat Revolved has it. It zooms 2x, with the pistol's
+scope (as the accurized MA5B does: not Combat Revolved's own scope art) and
+the sniper rifle's zoom sounds. It fires 6 rounds a second, rising to 9 in
+0.8 seconds (the stock rifle's 7 to 10 in 1.8) and falling back in 0.6; its
+bolts spread up to 0.75 degrees (the stock 2.5), building in 0.8 seconds and
+settling in 0.6 (the stock 2.5, and at once). Each round heats it 0.0861
+(the stock 0.08) and ages it 0.003 (0.005); it cools 0.36 a second (0.3) and
+is ready again at 0.15 heat (0.25); its age no longer slows its cooling or
+its rate of fire, and it misfires from 0.85 age, a quarter as often at worst
+(the stock 0.9, half). Firing costs an active camouflage less and it comes
+back faster (0.25 and 0.075, the stock 0.3 and 0.05).
+
+Its bolts fly at 27 world units a second (the stock 50, slowing to 25) and
+last 45 world units, doing their damage within 15 to 45 (the stock 20 to
+50). Each does 13 damage (the stock 10 to 14), all of it to an active
+camouflage (the stock 0.12), with Combat Revolved's modifiers: twice as much
+to a jackal's shield (the stock all of it) and an engineer's force field (the
+stock none), a quarter to a hunter's armor (the stock half), all of it to a
+hunter's skin, cyborg armor and rubber, and half to hollow metal. A hunter's
+shield no longer reflects them.
+
+Its melee (Combat Revolved's is 91) and the flash of its firing are stock.
+
 ## The mutators
 
-The game has the mutators built into it (`big_head`, `accurized_ma5b`), and the mutators in
+The game has the mutators built into it (`big_head`, `accurized_ma5b`,
+`revolved_plasma_rifle`), and the mutators in
 the `mutators` folder of the data root (the folder with `maps/`). Each
 mutator is a folder with a `mutator.toml`:
 
