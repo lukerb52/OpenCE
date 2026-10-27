@@ -27,6 +27,10 @@ assets/
 # (but the high-res assets, drawn for the port: tools/hud_assets.py)
 !port/assets/
 original/
+noship/
 
 # CI build outputs (tools/ci_build.py)
 dist/
+
+# tools
+claude.sh
