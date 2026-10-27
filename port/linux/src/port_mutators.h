@@ -4,7 +4,8 @@ PORT_MUTATORS.H
 The mutators (port_mutators.c): those built into the game and those in the
 data root's mutators folder, each a mutator.toml naming effects the game
 has built in (port/linux/game/mutators.c) and their parameters' values, and
-which are on (game.mutators). port/linux/game/mutators.c and
+the tags' values it sets (port/linux/game/mutator_tags.c), and which are on
+(game.mutators). port/linux/game/mutators.c and
 menu_functions.c declare these for themselves: keep them the same.
 */
 
@@ -29,6 +30,10 @@ long port_mutators_scan(void);
 /* the keys and values of the mutators on that can be played, in their order
 (those found first first): how many, at most `maximum` */
 long port_mutators_keys(char keys[][PORT_MUTATOR_KEY_LENGTH], double *values, long maximum);
+/* the tag edits of the mutators on that can be played, in their order: their
+bytes (port/linux/game/mutator_tags.c's) into edits, at most `maximum`; how
+many */
+long port_mutators_tag_edits(unsigned char *edits, long maximum);
 
 /* ---------- the Mods menu's */
 

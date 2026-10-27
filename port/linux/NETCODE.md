@@ -272,7 +272,11 @@ lets the host's shield effects be `players` (SHIELD EFFECTS' PLAYERS' OWN), a
 value of distributed message 91 that tells each client to draw its own
 settings', not synced. Then version 39 sends the host's mutators (distributed
 message 112, `network_mutators.c`, `docs/mutators.md`) to each client as it
-is ready, which the client plays instead of its own.
+is ready, which the client plays instead of its own. Then version 40 sends
+before them the host's mutators' tag edits (distributed message 113,
+`mutator_tags.c`): their bytes in pieces of 4000, in order, which the client
+takes only from the host and only where the last piece ended, and makes in
+its map's tags once it has them all.
 
 `port/linux/network_format.txt` records the wire format of the current
 version (`tools/network_format.py`): `test_linux_port.py` fails when the

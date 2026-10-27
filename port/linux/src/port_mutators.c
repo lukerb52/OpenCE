@@ -4,12 +4,14 @@ PORT_MUTATORS.C
 The mutators (port_mutators.h): those built into the game, then the folders
 of the data root's mutators folder in their names' alphabetical order, each
 with a mutator.toml. A mutator is only data: it names effects the game has
-built in (port/linux/game/mutators.c) and its parameters' values. Nothing in
-it runs, and the game checks each key and value against the effects it has
-(mutators_key_check): a mutator with one it does not have, or a value out of
-its range, cannot be played, and the Mods menu says why.
+built in (port/linux/game/mutators.c) and its parameters' values, and values
+of tags it sets (port/linux/game/mutator_tags.c). Nothing in it runs, and the
+game checks each key and value against the effects it has
+(mutators_key_check), and each tag edit against the fields it can set
+(mutators_tag_edit_check): a mutator with one it does not have, or a value
+out of its range, cannot be played, and the Mods menu says why.
 
-mutator.toml (all but effects may be left out):
+mutator.toml (all but effects or tags may be left out):
 
 	name = "Big head"             # what the menu shows (else its folder's name)
 	id = "big_head"               # what game.mutators names it by (else its folder's name)
@@ -21,6 +23,17 @@ mutator.toml (all but effects may be left out):
 	[effects.big_head]            # an effect it turns on
 	scale = 2.5                   # and its parameters (else their defaults)
 
+	[[tags]]                      # a tag it edits
+	group = "weapon"              # its group, by mutator_tags.c's name
+	tag = 'weapons\pistol\pistol' # its name
+	zoom_level_count = 1          # a field and its value (a number, or text)
+	[tags.triggers.0]             # a block's element (by index, or name)
+	rounds_between_tracers = 5
+	crosshairs = { from = '...', elements = [1, 2], append = true }
+	                              # a block's elements, copied from another tag's
+
+Each edit is kept as the bytes mutator_tags.c reads (its header says what
+they are).
 The mutators on are game.mutators's (their ids, separated by commas), which
 the Mods menu's MUTATORS list turns on and off. Where two mutators that are
 on set one parameter, the one found later sets it. On a client the host's
@@ -39,8 +52,8 @@ are played instead (port/linux/game/network_mutators.c).
 
 /* ---------- constants */
 
-/* the mutators' format this build plays */
-#define MUTATORS_FORMAT 1
+/* the mutators' format this build plays (2: tag edits) */
+#define MUTATORS_FORMAT 2
 
 #define MAXIMUM_MUTATORS 64
 #define MAXIMUM_MUTATOR_FOLDER_LENGTH 64
@@ -50,6 +63,24 @@ are played instead (port/linux/game/network_mutators.c).
 #define MAXIMUM_MUTATOR_FILE_SIZE 65536
 #define MAXIMUM_PATH_LENGTH 1024
 #define MAXIMUM_REFUSAL_LENGTH 160
+/* the most bytes of tag edits a game plays, and one mutator has
+(mutators.h's MAXIMUM_MUTATOR_TAG_EDIT_BYTES) */
+#define MAXIMUM_TAG_EDIT_BYTES 32768
+/* a tag edit's group's, tag's, path's and text's most bytes, ended, and its
+copy's most elements (mutator_tags.c's) */
+#define TAG_EDIT_GROUP_LENGTH 32
+#define TAG_EDIT_NAME_LENGTH 256
+#define TAG_EDIT_PATH_LENGTH 64
+#define TAG_EDIT_TEXT_LENGTH 256
+#define MAXIMUM_TAG_EDIT_ELEMENTS 64
+
+/* a tag edit's kind (mutators.h's) */
+enum
+{
+	_tag_edit_number,
+	_tag_edit_text,
+	_tag_edit_copy,
+};
 
 /* ---------- structures */
 
@@ -68,6 +99,12 @@ struct port_mutator
 	long key_count;
 	char keys[MAXIMUM_KEYS_PER_MUTATOR][PORT_MUTATOR_KEY_LENGTH];
 	double values[MAXIMUM_KEYS_PER_MUTATOR];
+	/* its tag edits' bytes (allocated), how many bytes and edits, and how
+	many tags they are of */
+	unsigned char *tag_edits;
+	long tag_edit_size;
+	long tag_edit_count;
+	long tag_count;
 };
 
 /* ---------- globals */
@@ -88,6 +125,73 @@ static const struct
 		"\n"
 		"[effects.big_head]\n"
 		"scale = 2.5\n" },
+	{ "accurized_ma5b",
+		"name = \"Accurized MA5B\"\n"
+		"id = \"accurized_ma5b\"\n"
+		"version = \"1\"\n"
+		"description = \"The assault rifle zooms 2x with the pistol's scope, its bullets spread from 0.05 to 3 "
+		"degrees, carry 300 world units and ricochet off stone, metal, ice and energy shields.\"\n"
+		"format = 2\n"
+		"\n"
+		"[[tags]]\n"
+		"group = \"weapon\"\n"
+		"tag = 'weapons\\assault rifle\\assault rifle'\n"
+		"zoom_level_count = 1\n"
+		"zoom_magnification_minimum = 2\n"
+		"zoom_magnification_maximum = 2\n"
+		"zoom_in_sound = 'sound\\sfx\\weapons\\sniper rifle\\sniper_2x_zoom'\n"
+		"zoom_out_sound = 'sound\\sfx\\weapons\\sniper rifle\\sniper_10x_zoom'\n"
+		"[tags.triggers.0]\n"
+		"projectile_error_angle_lower_bound = 0.05\n"
+		"projectile_error_angle_upper_bound = 3\n"
+		"rounds_between_tracers = 5\n"
+		"\n"
+		"[[tags]]\n"
+		"group = \"projectile\"\n"
+		"tag = 'weapons\\assault rifle\\bullet'\n"
+		"maximum_range = 300\n"
+		"[tags.material_responses.stone]\n"
+		"potential_response = \"reflect\"\n"
+		"potential_skip_fraction = 0.9\n"
+		"potential_angle_upper_bound = 60\n"
+		"potential_effect = 'weapons\\assault rifle\\effects\\impact stone'\n"
+		"[tags.material_responses.hollow_metal]\n"
+		"potential_response = \"reflect\"\n"
+		"potential_skip_fraction = 0.9\n"
+		"potential_angle_upper_bound = 60\n"
+		"potential_effect = 'weapons\\assault rifle\\effects\\impact metal hollow reflect'\n"
+		"[tags.material_responses.thin_metal]\n"
+		"potential_response = \"reflect\"\n"
+		"potential_skip_fraction = 0.9\n"
+		"potential_angle_upper_bound = 60\n"
+		"potential_effect = 'weapons\\assault rifle\\effects\\impact metal thin reflect'\n"
+		"[tags.material_responses.thick_metal]\n"
+		"potential_response = \"reflect\"\n"
+		"potential_skip_fraction = 0.9\n"
+		"potential_angle_upper_bound = 60\n"
+		"potential_effect = 'weapons\\assault rifle\\effects\\impact metal thick reflect'\n"
+		"[tags.material_responses.ice]\n"
+		"potential_response = \"reflect\"\n"
+		"potential_skip_fraction = 0.9\n"
+		"potential_angle_upper_bound = 60\n"
+		"potential_effect = 'weapons\\assault rifle\\effects\\impact ice'\n"
+		"[tags.material_responses.force_field]\n"
+		"default_response = \"reflect\"\n"
+		"[tags.material_responses.hunter_armor]\n"
+		"default_response = \"reflect\"\n"
+		"[tags.material_responses.engineer_force_field]\n"
+		"default_response = \"reflect\"\n"
+		"[tags.material_responses.cyborg_energy_shield]\n"
+		"default_response = \"reflect\"\n"
+		"[tags.material_responses.elite_energy_shield]\n"
+		"default_response = \"reflect\"\n"
+		"\n"
+		"[[tags]]\n"
+		"group = \"weapon_hud_interface\"\n"
+		"tag = 'weapons\\assault rifle\\assault rifle'\n"
+		"valid_crosshair_types = [\"aim\", \"zoom\"]\n"
+		"crosshairs = { from = 'weapons\\pistol\\pistol', elements = [1, 2], append = true }\n"
+		"screen_effects = { from = 'weapons\\pistol\\pistol' }\n" },
 };
 
 static struct
@@ -100,6 +204,7 @@ static struct
 /* ---------- prototypes/MUTATORS.C (port/linux/game/mutators.h's) */
 
 int mutators_key_check(const char *key, double value, char *reason, unsigned long size);
+int mutators_tag_edit_check(const unsigned char *edit, long size, char *reason, unsigned long reason_size);
 
 /* ---------- private code */
 
@@ -256,11 +361,242 @@ static void effects_read(struct port_mutator *mutator, toml_datum_t effects, con
 		refuse(mutator, path, "it turns on no effect");
 }
 
+/* a tag edit: its bytes (mutator_tags.c's), checked, after the mutator's */
+static void tag_edit_add(struct port_mutator *mutator, const char *path, int line, const char *group, const char *tag,
+	const char *field, int kind, double number, const char *text, const long *elements, int element_count, int append)
+{
+	unsigned char edit[8 + TAG_EDIT_GROUP_LENGTH + TAG_EDIT_NAME_LENGTH + TAG_EDIT_PATH_LENGTH + TAG_EDIT_TEXT_LENGTH +
+		2 * MAXIMUM_TAG_EDIT_ELEMENTS];
+	char reason[MAXIMUM_REFUSAL_LENGTH];
+	char check[MAXIMUM_REFUSAL_LENGTH - 16];
+	const char *texts[4];
+	float value = (float)number;
+	unsigned long bits;
+	unsigned char *grown;
+	long size = 8;
+	int index;
+
+	texts[0] = group;
+	texts[1] = tag;
+	texts[2] = field;
+	texts[3] = text ? text : "";
+	if (strlen(group) >= TAG_EDIT_GROUP_LENGTH || strlen(tag) >= TAG_EDIT_NAME_LENGTH ||
+		strlen(field) >= TAG_EDIT_PATH_LENGTH || strlen(texts[3]) >= TAG_EDIT_TEXT_LENGTH ||
+		element_count > MAXIMUM_TAG_EDIT_ELEMENTS)
+	{
+		snprintf(reason, sizeof(reason), "line %d: a tag edit's name, field or value is too long", line);
+		refuse(mutator, path, reason);
+		return;
+	}
+	memcpy(&bits, &value, sizeof(bits));
+	edit[0] = (unsigned char)kind;
+	edit[1] = (unsigned char)element_count;
+	edit[2] = (unsigned char)(append != 0);
+	edit[3] = 0;
+	edit[4] = (unsigned char)bits;
+	edit[5] = (unsigned char)(bits >> 8);
+	edit[6] = (unsigned char)(bits >> 16);
+	edit[7] = (unsigned char)(bits >> 24);
+	for (index = 0; index < 4; index++)
+	{
+		size_t length = strlen(texts[index]) + 1;
+
+		memcpy(edit + size, texts[index], length);
+		size += (long)length;
+	}
+	for (index = 0; index < element_count; index++)
+	{
+		edit[size++] = (unsigned char)elements[index];
+		edit[size++] = (unsigned char)(elements[index] >> 8);
+	}
+	if (!mutators_tag_edit_check(edit, size, check, sizeof(check)))
+	{
+		snprintf(reason, sizeof(reason), "line %d: %s", line, check);
+		refuse(mutator, path, reason);
+		return;
+	}
+	if (mutator->tag_edit_size + size > MAXIMUM_TAG_EDIT_BYTES)
+	{
+		refuse(mutator, path, "its tag edits are more than 32 KB");
+		return;
+	}
+	grown = realloc(mutator->tag_edits, (size_t)(mutator->tag_edit_size + size));
+	if (!grown)
+	{
+		refuse(mutator, path, "its tag edits do not fit in memory");
+		return;
+	}
+	mutator->tag_edits = grown;
+	memcpy(mutator->tag_edits + mutator->tag_edit_size, edit, (size_t)size);
+	mutator->tag_edit_size += size;
+	mutator->tag_edit_count++;
+}
+
+/* a copy's table: { from = '<tag>', elements = [...], append = true } */
+static void tag_copy_read(struct port_mutator *mutator, const char *path, const char *group, const char *tag,
+	const char *field, toml_datum_t copy)
+{
+	long elements[MAXIMUM_TAG_EDIT_ELEMENTS];
+	char reason[MAXIMUM_REFUSAL_LENGTH];
+	toml_datum_t from = toml_get(copy, "from");
+	toml_datum_t list = toml_get(copy, "elements");
+	toml_datum_t append = toml_get(copy, "append");
+	int element_count = 0;
+	int index;
+
+	for (index = 0; index < copy.u.tab.size; index++)
+	{
+		const char *key = copy.u.tab.key[index];
+
+		if (strcmp(key, "from") && strcmp(key, "elements") && strcmp(key, "append"))
+		{
+			snprintf(reason, sizeof(reason), "line %d: a copy has from, elements and append, not %.40s", copy.lineno,
+				key);
+			refuse(mutator, path, reason);
+			return;
+		}
+	}
+	if (from.type != TOML_STRING || (list.type != TOML_UNKNOWN && list.type != TOML_ARRAY) ||
+		(append.type != TOML_UNKNOWN && append.type != TOML_BOOLEAN))
+	{
+		snprintf(reason, sizeof(reason), "line %d: a copy's from is a tag's name, elements a list of numbers, append "
+			"true or false", copy.lineno);
+		refuse(mutator, path, reason);
+		return;
+	}
+	if (list.type == TOML_ARRAY)
+	{
+		for (index = 0; index < list.u.arr.size; index++)
+		{
+			toml_datum_t element = list.u.arr.elem[index];
+
+			if (element.type != TOML_INT64 || element.u.int64 < 0 || element.u.int64 > 32767 ||
+				element_count == MAXIMUM_TAG_EDIT_ELEMENTS)
+			{
+				snprintf(reason, sizeof(reason), "line %d: a copy's elements are at most %d numbers from 0", copy.lineno,
+					MAXIMUM_TAG_EDIT_ELEMENTS);
+				refuse(mutator, path, reason);
+				return;
+			}
+			elements[element_count++] = (long)element.u.int64;
+		}
+	}
+	tag_edit_add(mutator, path, copy.lineno, group, tag, field, _tag_edit_copy, 0.0, from.u.s, elements, element_count,
+		append.type == TOML_BOOLEAN && append.u.boolean);
+}
+
+/* a [[tags]] table's fields, those of its tables' as paths ("triggers.0.x") */
+static void tag_fields_read(struct port_mutator *mutator, const char *path, const char *group, const char *tag,
+	const char *prefix, toml_datum_t table)
+{
+	char reason[MAXIMUM_REFUSAL_LENGTH];
+	int index;
+
+	for (index = 0; index < table.u.tab.size; index++)
+	{
+		const char *key = table.u.tab.key[index];
+		toml_datum_t value = table.u.tab.value[index];
+		char field[TAG_EDIT_PATH_LENGTH + 1];
+
+		if (!prefix[0] && (!strcmp(key, "group") || !strcmp(key, "tag")))
+			continue;
+		if (strlen(prefix) + strlen(key) + 2 > sizeof(field))
+		{
+			snprintf(reason, sizeof(reason), "line %d: the field %.40s... is not one a tag has", value.lineno, prefix);
+			refuse(mutator, path, reason);
+			return;
+		}
+		snprintf(field, sizeof(field), "%s%s%s", prefix, prefix[0] ? "." : "", key);
+		if (value.type == TOML_TABLE)
+		{
+			if (toml_get(value, "from").type != TOML_UNKNOWN)
+				tag_copy_read(mutator, path, group, tag, field, value);
+			else
+				tag_fields_read(mutator, path, group, tag, field, value);
+		}
+		else if (value.type == TOML_STRING)
+		{
+			tag_edit_add(mutator, path, value.lineno, group, tag, field, _tag_edit_text, 0.0, value.u.s, NULL, 0, 0);
+		}
+		else if (value.type == TOML_ARRAY)
+		{
+			/* (names, a field's flags: separated by commas) */
+			char names[TAG_EDIT_TEXT_LENGTH] = "";
+			int name;
+
+			for (name = 0; name < value.u.arr.size; name++)
+			{
+				size_t length = strlen(names);
+
+				if (value.u.arr.elem[name].type != TOML_STRING)
+				{
+					snprintf(reason, sizeof(reason), "line %d: %.40s is a list of names", value.lineno, field);
+					refuse(mutator, path, reason);
+					return;
+				}
+				snprintf(names + length, sizeof(names) - length, "%s%s", length ? "," : "", value.u.arr.elem[name].u.s);
+			}
+			tag_edit_add(mutator, path, value.lineno, group, tag, field, _tag_edit_text, 0.0, names, NULL, 0, 0);
+		}
+		else if (value.type == TOML_INT64 || value.type == TOML_FP64 || value.type == TOML_BOOLEAN)
+		{
+			double number = value.type == TOML_INT64 ? (double)value.u.int64 :
+				value.type == TOML_FP64 ? value.u.fp64 : (value.u.boolean ? 1.0 : 0.0);
+
+			tag_edit_add(mutator, path, value.lineno, group, tag, field, _tag_edit_number, number, NULL, NULL, 0, 0);
+		}
+		else
+		{
+			snprintf(reason, sizeof(reason), "line %d: %.40s is not a number, text or table", value.lineno, field);
+			refuse(mutator, path, reason);
+			return;
+		}
+	}
+}
+
+/* [[tags]]: each a tag's group and name, and the fields it sets */
+static void tags_read(struct port_mutator *mutator, toml_datum_t tags, const char *path)
+{
+	char reason[MAXIMUM_REFUSAL_LENGTH];
+	int index;
+
+	if (tags.type != TOML_ARRAY)
+	{
+		snprintf(reason, sizeof(reason), "line %d: tags is not a list of tables ([[tags]])", tags.lineno);
+		refuse(mutator, path, reason);
+		return;
+	}
+	for (index = 0; index < tags.u.arr.size; index++)
+	{
+		toml_datum_t tag = tags.u.arr.elem[index];
+		toml_datum_t group;
+		toml_datum_t name;
+
+		if (tag.type != TOML_TABLE)
+		{
+			snprintf(reason, sizeof(reason), "line %d: tags is not a list of tables ([[tags]])", tags.lineno);
+			refuse(mutator, path, reason);
+			return;
+		}
+		group = toml_get(tag, "group");
+		name = toml_get(tag, "tag");
+		if (group.type != TOML_STRING || name.type != TOML_STRING)
+		{
+			snprintf(reason, sizeof(reason), "line %d: a [[tags]] names its group and its tag", tag.lineno);
+			refuse(mutator, path, reason);
+			return;
+		}
+		tag_fields_read(mutator, path, group.u.s, name.u.s, "", tag);
+		mutator->tag_count++;
+	}
+}
+
 /* a mutator from its mutator.toml's text */
 static void mutator_read(struct port_mutator *mutator, const char *folder, const char *text, size_t size,
 	const char *path)
 {
-	static const char *const keys[] = { "name", "id", "version", "authors", "description", "format", "effects" };
+	static const char *const keys[] = { "name", "id", "version", "authors", "description", "format", "effects",
+		"tags" };
 	toml_result_t result;
 	toml_datum_t value;
 	char reason[MAXIMUM_REFUSAL_LENGTH];
@@ -327,13 +663,17 @@ static void mutator_read(struct port_mutator *mutator, const char *folder, const
 		}
 	}
 	value = toml_get(result.toptab, "effects");
-	if (value.type == TOML_UNKNOWN)
-		refuse(mutator, path, "it turns on no effect");
-	else
+	if (value.type != TOML_UNKNOWN)
 		effects_read(mutator, value, path);
+	value = toml_get(result.toptab, "tags");
+	if (value.type != TOML_UNKNOWN)
+		tags_read(mutator, value, path);
+	if (!mutator->key_count && !mutator->tag_edit_count)
+		refuse(mutator, path, "it turns on no effect and edits no tag");
 	toml_free(result);
 }
 
+/* (the mutator's tag edits are the list's after it) */
 static void mutator_add(const struct port_mutator *mutator)
 {
 	long index;
@@ -341,6 +681,7 @@ static void mutator_add(const struct port_mutator *mutator)
 	if (port_mutators.count == MAXIMUM_MUTATORS)
 	{
 		platform_log("mutators: more than %d: %s and those after it are left out", MAXIMUM_MUTATORS, mutator->folder);
+		free(mutator->tag_edits);
 		return;
 	}
 	port_mutators.mutators[port_mutators.count] = *mutator;
@@ -476,6 +817,8 @@ long port_mutators_scan(void)
 	long index;
 	long on = 0;
 
+	for (index = 0; index < port_mutators.count; index++)
+		free(port_mutators.mutators[index].tag_edits);
 	port_mutators.count = 0;
 	port_mutators.scans++;
 	for (index = 0; index < (long)(sizeof(built_in_mutators) / sizeof(built_in_mutators[0])); index++)
@@ -525,6 +868,31 @@ long port_mutators_keys(char keys[][PORT_MUTATOR_KEY_LENGTH], double *values, lo
 		}
 	}
 	return count;
+}
+
+long port_mutators_tag_edits(unsigned char *edits, long maximum)
+{
+	long size = 0;
+	long index;
+
+	if (!port_mutators.scans)
+		port_mutators_scan();
+	for (index = 0; index < port_mutators.count; index++)
+	{
+		const struct port_mutator *mutator = &port_mutators.mutators[index];
+
+		if (!mutator->on || mutator->refusal[0] || !mutator->tag_edit_size)
+			continue;
+		if (size + mutator->tag_edit_size > maximum)
+		{
+			platform_log("mutators: the tag edits of those on are more than %ld bytes: %s's and those after are not "
+				"played", maximum, mutator->id);
+			break;
+		}
+		memcpy(edits + size, mutator->tag_edits, (size_t)mutator->tag_edit_size);
+		size += mutator->tag_edit_size;
+	}
+	return size;
 }
 
 long port_mutators_count(void)
@@ -587,8 +955,12 @@ int port_mutators_details(long index, char *text, unsigned long size)
 			snprintf(text + length, size - length, "%s%s", key ? "\n" : "Effects: ", mutator->keys[key]);
 	}
 	length = strlen(text);
+	if (mutator->tag_edit_count)
+		snprintf(text + length, size - length, "%sTag edits: %ld, of %ld tags", mutator->key_count ? "\n" : "",
+			mutator->tag_edit_count, mutator->tag_count);
+	length = strlen(text);
 	snprintf(text + length, size - length, "%sPlayed in the next game you host or play alone; a game you join "
-		"plays its host's.\n", mutator->key_count ? "\n" : "");
+		"plays its host's.\n", mutator->key_count || mutator->tag_edit_count ? "\n" : "");
 	length = strlen(text);
 	if (mutator->description[0])
 		snprintf(text + length, size - length, "\n%s", mutator->description);

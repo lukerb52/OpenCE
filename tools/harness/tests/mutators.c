@@ -1,16 +1,19 @@
 /*
 The mutators' game side (port/linux/game/mutators.c, network_mutators.c,
 mutator_big_head.c) in a fake world: the keys checked, a game's own mutators
-and the host's, the host's message admitted only whole and from the host, and
-the big head's node and spheres.
+and the host's, the host's message admitted only whole and from the host, the
+host's tag edits sent in pieces and taken only in order, and the big head's
+node and spheres.
 */
 
 #include "harness.h"
 #include <math.h>
+#include <stddef.h>
 
 typedef unsigned short word;
 typedef short message_header;
 #define csmemset memset
+#define csmemcpy memcpy
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #define VALID_INDEX(index, count) ((index) >= 0 && (index) < (count))
@@ -77,8 +80,11 @@ static real distance3d(real_point3d const *a, real_point3d const *b)
 
 /* the game's: the connection, the console, the sender */
 static int connection = _game_connection_local, playing = 1, menu = 0, unreliable = 0, warnings = 0, sends = 0;
-static byte wire[2048];
+static byte wire[4096];
 static word wire_size;
+/* each message sent, in order */
+static byte sent[8][4096];
+static word sent_sizes[8];
 static short game_connection(void) { return (short)connection; }
 static boolean game_in_progress(void) { return playing; }
 static boolean main_menu_is_active(void) { return menu; }
@@ -99,6 +105,11 @@ static void distributed_send_to_machine_reliably(long machine, void *data, byte 
 	header->type = type;
 	header->count = (byte)count;
 	wire_size = size;
+	if (sends < 8)
+	{
+		memcpy(sent[sends], wire, size);
+		sent_sizes[sends] = size;
+	}
 	sends++;
 }
 
@@ -122,6 +133,32 @@ long port_mutators_keys(char keys[][32], double *values, long maximum)
 #include "mutators.inc"
 #include "network_mutators.inc"
 #include "big_head.inc"
+
+/* port_mutators.c's tag edits of the mutators on, and mutator_tags.c's
+playing them (test_mutator_tags.py tests both): what was played */
+static byte local_edits[MAXIMUM_MUTATOR_TAG_EDIT_BYTES], played[MAXIMUM_MUTATOR_TAG_EDIT_BYTES];
+static long local_edit_size, played_size;
+static int plays;
+long port_mutators_tag_edits(unsigned char *edits, long maximum)
+{
+	CHECK(local_edit_size <= maximum, "more edits than asked for");
+	memcpy(edits, local_edits, local_edit_size);
+	return local_edit_size;
+}
+boolean mutator_tags_play(byte const *edits, long size)
+{
+	/* (edits this build does not make) */
+	if (size > 0 && edits[0] == 0xEE)
+		return FALSE;
+	memcpy(played, edits, size);
+	played_size = size;
+	plays++;
+	return TRUE;
+}
+void mutator_tags_undo(void)
+{
+	played_size = 0;
+}
 
 static void local(char const *key, double value)
 {
@@ -174,6 +211,7 @@ static void world(void)
 int main(int argc, char **argv)
 {
 	char const *case_name = argv[1];
+	long index_unused;
 
 	CHECK(argc == 2, "case");
 	world();
@@ -287,6 +325,71 @@ int main(int argc, char **argv)
 		CHECK(!mutators_active(), "the host took a message");
 		network_mutators_handle_message(NONE, (word *)wire, message(1, "big_head", 1.f, size));
 		CHECK(mutators_active(), "a whole message refused");
+	}
+	else if (!strcmp(case_name, "tag_edits"))
+	{
+		byte const *edits;
+		int piece;
+
+		for (index_unused = 0; index_unused < 9000; index_unused++)
+			local_edits[index_unused] = (byte)(index_unused * 7 + 1);
+		local_edit_size = 9000;
+		connection = _game_connection_network_server;
+		plays = 0;
+		mutators_new_game();
+		CHECK(plays == 1 && played_size == 9000 && !memcmp(played, local_edits, 9000), "the host's own not played");
+		CHECK(mutators_tag_edits(&edits) == 9000 && mutators_active(), "the host's kept");
+		network_mutators_send(3);
+		/* (no keys: no message of them) */
+		CHECK(sends == 3, "the pieces (%d)", sends);
+		for (piece = 0; piece < 3; piece++)
+		{
+			struct distributed_mutator_tag_edits_message const *message = (void *)sent[piece];
+
+			CHECK(message->header.type == _distributed_message_mutator_tag_edits && message->header.count == 1 &&
+				message->size == 9000 && message->offset == piece * 4000 &&
+				sent_sizes[piece] == 12 + (piece < 2 ? 4000 : 1000), "piece %d's layout", piece);
+		}
+		connection = _game_connection_network_client;
+		mutators_new_game();
+		CHECK(played_size == 0 && mutators_tag_edits(&edits) == 0, "a client played its own edits");
+		/* (out of order: the rest refused until a first piece) */
+		network_mutators_handle_message(NONE, (word *)sent[0], sent_sizes[0]);
+		network_mutators_handle_message(NONE, (word *)sent[2], sent_sizes[2]);
+		network_mutators_handle_message(NONE, (word *)sent[1], sent_sizes[1]);
+		CHECK(played_size == 0, "pieces out of order played");
+		network_mutators_handle_message(4, (word *)sent[0], sent_sizes[0]);
+		network_mutators_handle_message(4, (word *)sent[1], sent_sizes[1]);
+		network_mutators_handle_message(4, (word *)sent[2], sent_sizes[2]);
+		CHECK(played_size == 0, "a client's pieces played");
+		unreliable = 1;
+		for (piece = 0; piece < 3; piece++)
+			network_mutators_handle_message(NONE, (word *)sent[piece], sent_sizes[piece]);
+		unreliable = 0;
+		CHECK(played_size == 0, "datagrams played");
+		for (piece = 0; piece < 3; piece++)
+			network_mutators_handle_message(NONE, (word *)sent[piece], sent_sizes[piece]);
+		CHECK(played_size == 9000 && !memcmp(played, local_edits, 9000) && mutators_tag_edits(&edits) == 9000,
+			"the host's edits not played");
+		/* (a piece past the edits' size, a size past the most) */
+		mutators_new_game();
+		((struct distributed_mutator_tag_edits_message *)sent[2])->size = 4500;
+		for (piece = 0; piece < 3; piece++)
+			network_mutators_handle_message(NONE, (word *)sent[piece], sent_sizes[piece]);
+		CHECK(played_size == 0, "a piece past the size played");
+		((struct distributed_mutator_tag_edits_message *)sent[0])->size = MAXIMUM_MUTATOR_TAG_EDIT_BYTES + 1;
+		((struct distributed_mutator_tag_edits_message *)sent[0])->offset = 0;
+		network_mutators_handle_message(NONE, (word *)sent[0], sent_sizes[0]);
+		CHECK(played_size == 0, "a size past the most taken");
+		/* (edits this build does not make: none played, none kept) */
+		local_edits[0] = 0xEE;
+		local_edit_size = 100;
+		connection = _game_connection_network_server;
+		mutators_new_game();
+		CHECK(mutators_tag_edits(&edits) == 0, "edits refused, kept");
+		CHECK(!mutators_set_host_tag_edits(local_edits, 100) && mutators_tag_edits(&edits) == 0,
+			"the host's refused edits kept");
+		CHECK(!mutators_set_host_tag_edits(local_edits, MAXIMUM_MUTATOR_TAG_EDIT_BYTES + 1), "too many bytes taken");
 	}
 	else if (!strcmp(case_name, "big_head"))
 	{

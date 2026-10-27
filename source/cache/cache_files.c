@@ -1233,6 +1233,12 @@ long scenario_tags_load(
 
 				mods_tags_loaded(stripped_scenario_name);
 			}
+			/* (and none of the mutators' tag edits made yet, as below) */
+			{
+				extern void mutator_tags_loaded(void);
+
+				mutator_tags_loaded();
+			}
 			result = cache_file_globals.tag_header->scenario_tag_index;
 		}
 
@@ -1343,6 +1349,14 @@ long scenario_tags_load(
 				extern void mods_tags_loaded(char const *map_name);
 
 				mods_tags_loaded(stripped_scenario_name);
+			}
+			/* port: the map's own tags, none of the mutators' tag edits made
+			in them yet (each game's are made as it starts:
+			port/linux/game/mutator_tags.c) */
+			{
+				extern void mutator_tags_loaded(void);
+
+				mutator_tags_loaded();
 			}
 			result = cache_file_globals.tag_header->scenario_tag_index;
 		}

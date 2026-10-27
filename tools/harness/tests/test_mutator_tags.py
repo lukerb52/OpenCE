@@ -1,0 +1,73 @@
+"""The mutators' tag edits (mutator_tags.c), made from mutator.toml (port_mutators.c) in a fake map's tags, without assets."""
+import re
+import sys
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from harness import CHECK_FAILED, build, enum_with, mutated, read, run
+from test_port_mutators import CHECK_KEY, STUBS
+
+
+def stripped(path):
+    """a source without its #includes (the test's fakes stand in)"""
+    return re.sub(r'^#include [<"][^>"\n]+[>"]\n', '', read(path), flags=re.M)
+
+
+def generated(fault=None):
+    tags = stripped('port/linux/game/mutator_tags.c')
+    if fault == 'range':
+        tags = mutated(tags, 'if (edit->number < field->minimum || edit->number > field->maximum ||', 'if (FALSE ||')
+    if fault == 'element':
+        tags = mutated(tags, 'if (index >= block->count || !block->address)', 'if (!block->address)')
+    if fault == 'undo':
+        tags = mutated(tags, '\t\tcsmemcpy(undo->address, undo->bytes, undo->size);\n', '')
+    if fault == 'whole':
+        tags = mutated(tags, '\t/* (all of them checked before any is made) */\n\twhile (offset < size)',
+                       '\twhile (FALSE)')
+    if fault == 'append':
+        tags = mutated(tags, 'count = (edit->append ? block->count : 0) +', 'count =')
+    source = read('port/linux/src/port_mutators.c').replace(
+        'int mutators_key_check(const char *key, double value, char *reason, unsigned long size);', CHECK_KEY)
+    enums = '\n'.join((enum_with(read('source/game/game_globals.h'), '_material_dirt = 0'),
+                       enum_with(read('source/items/projectile_definitions.h'), '_projectile_material_response_disappear')))
+    return STUBS + (('port_mutators.h', read('port/linux/src/port_mutators.h')),
+                    ('tomlc17.h', read('port/third_party/tomlc17/tomlc17.h')),
+                    ('tomlc17.inc', read('port/third_party/tomlc17/tomlc17.c')),
+                    ('mutators_header.inc', read('port/linux/game/mutators.h')),
+                    ('mutator_tags.inc', tags), ('enums.inc', enums),
+                    ('port_mutators_source.inc', source))
+
+
+@pytest.mark.parametrize('case', ['ma5b', 'missing', 'refused', 'bytes'])
+def test_case(case):
+    status, output = run(build('mutator_tags', generated()), case)
+    assert status == 0, output
+
+
+@pytest.mark.parametrize('fault,case', [('range', 'refused'), ('element', 'missing'), ('undo', 'ma5b'),
+                                        ('whole', 'bytes'), ('append', 'ma5b')])
+def test_negative(fault, case):
+    status, output = run(build('mutator_tags', generated(fault)), case)
+    assert status == CHECK_FAILED, output
+
+
+def test_names():
+    """the names a mutator gives materials and crosshair types are the game's enums', in their order"""
+    tags = read('port/linux/game/mutator_tags.c')
+    materials = re.findall(r'_material_(\w+)', enum_with(read('source/game/game_globals.h'), '_material_dirt = 0'))
+    listed = re.findall(r'"(\w+)"', tags[tags.index('mutator_material_names['):tags.index('};', tags.index(
+        'mutator_material_names['))])
+    assert listed == materials[:materials.index('hunter_shield') + 1]
+    hud = read('source/interface/hud_weapon.c')
+    states = re.findall(r'_crosshair_state_(\w+)', enum_with(hud, '_crosshair_state_aim = 0'))
+    crosshairs = re.findall(r'"(\w+)"', tags[tags.index('mutator_crosshair_type_names[]'):tags.index('};', tags.index(
+        'mutator_crosshair_type_names[]'))])
+    assert crosshairs == states
+    responses = re.findall(r'_projectile_material_response_(\w+)',
+                           enum_with(read('source/items/projectile_definitions.h'),
+                                     '_projectile_material_response_disappear'))
+    assert re.findall(r'"(\w+)"', tags[tags.index('mutator_projectile_response_names['):tags.index('};', tags.index(
+        'mutator_projectile_response_names['))]) == responses

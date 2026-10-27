@@ -145,6 +145,10 @@ enum
 	A number of its own, as actor_states', clear of the kinds upstream and
 	its forks add after it */
 	_distributed_message_mutators = 112,
+	/* the host's tag edits (network_mutators.c, mutator_tags.c): their
+	bytes in pieces, to each client, reliably, as it is ready, before the
+	host's mutators' keys */
+	_distributed_message_mutator_tag_edits = 113,
 
 	NUMBER_OF_DISTRIBUTED_MESSAGES
 };

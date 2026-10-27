@@ -17,6 +17,20 @@ on, or that and the parameter's ("big_head.scale"), ended */
 #define MUTATOR_KEY_LENGTH 32
 /* the most keys a game plays (every effect and every parameter fit) */
 #define MAXIMUM_MUTATOR_KEYS 32
+/* the most bytes of tag edits a game plays, all its mutators' (mutator_tags.c
+says what the bytes are) */
+#define MAXIMUM_MUTATOR_TAG_EDIT_BYTES 32768
+
+/* a tag edit's kind of value */
+enum
+{
+	_mutator_tag_edit_number,
+	/* a tag's name, an enum's, or flags' separated by commas */
+	_mutator_tag_edit_text,
+	/* elements of a block copied from another tag's */
+	_mutator_tag_edit_copy,
+	NUMBER_OF_MUTATOR_TAG_EDIT_KINDS
+};
 
 enum
 {
@@ -54,6 +68,28 @@ boolean mutators_set_host(char const keys[][MUTATOR_KEY_LENGTH], real const *val
 /* (port_mutators.c) whether a mutator.toml's key and value are this build's
 and in range; if not, why not into reason */
 int mutators_key_check(char const *key, double value, char *reason, unsigned long size);
+
+/* the tag edits the game plays (the host's, on a client): how many bytes */
+long mutators_tag_edits(byte const **edits);
+/* (network_mutators.c) a client's: the host's tag edits, played instead of
+any before. FALSE, and none played, when the bytes are not edits or one is
+not an edit this build makes */
+boolean mutators_set_host_tag_edits(byte const *edits, long size);
+
+/* ---------- prototypes/MUTATOR_TAGS.C */
+
+/* (port_mutators.c) whether one edit's bytes are an edit this build makes,
+in a tag of a group it edits, of a field it sets, with a value in range; if
+not, why not into reason */
+int mutators_tag_edit_check(byte const *edit, long size, char *reason, unsigned long reason_size);
+/* (scenario_tags_load) a map's tags loaded: none of them edited */
+void mutator_tags_loaded(void);
+/* the edits made undone */
+void mutator_tags_undo(void);
+/* the last edits undone, then these made: an edit of a tag, element or tag
+named that the map has not is passed over (and logged). FALSE, and none
+made, when the bytes are not edits or one is not one this build makes */
+boolean mutator_tags_play(byte const *edits, long size);
 
 /* ---------- prototypes/MUTATOR_BIG_HEAD.C */
 

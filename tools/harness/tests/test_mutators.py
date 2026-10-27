@@ -29,6 +29,9 @@ def generated(fault=None):
         network = mutated(network, 'if (machine_index != NONE ||', 'if (FALSE ||')
     if fault == 'client':
         game = mutated(game, 'if (game_connection() == _game_connection_network_client ||', 'if (')
+    if fault == 'order':
+        network = mutated(network, '(message.offset && (message.offset != network_mutator_tag_edits.received ||',
+                          '(FALSE && (message.offset != network_mutator_tag_edits.received ||')
     if fault == 'sphere':
         big_head = mutated(big_head, 'return MAX(bounding_radius, big_head_radius(object_index, 1.f));',
                            'return bounding_radius;')
@@ -36,14 +39,14 @@ def generated(fault=None):
             ('network_mutators.inc', network), ('big_head.inc', big_head), ('message_ids.inc', message_ids()))
 
 
-@pytest.mark.parametrize('case', ['keys', 'local', 'host', 'wire', 'big_head'])
+@pytest.mark.parametrize('case', ['keys', 'local', 'host', 'wire', 'tag_edits', 'big_head'])
 def test_case(case):
     status, output = run(build('mutators', generated()), case)
     assert status == 0, output
 
 
 @pytest.mark.parametrize('fault,case', [('range', 'keys'), ('authority', 'wire'), ('client', 'local'),
-                                        ('sphere', 'big_head')])
+                                        ('order', 'tag_edits'), ('authority', 'tag_edits'), ('sphere', 'big_head')])
 def test_negative(fault, case):
     status, output = run(build('mutators', generated(fault)), case)
     assert status == CHECK_FAILED, output
@@ -78,6 +81,7 @@ def test_message_id():
                 if name.startswith('enum _distributed_message_')}
     assert len(set(messages.values())) == len(messages), messages
     assert messages['enum _distributed_message_mutators'] == 112
+    assert messages['enum _distributed_message_mutator_tag_edits'] == 113
 
 
 def test_menu():

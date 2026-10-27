@@ -66,11 +66,15 @@ static struct
 {
 	boolean effects[NUMBER_OF_MUTATOR_EFFECTS];
 	real parameters[NUMBER_OF_MUTATOR_PARAMETERS];
+	/* the tag edits played (mutator_tags.c) */
+	byte tag_edits[MAXIMUM_MUTATOR_TAG_EDIT_BYTES];
+	long tag_edit_size;
 } mutators_globals;
 
 /* ---------- prototypes/PORT_MUTATORS.C (port_mutators.h's) */
 
 long port_mutators_keys(char keys[][MUTATOR_KEY_LENGTH], double *values, long maximum);
+long port_mutators_tag_edits(unsigned char *edits, long maximum);
 
 /* ---------- private code */
 
@@ -184,10 +188,20 @@ void mutators_new_game(
 
 	mutators_clear();
 	mutator_big_head_new_game();
+	mutator_tags_undo();
+	mutators_globals.tag_edit_size = 0;
 	/* (a client's are the host's: network_mutators.c; the main menu's map
 	plays none) */
 	if (game_connection() == _game_connection_network_client || global_scenario_get()->type == _scenario_type_main_menu)
 		return;
+	/* (port_mutators.c checked each of them with mutators_tag_edit_check) */
+	mutators_globals.tag_edit_size = port_mutators_tag_edits(mutators_globals.tag_edits,
+		MAXIMUM_MUTATOR_TAG_EDIT_BYTES);
+	if (!mutator_tags_play(mutators_globals.tag_edits, mutators_globals.tag_edit_size))
+	{
+		error(_error_log, "mutators: the tag edits are not this build's: none played");
+		mutators_globals.tag_edit_size = 0;
+	}
 	/* (port_mutators.c checked each of them with mutators_key_check) */
 	count = port_mutators_keys(keys, values, MAXIMUM_PORT_MUTATOR_KEYS);
 	for (index = 0; index < count; index++)
@@ -228,7 +242,30 @@ boolean mutators_active(
 		if (mutators_globals.effects[effect])
 			return TRUE;
 	}
-	return FALSE;
+	return mutators_globals.tag_edit_size > 0;
+}
+
+long mutators_tag_edits(
+	byte const **edits)
+{
+	*edits = mutators_globals.tag_edits;
+	return mutators_globals.tag_edit_size;
+}
+
+boolean mutators_set_host_tag_edits(
+	byte const *edits,
+	long size)
+{
+	if (size < 0 || size > MAXIMUM_MUTATOR_TAG_EDIT_BYTES)
+		return FALSE;
+	csmemcpy(mutators_globals.tag_edits, edits, size);
+	if (!mutator_tags_play(mutators_globals.tag_edits, size))
+	{
+		mutators_globals.tag_edit_size = 0;
+		return FALSE;
+	}
+	mutators_globals.tag_edit_size = size;
+	return TRUE;
 }
 
 short mutators_keys(

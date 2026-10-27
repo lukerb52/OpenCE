@@ -55,6 +55,18 @@ int mutators_key_check(const char *key, double value, char *reason, unsigned lon
 }
 '''
 
+# the game's check of each tag edit (mutator_tags.c, which test_mutator_tags.py tests)
+CHECK_TAG_EDIT = '''
+int mutators_tag_edit_check(const unsigned char *edit, long size, char *reason, unsigned long reason_size)
+{
+	(void)edit;
+	(void)size;
+	(void)reason;
+	(void)reason_size;
+	return 1;
+}
+'''
+
 
 def generated(fault=None):
     source = read('port/linux/src/port_mutators.c')
@@ -68,6 +80,8 @@ def generated(fault=None):
                          'if (!mutator->on)\n\t\t\tcontinue;\n\t\tfor (key = 0;')
     source = source.replace('int mutators_key_check(const char *key, double value, char *reason, unsigned long size);',
                             CHECK_KEY)
+    source = source.replace('int mutators_tag_edit_check(const unsigned char *edit, long size, char *reason, '
+                            'unsigned long reason_size);', CHECK_TAG_EDIT)
     return STUBS + (('port_mutators.h', read('port/linux/src/port_mutators.h')),
                     ('tomlc17.h', read('port/third_party/tomlc17/tomlc17.h')),
                     ('tomlc17.inc', read('port/third_party/tomlc17/tomlc17.c')),
