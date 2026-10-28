@@ -470,15 +470,15 @@ int main(int argc, char **argv)
 		size = edits_of("revolved_plasma_rifle", edits, sizeof(edits));
 		CHECK(port_mutators_status(find("revolved_plasma_rifle"), NULL, 0) == _port_mutator_fine, "%s",
 			refusal("revolved_plasma_rifle"));
-		CHECK(mutator_tags_play(edits, size) && mutator_tags.made == 55 && mutator_tags.passed_over == 0,
+		CHECK(mutator_tags_play(edits, size) && mutator_tags.made == 47 && mutator_tags.passed_over == 0,
 			"made %d, passed over %d", mutator_tags.made, mutator_tags.passed_over);
-		/* the weapon: its heat, its age, the camouflage it costs, the zoom */
+		/* the weapon: its heat, its age, the camouflage it costs; no zoom */
 		CHECK(plasma.weapon.heat_recovery_threshold == 0.15f && plasma.weapon.heat_loss_per_second == 0.36f &&
 			plasma.weapon.age_heat_recovery_penalty == 0.f && plasma.weapon.age_rate_of_fire_penalty == 0.f &&
 			plasma.weapon.age_misfire_start == 0.85f && plasma.weapon.age_misfire_chance == 0.25f &&
 			plasma.weapon.active_camo_ding == 0.25f && plasma.weapon.active_camo_regrowth_rate == 0.075f, "the weapon");
-		CHECK(plasma.weapon.zoom_level_count == 1 && plasma.weapon.zoom_magnification_maximum == 2.f &&
-			plasma.weapon.zoom_in_sound.index == TAG_INDEX(_tag_zoom_in), "the zoom");
+		CHECK(plasma.weapon.zoom_level_count == stock.plasma.weapon.zoom_level_count &&
+			plasma.weapon.zoom_in_sound.index == stock.plasma.weapon.zoom_in_sound.index, "a zoom");
 		/* the trigger, each time with its step a tick: 1/(0.8 x 30), 1/(0.6 x 30) */
 		CHECK(trigger->initial_rate_of_fire == 6.f && trigger->final_rate_of_fire == 9.f &&
 			trigger->rounds_between_tracers == 0 && trigger->heat_generated_per_round == 0.0861f &&
@@ -515,9 +515,8 @@ int main(int argc, char **argv)
 		CHECK(bolt_damage.damage.material_modifiers[_material_elite] == 0.75f &&
 			bolt_damage.damage.material_modifiers[_material_hunter_shield] == 0.75f &&
 			bolt_damage.damage.material_modifiers[NUMBER_OF_MATERIAL_TYPES] == 0.75f, "a modifier it does not set");
-		/* the HUD: its own two crosshairs, then the pistol's scope */
-		CHECK(plasma_hud.valid_crosshair_types_flags == 0x43 && plasma_hud.crosshairs.count == 4 &&
-			plasma_hud.screen_effects.count == 1, "the HUD");
+		/* the HUD: its own, without the pistol's scope */
+		CHECK(!memcmp(&plasma_hud, &stock.plasma_hud, sizeof(plasma_hud)), "the HUD changed");
 		mutator_tags_undo();
 		CHECK(unchanged(&stock), "the stock tags not put back");
 		/* (a time of 0: a step of 1, as the tools make it) */

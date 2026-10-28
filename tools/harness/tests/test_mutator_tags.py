@@ -8,7 +8,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness import CHECK_FAILED, build, enum_with, mutated, read, run
-from test_port_mutators import CHECK_KEY, STUBS
+from test_port_mutators import CHECK_KEY, STUBS, stock_mutators
 
 
 def stripped(path):
@@ -38,6 +38,7 @@ def generated(fault=None):
     enums = '\n'.join((enum_with(read('source/game/game_globals.h'), '_material_dirt = 0'),
                        enum_with(read('source/items/projectile_definitions.h'), '_projectile_material_response_disappear')))
     return STUBS + (('port_mutators.h', read('port/linux/src/port_mutators.h')),
+                    ('mutator_files.h', stock_mutators()),
                     ('tomlc17.h', read('port/third_party/tomlc17/tomlc17.h')),
                     ('tomlc17.inc', read('port/third_party/tomlc17/tomlc17.c')),
                     ('mutators_header.inc', read('port/linux/game/mutators.h')),

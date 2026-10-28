@@ -1,0 +1,8 @@
+name = "Big head"
+id = "big_head"
+version = "1"
+description = "Every biped's head, the players' and the AI's, is drawn and hit at two and a half times its size."
+format = 1
+
+[effects.big_head]
+scale = 2.5

@@ -917,6 +917,37 @@ static char *config_read_file(const char *path, size_t *size)
 #endif
 }
 
+int config_file_write(const char *path, const char *text)
+{
+	char temporary[1024];
+	int written;
+#ifdef HALO_ARM64_GUEST
+	FILE *file;
+#endif
+
+	if (snprintf(temporary, sizeof(temporary), "%s.new", path) >= (int)sizeof(temporary))
+		return 0;
+#ifdef HALO_ARM64_GUEST
+	/* (the guest's own C library: SDL's are the host's) */
+	file = fopen(temporary, "wb");
+	if (!file)
+		return 0;
+	written = fwrite(text, 1, strlen(text), file) == strlen(text);
+	written = fclose(file) == 0 && written;
+	if (written)
+		written = rename(temporary, path) == 0;
+	if (!written)
+		remove(temporary);
+#else
+	written = SDL_SaveFile(temporary, text, strlen(text));
+	if (written)
+		written = SDL_RenamePath(temporary, path);
+	if (!written)
+		SDL_RemovePath(temporary);
+#endif
+	return written;
+}
+
 static int config_write_file(const char *path, const char *text)
 {
 #ifdef HALO_ARM64_GUEST

@@ -1,9 +1,13 @@
 /*
 PORT_MUTATORS.C
 
-The mutators (port_mutators.h): those built into the game, then the folders
-of the data root's mutators folder in their names' alphabetical order, each
-with a mutator.toml. A mutator is only data: it names effects the game has
+The mutators (port_mutators.h): the stock mutators, then the folders of the
+data root's mutators folder in their names' alphabetical order, each with a
+mutator.toml. The stock mutators are embedded in the game (mutator_files.h,
+from port/assets/mutators); each scan writes them into the data root's
+stock_mutators folder, in place of what is there, so that they can be read
+and copied, and plays them as the game has them (as it does when they cannot
+be written). A mutator is only data: it names effects the game has
 built in (port/linux/game/mutators.c) and its parameters' values, and values
 of tags it sets (port/linux/game/mutator_tags.c). Nothing in it runs, and the
 game checks each key and value against the effects it has
@@ -42,6 +46,7 @@ are played instead (port/linux/game/network_mutators.c).
 
 #include "platform.h"
 #include "port_config.h"
+#include "mutator_files.h"
 #include "port_mutators.h"
 #include "posix.h"
 #include "tomlc17.h"
@@ -92,7 +97,8 @@ struct port_mutator
 	char version[32];
 	char authors[128];
 	char description[256];
-	int built_in;
+	/* whether it is a stock mutator (mutator_files.h's) */
+	int stock;
 	int on;
 	/* why it cannot be played, or empty */
 	char refusal[MAXIMUM_REFUSAL_LENGTH];
@@ -109,178 +115,23 @@ struct port_mutator
 
 /* ---------- globals */
 
-/* the mutators built into the game, read as a folder's would be */
-static const struct
-{
-	const char *folder;
-	const char *text;
-} built_in_mutators[] =
-{
-	{ "big_head",
-		"name = \"Big head\"\n"
-		"id = \"big_head\"\n"
-		"version = \"1\"\n"
-		"description = \"Every biped's head, the players' and the AI's, is drawn and hit at two and a half times its size.\"\n"
-		"format = 1\n"
-		"\n"
-		"[effects.big_head]\n"
-		"scale = 2.5\n" },
-	{ "accurized_ma5b",
-		"name = \"Accurized MA5B\"\n"
-		"id = \"accurized_ma5b\"\n"
-		"version = \"1\"\n"
-		"description = \"The assault rifle zooms 2x with the pistol's scope, its bullets spread from 0.05 to 3 "
-		"degrees, carry 300 world units and ricochet off stone, metal, ice and energy shields.\"\n"
-		"format = 2\n"
-		"\n"
-		"[[tags]]\n"
-		"group = \"weapon\"\n"
-		"tag = 'weapons\\assault rifle\\assault rifle'\n"
-		"zoom_level_count = 1\n"
-		"zoom_magnification_minimum = 2\n"
-		"zoom_magnification_maximum = 2\n"
-		"zoom_in_sound = 'sound\\sfx\\weapons\\sniper rifle\\sniper_2x_zoom'\n"
-		"zoom_out_sound = 'sound\\sfx\\weapons\\sniper rifle\\sniper_10x_zoom'\n"
-		"[tags.triggers.0]\n"
-		"projectile_error_angle_lower_bound = 0.05\n"
-		"projectile_error_angle_upper_bound = 3\n"
-		"rounds_between_tracers = 5\n"
-		"\n"
-		"[[tags]]\n"
-		"group = \"projectile\"\n"
-		"tag = 'weapons\\assault rifle\\bullet'\n"
-		"maximum_range = 300\n"
-		"[tags.material_responses.stone]\n"
-		"potential_response = \"reflect\"\n"
-		"potential_skip_fraction = 0.9\n"
-		"potential_angle_upper_bound = 60\n"
-		"potential_effect = 'weapons\\assault rifle\\effects\\impact stone'\n"
-		"[tags.material_responses.hollow_metal]\n"
-		"potential_response = \"reflect\"\n"
-		"potential_skip_fraction = 0.9\n"
-		"potential_angle_upper_bound = 60\n"
-		"potential_effect = 'weapons\\assault rifle\\effects\\impact metal hollow reflect'\n"
-		"[tags.material_responses.thin_metal]\n"
-		"potential_response = \"reflect\"\n"
-		"potential_skip_fraction = 0.9\n"
-		"potential_angle_upper_bound = 60\n"
-		"potential_effect = 'weapons\\assault rifle\\effects\\impact metal thin reflect'\n"
-		"[tags.material_responses.thick_metal]\n"
-		"potential_response = \"reflect\"\n"
-		"potential_skip_fraction = 0.9\n"
-		"potential_angle_upper_bound = 60\n"
-		"potential_effect = 'weapons\\assault rifle\\effects\\impact metal thick reflect'\n"
-		"[tags.material_responses.ice]\n"
-		"potential_response = \"reflect\"\n"
-		"potential_skip_fraction = 0.9\n"
-		"potential_angle_upper_bound = 60\n"
-		"potential_effect = 'weapons\\assault rifle\\effects\\impact ice'\n"
-		"[tags.material_responses.force_field]\n"
-		"default_response = \"reflect\"\n"
-		"[tags.material_responses.hunter_armor]\n"
-		"default_response = \"reflect\"\n"
-		"[tags.material_responses.engineer_force_field]\n"
-		"default_response = \"reflect\"\n"
-		"[tags.material_responses.cyborg_energy_shield]\n"
-		"default_response = \"reflect\"\n"
-		"[tags.material_responses.elite_energy_shield]\n"
-		"default_response = \"reflect\"\n"
-		"\n"
-		"[[tags]]\n"
-		"group = \"weapon_hud_interface\"\n"
-		"tag = 'weapons\\assault rifle\\assault rifle'\n"
-		"valid_crosshair_types = [\"aim\", \"zoom\"]\n"
-		"crosshairs = { from = 'weapons\\pistol\\pistol', elements = [1, 2], append = true }\n"
-		"screen_effects = { from = 'weapons\\pistol\\pistol' }\n" },
-	{ "revolved_plasma_rifle",
-		"name = \"Revolved plasma rifle\"\n"
-		"id = \"revolved_plasma_rifle\"\n"
-		"version = \"1\"\n"
-		"description = \"The plasma rifle as Combat Revolved has it: a 2x zoom with the pistol's scope, 6 to 9 shots a "
-		"second, a spread of at most 0.75 degrees, slower bolts of 13 damage that reach 45 world units, and less "
-		"overheating and wear.\"\n"
-		"format = 2\n"
-		"\n"
-		"[[tags]]\n"
-		"group = \"weapon\"\n"
-		"tag = 'weapons\\plasma rifle\\plasma rifle'\n"
-		"heat_recovery_threshold = 0.15\n"
-		"heat_loss_per_second = 0.36\n"
-		"zoom_level_count = 1\n"
-		"zoom_magnification_minimum = 2\n"
-		"zoom_magnification_maximum = 2\n"
-		"zoom_in_sound = 'sound\\sfx\\weapons\\sniper rifle\\sniper_2x_zoom'\n"
-		"zoom_out_sound = 'sound\\sfx\\weapons\\sniper rifle\\sniper_10x_zoom'\n"
-		"age_heat_recovery_penalty = 0\n"
-		"age_rate_of_fire_penalty = 0\n"
-		"age_misfire_start = 0.85\n"
-		"age_misfire_chance = 0.25\n"
-		"active_camo_ding = 0.25\n"
-		"active_camo_regrowth_rate = 0.075\n"
-		"[tags.triggers.0]\n"
-		"initial_rate_of_fire = 6\n"
-		"final_rate_of_fire = 9\n"
-		"rate_of_fire_acceleration_time = 0.8\n"
-		"rate_of_fire_deceleration_time = 0.6\n"
-		"rounds_between_tracers = 0\n"
-		"error_acceleration_time = 0.8\n"
-		"error_deceleration_time = 0.6\n"
-		"projectile_error_angle_upper_bound = 0.75\n"
-		"heat_generated_per_round = 0.0861\n"
-		"age_generated_per_round = 0.003\n"
-		"\n"
-		"[[tags]]\n"
-		"group = \"projectile\"\n"
-		"tag = 'weapons\\plasma rifle\\bolt'\n"
-		"maximum_range = 45\n"
-		"air_damage_range_lower_bound = 15\n"
-		"air_damage_range_upper_bound = 45\n"
-		"water_damage_range_lower_bound = 15\n"
-		"water_damage_range_upper_bound = 45\n"
-		"initial_velocity = 27\n"
-		"final_velocity = 27\n"
-		"[tags.material_responses.hunter_shield]\n"
-		"default_response = \"disappear\"\n"
-		"\n"
-		"[[tags]]\n"
-		"group = \"damage_effect\"\n"
-		"tag = 'weapons\\plasma rifle\\bolt'\n"
-		"damage_minimum = 13\n"
-		"damage_lower_bound = 13\n"
-		"damage_upper_bound = 13\n"
-		"active_camouflage_damage = 1\n"
-		"[tags.material_modifiers]\n"
-		"dirt = 1\n"
-		"sand = 1\n"
-		"stone = 1\n"
-		"snow = 1\n"
-		"wood = 1\n"
-		"hollow_metal = 0.5\n"
-		"rubber = 1\n"
-		"hunter_armor = 0.25\n"
-		"hunter_skin = 1\n"
-		"jackal_energy_shield = 2\n"
-		"engineer_force_field = 2\n"
-		"cyborg = 1\n"
-		"monitor = 1\n"
-		"plastic = 1\n"
-		"water = 1\n"
-		"leaves = 1\n"
-		"ice = 1\n"
-		"\n"
-		"[[tags]]\n"
-		"group = \"weapon_hud_interface\"\n"
-		"tag = 'weapons\\plasma rifle\\plasma rifle'\n"
-		"valid_crosshair_types = [\"aim\", \"zoom\", \"flash_total_battery\"]\n"
-		"crosshairs = { from = 'weapons\\pistol\\pistol', elements = [1, 2], append = true }\n"
-		"screen_effects = { from = 'weapons\\pistol\\pistol' }\n" },
-};
+/* what the stock_mutators folder's README.txt says */
+static const char stock_mutators_readme[] =
+	"The stock mutators, as this build of the game has them.\n"
+	"\n"
+	"The game writes these folders again each time it starts, in place of what\n"
+	"is here, and plays them as it has them: a change made here is lost, and a\n"
+	"folder added here is not read. To make a mutator of your own, copy one of\n"
+	"these folders into the mutators folder beside this one, and give it an id\n"
+	"of its own in its mutator.toml.\n";
 
 static struct
 {
 	struct port_mutator mutators[MAXIMUM_MUTATORS];
 	long count;
 	unsigned long scans;
+	/* whether the stock mutators' writing failing has been logged */
+	int stock_unwritten_logged;
 } port_mutators;
 
 /* ---------- prototypes/MUTATORS.C (port/linux/game/mutators.h's) */
@@ -771,7 +622,8 @@ static void mutator_add(const struct port_mutator *mutator)
 	{
 		if (!names_compare(port_mutators.mutators[index].id, mutator->id))
 		{
-			refuse(&port_mutators.mutators[port_mutators.count], mutator->folder, "another mutator has its id");
+			refuse(&port_mutators.mutators[port_mutators.count], mutator->folder,
+				"another mutator has its id: give it one of its own");
 			break;
 		}
 	}
@@ -857,6 +709,43 @@ static void mutators_find(const char *root)
 	}
 }
 
+/* whether the file `path` holds `text` */
+static int file_holds(const char *path, const char *text)
+{
+	size_t size = 0;
+	char *held = config_file_read(path, &size);
+	int holds = held && size == strlen(text) && !memcmp(held, text, size);
+
+	free(held);
+	return holds;
+}
+
+/* writes the README and the stock mutators into the stock_mutators folder
+`root`, each file that does not hold what the game has; 0 if one cannot be
+written */
+static int stock_mutators_write(const char *root)
+{
+	char path[MAXIMUM_PATH_LENGTH];
+	unsigned int index;
+	int written = 1;
+
+	posix_make_directory(root);
+	snprintf(path, sizeof(path), "%s/README.txt", root);
+	if (!file_holds(path, stock_mutators_readme))
+		written = config_file_write(path, stock_mutators_readme);
+	for (index = 0; index < mutator_files_embedded_count; index++)
+	{
+		const char *text = (const char *)mutator_files_embedded[index].data;
+
+		snprintf(path, sizeof(path), "%s/%s", root, mutator_files_embedded[index].folder);
+		posix_make_directory(path);
+		snprintf(path, sizeof(path), "%s/%s/mutator.toml", root, mutator_files_embedded[index].folder);
+		if (!file_holds(path, text) && !config_file_write(path, text))
+			written = 0;
+	}
+	return written;
+}
+
 /* whether game.mutators names `id` */
 static int mutators_setting_names(const char *setting, const char *id)
 {
@@ -903,15 +792,23 @@ long port_mutators_scan(void)
 		free(port_mutators.mutators[index].tag_edits);
 	port_mutators.count = 0;
 	port_mutators.scans++;
-	for (index = 0; index < (long)(sizeof(built_in_mutators) / sizeof(built_in_mutators[0])); index++)
+	snprintf(root, sizeof(root), "%s/stock_mutators", platform_data_root());
+	if (!stock_mutators_write(root) && !port_mutators.stock_unwritten_logged)
 	{
+		platform_log("mutators: %s cannot be written: the stock mutators are played as the game has them", root);
+		port_mutators.stock_unwritten_logged = 1;
+	}
+	for (index = 0; index < (long)mutator_files_embedded_count; index++)
+	{
+		const struct mutator_file_embedded *file = &mutator_files_embedded[index];
 		struct port_mutator *mutator = calloc(1, sizeof(*mutator));
+		char path[MAXIMUM_PATH_LENGTH];
 
 		if (!mutator)
 			break;
-		mutator->built_in = 1;
-		mutator_read(mutator, built_in_mutators[index].folder, built_in_mutators[index].text,
-			strlen(built_in_mutators[index].text), built_in_mutators[index].folder);
+		snprintf(path, sizeof(path), "%s/%s/mutator.toml", root, file->folder);
+		mutator->stock = 1;
+		mutator_read(mutator, file->folder, (const char *)file->data, file->size, path);
 		mutator_add(mutator);
 		free(mutator);
 	}
@@ -1022,10 +919,11 @@ int port_mutators_details(long index, char *text, unsigned long size)
 	if (mutator->authors[0])
 		snprintf(text + length, size - length, "By %s\n", mutator->authors);
 	length = strlen(text);
-	if (mutator->built_in)
-		snprintf(text + length, size - length, "Built into the game\n");
+	if (mutator->stock)
+		snprintf(text + length, size - length, "Stock: stock_mutators/%s (written again at each start)\n",
+			mutator->folder);
 	else
-		snprintf(text + length, size - length, "Folder: %s\n", mutator->folder);
+		snprintf(text + length, size - length, "Folder: mutators/%s\n", mutator->folder);
 	for (key = 0; key < mutator->key_count; key++)
 	{
 		const char *dot = strchr(mutator->keys[key], '.');
