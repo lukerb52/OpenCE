@@ -43,6 +43,17 @@ struct real_orientation;
 /* the tags' structures: the fields mutator_tags.c sets, by the game's names */
 struct tag_reference { unsigned long group_tag; char *name; long name_length; long index; };
 struct tag_block { long count; void *address; void *definition; };
+struct weapon_magazine_definition
+{
+	unsigned long flags;
+	short rounds_recharged_per_second;
+	short rounds_total_initial;
+	short rounds_total_maximum;
+	short rounds_loaded_maximum;
+	short rounds_reloaded;
+	short pad;
+	real chamber_time;
+};
 struct weapon_trigger_definition
 {
 	unsigned long flags;
@@ -82,6 +93,7 @@ struct weapon_definition
 		real age_misfire_chance;
 		real active_camo_ding;
 		real active_camo_regrowth_rate;
+		struct tag_block magazines;
 		struct tag_block triggers;
 	} weapon;
 };
@@ -102,6 +114,8 @@ struct projectile_definition
 	struct
 	{
 		real maximum_range;
+		real air_gravity_scale;
+		real water_gravity_scale;
 		real air_damage_range_lower_bound;
 		real air_damage_range_upper_bound;
 		real water_damage_range_lower_bound;
@@ -142,6 +156,7 @@ enum
 #define TAG_INDEX(index) ((long)(0xE1740000UL | (unsigned long)(index)))
 static struct { unsigned long group_tag; char name[80]; void *data; int present; } tags[NUMBER_OF_TAGS];
 static struct weapon_definition rifle;
+static struct weapon_magazine_definition magazines[2];
 static struct weapon_trigger_definition triggers[2];
 static struct projectile_definition bullet;
 static struct projectile_material_response_definition responses[NUMBER_OF_MATERIAL_TYPES + 1];
@@ -214,6 +229,10 @@ static void world(void)
 
 	memset(tags, 0, sizeof(tags));
 	memset(&rifle, 0, sizeof(rifle));
+	memset(magazines, 0x5A, sizeof(magazines));
+	magazines[0].rounds_total_initial = 240;
+	magazines[0].rounds_total_maximum = 600;
+	magazines[0].rounds_loaded_maximum = 60;
 	memset(triggers, 0x5A, sizeof(triggers));
 	triggers[0].projectile_error_angle_lower_bound = 0.0349066f;
 	triggers[0].projectile_error_angle_upper_bound = 0.113446f;
@@ -221,6 +240,8 @@ static void world(void)
 	rifle.weapon.zoom_magnification_minimum = 1.f;
 	rifle.weapon.zoom_in_sound.index = NONE;
 	rifle.weapon.zoom_out_sound.index = NONE;
+	rifle.weapon.magazines.count = 1;
+	rifle.weapon.magazines.address = magazines;
 	rifle.weapon.triggers.count = 1;
 	rifle.weapon.triggers.address = triggers;
 	memset(&bullet, 0, sizeof(bullet));
@@ -233,6 +254,8 @@ static void world(void)
 	}
 	responses[_material_grunt].default_response = _projectile_material_response_overpenetrate;
 	bullet.projectile.maximum_range = 40.f;
+	bullet.projectile.air_gravity_scale = 1.f;
+	bullet.projectile.water_gravity_scale = 1.f;
 	bullet.projectile.material_responses.count = NUMBER_OF_MATERIAL_TYPES;
 	bullet.projectile.material_responses.address = responses;
 	memset(&rifle_hud, 0, sizeof(rifle_hud));
@@ -299,6 +322,7 @@ static void world(void)
 struct snapshot
 {
 	struct weapon_definition rifle;
+	struct weapon_magazine_definition magazines[2];
 	struct weapon_trigger_definition triggers[2];
 	struct projectile_definition bullet;
 	struct projectile_material_response_definition responses[NUMBER_OF_MATERIAL_TYPES + 1];
@@ -314,6 +338,7 @@ struct snapshot
 static void snapshot(struct snapshot *taken)
 {
 	taken->rifle = rifle;
+	memcpy(taken->magazines, magazines, sizeof(magazines));
 	memcpy(taken->triggers, triggers, sizeof(triggers));
 	taken->bullet = bullet;
 	memcpy(taken->responses, responses, sizeof(responses));
@@ -393,10 +418,10 @@ int main(int argc, char **argv)
 		size = edits_of("accurized_ma5b", edits, sizeof(edits));
 		CHECK(port_mutators_status(find("accurized_ma5b"), NULL, 0) == _port_mutator_fine, "%s",
 			refusal("accurized_ma5b"));
-		CHECK(size > 0 && port_mutators.mutators[find("accurized_ma5b")].tag_edit_count == 37, "the edits (%ld)",
+		CHECK(size > 0 && port_mutators.mutators[find("accurized_ma5b")].tag_edit_count == 38, "the edits (%ld)",
 			port_mutators.mutators[find("accurized_ma5b")].tag_edit_count);
 		CHECK(mutator_tags_play(edits, size), "the built-in mutator's edits refused");
-		CHECK(mutator_tags.made == 37 && mutator_tags.passed_over == 0, "made %d, passed over %d", mutator_tags.made,
+		CHECK(mutator_tags.made == 38 && mutator_tags.passed_over == 0, "made %d, passed over %d", mutator_tags.made,
 			mutator_tags.passed_over);
 		/* the weapon: the pistol's 2x zoom, the sniper rifle's sounds */
 		CHECK(rifle.weapon.zoom_level_count == 1 && rifle.weapon.zoom_magnification_minimum == 2.f &&
@@ -406,11 +431,14 @@ int main(int argc, char **argv)
 			rifle.weapon.zoom_in_sound.name == tags[_tag_zoom_in].name &&
 			rifle.weapon.zoom_in_sound.name_length == (long)strlen(tags[_tag_zoom_in].name) &&
 			rifle.weapon.zoom_out_sound.index == TAG_INDEX(_tag_zoom_out), "the zoom's sounds");
-		/* the trigger: 0.05 to 3 degrees of error, a tracer each 5 rounds */
+		/* the trigger: 0.05 to 3 degrees of error, settling in 0.1 seconds, a tracer each 2 rounds */
 		CHECK(degrees(triggers[0].projectile_error_angle_lower_bound, 0.05f) &&
 			degrees(triggers[0].projectile_error_angle_upper_bound, 3.f), "the error angles: %g %g",
 			triggers[0].projectile_error_angle_lower_bound, triggers[0].projectile_error_angle_upper_bound);
-		CHECK(triggers[0].rounds_between_tracers == 5 && triggers[0].flags == stock.triggers[0].flags, "the tracers");
+		CHECK(triggers[0].error_deceleration_time == 0.1f &&
+			triggers[0].runtime_error_deceleration_time == 1.f / (0.1f * 30.f), "the error's settling: %g %g",
+			triggers[0].error_deceleration_time, triggers[0].runtime_error_deceleration_time);
+		CHECK(triggers[0].rounds_between_tracers == 2 && triggers[0].flags == stock.triggers[0].flags, "the tracers");
 		CHECK(!memcmp(&triggers[1], &stock.triggers[1], sizeof(triggers[1])), "past the block's element");
 		/* the bullet: 300 world units, CR's ricochets, the stock's overpenetration */
 		CHECK(bullet.projectile.maximum_range == 300.f, "the range");
@@ -470,15 +498,15 @@ int main(int argc, char **argv)
 		size = edits_of("revolved_plasma_rifle", edits, sizeof(edits));
 		CHECK(port_mutators_status(find("revolved_plasma_rifle"), NULL, 0) == _port_mutator_fine, "%s",
 			refusal("revolved_plasma_rifle"));
-		CHECK(mutator_tags_play(edits, size) && mutator_tags.made == 55 && mutator_tags.passed_over == 0,
+		CHECK(mutator_tags_play(edits, size) && mutator_tags.made == 47 && mutator_tags.passed_over == 0,
 			"made %d, passed over %d", mutator_tags.made, mutator_tags.passed_over);
-		/* the weapon: its heat, its age, the camouflage it costs, the zoom */
+		/* the weapon: its heat, its age, the camouflage it costs; no zoom */
 		CHECK(plasma.weapon.heat_recovery_threshold == 0.15f && plasma.weapon.heat_loss_per_second == 0.36f &&
 			plasma.weapon.age_heat_recovery_penalty == 0.f && plasma.weapon.age_rate_of_fire_penalty == 0.f &&
 			plasma.weapon.age_misfire_start == 0.85f && plasma.weapon.age_misfire_chance == 0.25f &&
 			plasma.weapon.active_camo_ding == 0.25f && plasma.weapon.active_camo_regrowth_rate == 0.075f, "the weapon");
-		CHECK(plasma.weapon.zoom_level_count == 1 && plasma.weapon.zoom_magnification_maximum == 2.f &&
-			plasma.weapon.zoom_in_sound.index == TAG_INDEX(_tag_zoom_in), "the zoom");
+		CHECK(plasma.weapon.zoom_level_count == stock.plasma.weapon.zoom_level_count &&
+			plasma.weapon.zoom_in_sound.index == stock.plasma.weapon.zoom_in_sound.index, "a zoom");
 		/* the trigger, each time with its step a tick: 1/(0.8 x 30), 1/(0.6 x 30) */
 		CHECK(trigger->initial_rate_of_fire == 6.f && trigger->final_rate_of_fire == 9.f &&
 			trigger->rounds_between_tracers == 0 && trigger->heat_generated_per_round == 0.0861f &&
@@ -515,9 +543,8 @@ int main(int argc, char **argv)
 		CHECK(bolt_damage.damage.material_modifiers[_material_elite] == 0.75f &&
 			bolt_damage.damage.material_modifiers[_material_hunter_shield] == 0.75f &&
 			bolt_damage.damage.material_modifiers[NUMBER_OF_MATERIAL_TYPES] == 0.75f, "a modifier it does not set");
-		/* the HUD: its own two crosshairs, then the pistol's scope */
-		CHECK(plasma_hud.valid_crosshair_types_flags == 0x43 && plasma_hud.crosshairs.count == 4 &&
-			plasma_hud.screen_effects.count == 1, "the HUD");
+		/* the HUD: its own, without the pistol's scope */
+		CHECK(!memcmp(&plasma_hud, &stock.plasma_hud, sizeof(plasma_hud)), "the HUD changed");
 		mutator_tags_undo();
 		CHECK(unchanged(&stock), "the stock tags not put back");
 		/* (a time of 0: a step of 1, as the tools make it) */
@@ -525,6 +552,36 @@ int main(int argc, char **argv)
 			"[tags.triggers.0]\nerror_acceleration_time = 0\n");
 		size = edits_of("instant", edits, sizeof(edits));
 		CHECK(mutator_tags_play(edits, size) && trigger->runtime_error_acceleration_time == 1.f, "a time of 0's step");
+	}
+	else if (!strcmp(case_name, "magazine"))
+	{
+		/* a magazine's rounds and times, and a projectile's gravity */
+		folder("rounds", "format = 2\n[[tags]]\ngroup = \"weapon\"\ntag = 'weapons\\assault rifle\\assault rifle'\n"
+			"[tags.magazines.0]\nrounds_recharged_per_second = 3\nrounds_total_initial = 6\n"
+			"rounds_total_maximum = 36\nrounds_loaded_maximum = 12\nrounds_reloaded = 1\nchamber_time = 0.5\n"
+			"[[tags]]\ngroup = \"projectile\"\ntag = 'weapons\\assault rifle\\bullet'\n"
+			"air_gravity_scale = 0\nwater_gravity_scale = 2.5\n");
+		size = edits_of("rounds", edits, sizeof(edits));
+		CHECK(port_mutators_status(find("rounds"), NULL, 0) == _port_mutator_fine, "%s", refusal("rounds"));
+		CHECK(mutator_tags_play(edits, size) && mutator_tags.made == 8 && mutator_tags.passed_over == 0,
+			"made %d, passed over %d", mutator_tags.made, mutator_tags.passed_over);
+		CHECK(magazines[0].rounds_recharged_per_second == 3 && magazines[0].rounds_total_initial == 6 &&
+			magazines[0].rounds_total_maximum == 36 && magazines[0].rounds_loaded_maximum == 12 &&
+			magazines[0].rounds_reloaded == 1 && magazines[0].chamber_time == 0.5f &&
+			magazines[0].flags == stock.magazines[0].flags && magazines[0].pad == stock.magazines[0].pad,
+			"the magazine");
+		CHECK(!memcmp(&magazines[1], &stock.magazines[1], sizeof(magazines[1])), "past the block's element");
+		CHECK(!memcmp(triggers, stock.triggers, sizeof(triggers)), "the triggers changed");
+		CHECK(bullet.projectile.air_gravity_scale == 0.f && bullet.projectile.water_gravity_scale == 2.5f &&
+			bullet.projectile.maximum_range == 40.f, "the gravity");
+		mutator_tags_undo();
+		CHECK(unchanged(&stock), "the stock tags not put back");
+		/* (a second magazine the rifle has not: passed over) */
+		folder("second_magazine", "format = 2\n[[tags]]\ngroup = \"weapon\"\n"
+			"tag = 'weapons\\assault rifle\\assault rifle'\n[tags.magazines.1]\nrounds_total_initial = 1\n");
+		size = edits_of("second_magazine", edits, sizeof(edits));
+		CHECK(mutator_tags_play(edits, size) && mutator_tags.passed_over == 1 && unchanged(&stock),
+			"past the block written");
 	}
 	else if (!strcmp(case_name, "missing"))
 	{
@@ -534,7 +591,7 @@ int main(int argc, char **argv)
 		tags[_tag_ice].present = 0;
 		size = edits_of("accurized_ma5b", edits, sizeof(edits));
 		CHECK(mutator_tags_play(edits, size), "refused");
-		CHECK(mutator_tags.passed_over == 4 && mutator_tags.made == 33, "made %d, passed over %d", mutator_tags.made,
+		CHECK(mutator_tags.passed_over == 4 && mutator_tags.made == 34, "made %d, passed over %d", mutator_tags.made,
 			mutator_tags.passed_over);
 		CHECK(rifle.weapon.zoom_in_sound.index == NONE && rifle.weapon.zoom_out_sound.index == TAG_INDEX(_tag_zoom_out),
 			"a sound the map has not");
@@ -596,6 +653,14 @@ int main(int argc, char **argv)
 				"33 = 1\n", "name one of" },
 			{ "array_whole", "[[tags]]\ngroup = \"damage_effect\"\ntag = 'x'\nmaterial_modifiers = 1\n",
 				"name one of" },
+			{ "rounds_range", "[[tags]]\ngroup = \"weapon\"\ntag = 'x'\n[tags.magazines.0]\n"
+				"rounds_total_maximum = 40000\n", "from 0 to 32767" },
+			{ "rounds_whole", "[[tags]]\ngroup = \"weapon\"\ntag = 'x'\n[tags.magazines.0]\n"
+				"rounds_total_initial = 6.5\n", "whole number" },
+			{ "rounds_field", "[[tags]]\ngroup = \"weapon\"\ntag = 'x'\n[tags.magazines.0]\n"
+				"reload_time = 1\n", "no field" },
+			{ "gravity_range", "[[tags]]\ngroup = \"projectile\"\ntag = 'x'\nair_gravity_scale = -1\n",
+				"from 0 to 10" },
 			{ "later", "format = 3\n[[tags]]\ngroup = \"weapon\"\ntag = 'x'\nzoom_level_count = 1\n", "later build" },
 		};
 		for (index = 0; index < (int)NUMBEROF(cases); index++)

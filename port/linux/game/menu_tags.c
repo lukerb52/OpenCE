@@ -397,6 +397,8 @@ static char const *const port_function_names[] =
 	"port mods save",
 	/* (its MUTATORS and MODS: the rows the mutators', or the mods' again) */
 	"port mods switch",
+	/* (Server Setup's MUTATOR OPTIONS: the Mods screen's rows, the mutators') */
+	"port mutators init", "port mutators save",
 };
 
 /* the PC version's game data functions that the Xbox's have not, from

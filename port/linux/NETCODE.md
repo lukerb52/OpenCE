@@ -279,7 +279,9 @@ takes only from the host and only where the last piece ended, and makes in
 its map's tags once it has them all. Then version 41 lets the edits set more fields
 (a weapon's heat, age and camouflage, a trigger's rates of fire and times, a
 projectile's speeds and damage ranges, a damage effect's damage): a build of
-40 would refuse a host's edits of them, and play the stock tags.
+40 would refuse a host's edits of them, and play the stock tags. Then version
+42 lets them set a weapon's magazines (its rounds and chamber time) and a
+projectile's gravity, which a build of 41 would refuse.
 
 `port/linux/network_format.txt` records the wire format of the current
 version (`tools/network_format.py`): `test_linux_port.py` fails when the

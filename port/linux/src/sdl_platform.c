@@ -15,6 +15,7 @@ and the debug keyboard that the game's console reads.
 #include "port_config.h"
 #include "p2p.h"
 #include "port_mods.h"
+#include "port_mutators.h"
 #include "xiso.h"
 #include "touch_input.h"
 #include "../game/text_filter.h"
@@ -268,6 +269,9 @@ BOOL platform_sdl_initialize(void)
 	/* (the mods, and whether to play those that say they cannot be played
 	together, before the window opens: port_mods.c) */
 	port_mods_startup();
+	/* (the mutators, and the stock mutators written into stock_mutators
+	again: port_mutators.c) */
+	port_mutators_scan();
 	return TRUE;
 }
 

@@ -9,7 +9,8 @@ machine.
 The game's code is `port/linux/game/mutators.c` (the effects and their
 parameters), `mutator_big_head.c` (the big head), `mutator_tags.c` (the tag
 edits), `network_mutators.c` (the host's mutators sent to its clients) and
-`port/linux/src/port_mutators.c` (the mutators' files).
+`port/linux/src/port_mutators.c` (the mutators' files). The stock mutators'
+files are `port/assets/mutators`.
 
 ## What a mutator can do
 
@@ -87,6 +88,9 @@ The fields that a mutator can set:
 | | `age_heat_recovery_penalty`, `age_misfire_start`, `age_misfire_chance` | 0 to 1 |
 | | `age_rate_of_fire_penalty` | 0 to 10 |
 | | `active_camo_ding`, `active_camo_regrowth_rate` | 0 to 1 |
+| | `magazines.<index>.rounds_total_initial`, `.rounds_total_maximum`, `.rounds_loaded_maximum` | 0 to 32767 rounds |
+| | `magazines.<index>.rounds_reloaded`, `.rounds_recharged_per_second` | 0 to 32767 rounds |
+| | `magazines.<index>.chamber_time` | 0 to 60 seconds |
 | | `triggers.<index>.initial_rate_of_fire`, `.final_rate_of_fire` | 0 to 300 a second |
 | | `triggers.<index>.rate_of_fire_acceleration_time`, `..._deceleration_time` | 0 to 60 seconds |
 | | `triggers.<index>.error_acceleration_time`, `..._deceleration_time` | 0 to 60 seconds |
@@ -94,6 +98,7 @@ The fields that a mutator can set:
 | | `triggers.<index>.heat_generated_per_round`, `.age_generated_per_round` | 0 to 1 |
 | | `triggers.<index>.rounds_between_tracers` | 0 to 32767 |
 | `projectile` | `maximum_range` | 0 to 10000 world units |
+| | `air_gravity_scale`, `water_gravity_scale` | 0 to 10 (1 is the world's gravity) |
 | | `air_damage_range_lower_bound`, `..._upper_bound`, `water_damage_range_lower_bound`, `..._upper_bound` | 0 to 10000 world units |
 | | `initial_velocity`, `final_velocity` | 0 to 3000 world units a second |
 | | `material_responses.<material>.default_response`, `.potential_response` | `disappear`, `detonate`, `reflect`, `overpenetrate`, `attach` |
@@ -107,6 +112,13 @@ The fields that a mutator can set:
 | `damage_effect` | `damage_minimum`, `damage_lower_bound`, `damage_upper_bound` | 0 to 10000 |
 | | `active_camouflage_damage` | 0 to 1 |
 | | `material_modifiers.<material>` | 0 to 10 |
+
+A magazine's `rounds_total_initial` is the rounds a weapon is made with, loaded
+and in reserve (`rounds_loaded_maximum` of them loaded), and
+`rounds_total_maximum` the most it carries in reserve. A weapon placed in a
+map keeps the rounds the map gives it, up to the new most. Its reload takes
+as long as its animation does: the tag's reload time is not read, and
+cannot be set.
 
 A trigger's times are set with the step a tick that the game takes them by
 (`1 / (seconds x 30)`, or 1 for 0), as the editing kit's tools work it out.
@@ -128,8 +140,8 @@ edits made in a game.
 The assault rifle zooms, with the pistol's 2x scope (its crosshairs and its
 mask, so a map with the pistol needs nothing more), and the sniper rifle's
 zoom sounds. Its bullets spread from 0.05 to 3 degrees (the stock rifle's 2
-to 6.5), build up and settle in the stock rifle's times (0.6 and 1 second),
-and a tracer is every fifth round, not every third. They carry 300 world
+to 6.5), build up in the stock rifle's 0.6 seconds and settle in 0.1 (the
+stock rifle's 1), and a tracer is every other round, not every third. They carry 300 world
 units (the stock rifle's 40), at the stock speed and with its gravity, and
 ricochet as Combat Revolved's do: off stone, metal and ice at up to 60
 degrees from the surface, one time in ten, and always off energy shields,
@@ -143,9 +155,8 @@ sounds, silently.
 
 ### Revolved plasma rifle
 
-The plasma rifle as Combat Revolved has it. It zooms 2x, with the pistol's
-scope (as the accurized MA5B does: not Combat Revolved's own scope art) and
-the sniper rifle's zoom sounds. It fires 6 rounds a second, rising to 9 in
+The plasma rifle as Combat Revolved has it, without its 2x zoom: it does not
+zoom, as the stock rifle does not. It fires 6 rounds a second, rising to 9 in
 0.8 seconds (the stock rifle's 7 to 10 in 1.8) and falling back in 0.6; its
 bolts spread up to 0.75 degrees (the stock 2.5), building in 0.8 seconds and
 settling in 0.6 (the stock 2.5, and at once). Each round heats it 0.0861
@@ -164,20 +175,40 @@ stock none), a quarter to a hunter's armor (the stock half), all of it to a
 hunter's skin, cyborg armor and rubber, and half to hollow metal. A hunter's
 shield no longer reflects them.
 
-Its melee (Combat Revolved's is 91) and the flash of its firing are stock.
+Its melee (Combat Revolved's is 91), the flash of its firing and its HUD are
+stock.
 
 ## The mutators
 
-The game has the mutators built into it (`big_head`, `accurized_ma5b`,
-`revolved_plasma_rifle`), and the mutators in
-the `mutators` folder of the data root (the folder with `maps/`). Each
-mutator is a folder with a `mutator.toml`:
+The mutators are in two folders of the data root (the folder with `maps/`),
+each mutator a folder with a `mutator.toml`:
 
 ```
-mutators/
+stock_mutators/           the game's own: written again at each start
+  README.txt
+  accurized_ma5b/
+    mutator.toml
+  big_head/
+    mutator.toml
+  revolved_plasma_rifle/
+    mutator.toml
+mutators/                 yours: the game never writes here
   huge_heads/
     mutator.toml
 ```
+
+The stock mutators are embedded in the game (from `port/assets/mutators`,
+by `tools/embed_assets.py`). Each time the game looks for the mutators (as
+it starts, and as the Mods menu opens), it writes them
+into `stock_mutators`, in place of any file there that differs, and plays
+them as it has them: a change made in `stock_mutators` is lost, and a folder
+added there is not read. So two machines of one build always play the same
+stock mutators. Where `stock_mutators` cannot be written (a data root that
+cannot be written to), the game plays them all the same, and `debug.txt`
+says so.
+
+To make a mutator from a stock one, copy its folder into `mutators` and
+give it an `id` of its own: with the stock one's, it cannot be played.
 
 ```toml
 name = "Huge heads"     # what the Mods menu shows (else the folder's name)
@@ -208,16 +239,22 @@ and the Mods menu says why, if:
 Limits: 64 mutators, folder names of 63 bytes at most, 16 effects and
 parameters in a mutator.
 
-On the web, only the mutators built into the game are found: the page cannot
-add a mutators folder yet.
+On the web, only the stock mutators are found: the page cannot add a
+mutators folder yet.
 
 ## Turning them on
 
-The main menu's **Mods**, then **MUTATORS**, shows the mutators in the rows
-in place of the mods (built-in first, then the folders by name). **MODS**
-shows the mods again. A turns the chosen mutator on or off; the details say
-what it sets and why it cannot be played, if it cannot. **OK** keeps the
-mods and the mutators, **Cancel** forgets both.
+Server Setup (Create Game, before **START GAME**) has **MUTATOR OPTIONS**,
+below **MAP SHARING**: a screen of the mutators (the stock mutators first,
+then the folders of `mutators`, each by name), a row each, ON or OFF. A turns
+the chosen mutator on or off; the details say what it sets and why it cannot
+be played, if it cannot. **OK** keeps them, and the game started next plays
+them; **Cancel** forgets them.
+
+The main menu's **Mods**, then **MUTATORS**, shows the same rows in place of
+the mods, for games that have no Server Setup (the campaign). **MODS** shows
+the mods again. **OK** keeps the mods and the mutators, **Cancel** forgets
+both.
 
 The mutators turned on are `game.mutators` in `config.toml` (their ids,
 separated by commas; `HALO_MUTATORS` for one run). Empty, the default, plays

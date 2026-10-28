@@ -222,6 +222,21 @@ static char const *const mutator_crosshair_type_names[] =
 	{ #field, _mutator_field_copy, (short)(element_size), (long)offsetof(structure, field), 0.f, 0.f, 0, NULL, 0, \
 		(maximum_count), NULL }
 
+static struct mutator_tag_field const mutator_weapon_magazine_fields[] =
+{
+	MUTATOR_FIELD(struct weapon_magazine_definition, rounds_recharged_per_second, _mutator_field_short, 0.f, 32767.f),
+	MUTATOR_FIELD(struct weapon_magazine_definition, rounds_total_initial, _mutator_field_short, 0.f, 32767.f),
+	MUTATOR_FIELD(struct weapon_magazine_definition, rounds_total_maximum, _mutator_field_short, 0.f, 32767.f),
+	MUTATOR_FIELD(struct weapon_magazine_definition, rounds_loaded_maximum, _mutator_field_short, 0.f, 32767.f),
+	MUTATOR_FIELD(struct weapon_magazine_definition, rounds_reloaded, _mutator_field_short, 0.f, 32767.f),
+	MUTATOR_FIELD(struct weapon_magazine_definition, chamber_time, _mutator_field_real, 0.f, 60.f),
+};
+
+static struct mutator_tag_definition const mutator_weapon_magazine_definition =
+{
+	"magazine", 0, mutator_weapon_magazine_fields, NUMBEROF(mutator_weapon_magazine_fields)
+};
+
 static struct mutator_tag_field const mutator_weapon_trigger_fields[] =
 {
 	MUTATOR_FIELD(struct weapon_trigger_definition, initial_rate_of_fire, _mutator_field_real, 0.f, 300.f),
@@ -259,6 +274,8 @@ static struct mutator_tag_field const mutator_weapon_fields[] =
 	MUTATOR_FIELD(struct weapon_definition, weapon.age_misfire_chance, _mutator_field_real, 0.f, 1.f),
 	MUTATOR_FIELD(struct weapon_definition, weapon.active_camo_ding, _mutator_field_real, 0.f, 1.f),
 	MUTATOR_FIELD(struct weapon_definition, weapon.active_camo_regrowth_rate, _mutator_field_real, 0.f, 1.f),
+	MUTATOR_BLOCK_FIELD(struct weapon_definition, weapon.magazines, struct weapon_magazine_definition, NULL, 0,
+		mutator_weapon_magazine_definition),
 	MUTATOR_BLOCK_FIELD(struct weapon_definition, weapon.triggers, struct weapon_trigger_definition, NULL, 0,
 		mutator_weapon_trigger_definition),
 };
@@ -289,6 +306,8 @@ static struct mutator_tag_definition const mutator_projectile_material_response_
 static struct mutator_tag_field const mutator_projectile_fields[] =
 {
 	MUTATOR_FIELD(struct projectile_definition, projectile.maximum_range, _mutator_field_real, 0.f, 10000.f),
+	MUTATOR_FIELD(struct projectile_definition, projectile.air_gravity_scale, _mutator_field_real, 0.f, 10.f),
+	MUTATOR_FIELD(struct projectile_definition, projectile.water_gravity_scale, _mutator_field_real, 0.f, 10.f),
 	MUTATOR_FIELD(struct projectile_definition, projectile.air_damage_range_lower_bound, _mutator_field_real, 0.f,
 		10000.f),
 	MUTATOR_FIELD(struct projectile_definition, projectile.air_damage_range_upper_bound, _mutator_field_real, 0.f,

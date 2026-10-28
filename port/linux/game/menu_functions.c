@@ -2224,7 +2224,9 @@ details; OK keeps it (port/linux/src/port_mods.c's load_order.toml) and
 plays them on the map now (mods.c), Cancel forgets it. MUTATORS shows the
 mutators in the rows instead (port/linux/src/port_mutators.c), in the order
 they are found, and MODS the mods again: each turned on or off there, kept
-by OK (game.mutators) as the mods are, and played from the next game */
+by OK (game.mutators) as the mods are, and played from the next game.
+Server Setup's MUTATOR OPTIONS is a screen of the same rows, the mutators'
+only ("port mutators init", "port mutators save") */
 
 #define MOD_ROWS 11
 #define MOD_DETAILS_LENGTH 1024
@@ -2519,6 +2521,16 @@ static boolean mods_screen_reset(void)
 	return TRUE;
 }
 
+/* "port mutators init" (MUTATOR OPTIONS' list's created): the mutators
+folder found again, and the rows the mutators' */
+static boolean mutators_screen_initialize(void)
+{
+	port_mutators_scan();
+	mods_screen_reset();
+	mods_screen.mutators = TRUE;
+	return TRUE;
+}
+
 /* "port mods toggle" (A on a row; a mod that cannot be played stays as it
 is, so that it is still off when it can be) */
 static boolean mods_toggle(struct widget_instance *widget)
@@ -2751,6 +2763,14 @@ static boolean mods_save(void)
 	port_mods_save();
 	port_mutators_save();
 	mods_apply();
+	return TRUE;
+}
+
+/* "port mutators save" (MUTATOR OPTIONS' OK): kept, and played from the
+next game */
+static boolean mutators_save(void)
+{
+	port_mutators_save();
 	return TRUE;
 }
 
@@ -3502,11 +3522,13 @@ static char const *const server_settings_gametype_rows[] =
 /* the most players a co-op game hosted starts with (maximum_players') */
 #define COOPERATIVE_DEFAULT_PLAYERS 16
 /* Server Setup's help for co-op's options' rows (CO-OP OPTIONS, VOICE AND
-VOTING), PASSWORD's and MAP SHARING's (its help_strings, tools/port_settings.py) */
+VOTING), PASSWORD's, MAP SHARING's and MUTATOR OPTIONS' (its help_strings,
+tools/port_settings.py) */
 #define COOPERATIVE_OPTIONS_HELP 12
 #define COOPERATIVE_VOICE_OPTIONS_HELP 13
 #define SERVER_PASSWORD_HELP 14
 #define MAP_SHARE_OPTIONS_HELP 15
+#define MUTATOR_OPTIONS_HELP 16
 
 /* co-op's EXTRA ENEMIES' choices (network.coop_enemies_mode's values, as
 gametype_options' coop_extra_enemies_spinner has them, in this order): its
@@ -3649,6 +3671,9 @@ static void server_settings_update(struct widget_instance *list)
 			/* (MAP SHARING's, any game's: map_share.c) */
 			else if (help && list->focused_child == named(list, "op_map_share_options", 0))
 				help->parameters.text_box.string_list_index = MAP_SHARE_OPTIONS_HELP;
+			/* (MUTATOR OPTIONS', any game's: port_mutators.c) */
+			else if (help && list->focused_child == named(list, "op_mutator_options", 0))
+				help->parameters.text_box.string_list_index = MUTATOR_OPTIONS_HELP;
 		}
 	}
 	/* LISTING (an internet game's): PUBLIC, listed in everyone's server
@@ -6536,6 +6561,14 @@ boolean pc_menu_event_function_invoke(
 			if (!strcmp(name, "port mods init"))
 				port_mutators_scan();
 			return mods_screen_reset();
+		}
+		else if (!strcmp(name, "port mutators init"))
+		{
+			return mutators_screen_initialize();
+		}
+		else if (!strcmp(name, "port mutators save"))
+		{
+			return mutators_save();
 		}
 		else if (!strcmp(name, "port mods switch"))
 		{

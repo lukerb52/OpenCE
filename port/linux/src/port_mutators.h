@@ -1,8 +1,8 @@
 /*
 PORT_MUTATORS.H
 
-The mutators (port_mutators.c): those built into the game and those in the
-data root's mutators folder, each a mutator.toml naming effects the game
+The mutators (port_mutators.c): the stock mutators (in the data root's
+stock_mutators folder) and those in its mutators folder, each a mutator.toml naming effects the game
 has built in (port/linux/game/mutators.c) and their parameters' values, and
 the tags' values it sets (port/linux/game/mutator_tags.c), and which are on
 (game.mutators). port/linux/game/mutators.c and
