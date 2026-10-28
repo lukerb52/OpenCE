@@ -9,7 +9,8 @@ machine.
 The game's code is `port/linux/game/mutators.c` (the effects and their
 parameters), `mutator_big_head.c` (the big head), `mutator_tags.c` (the tag
 edits), `network_mutators.c` (the host's mutators sent to its clients) and
-`port/linux/src/port_mutators.c` (the mutators' files).
+`port/linux/src/port_mutators.c` (the mutators' files). The stock mutators'
+files are `port/assets/mutators`.
 
 ## What a mutator can do
 
@@ -143,9 +144,8 @@ sounds, silently.
 
 ### Revolved plasma rifle
 
-The plasma rifle as Combat Revolved has it. It zooms 2x, with the pistol's
-scope (as the accurized MA5B does: not Combat Revolved's own scope art) and
-the sniper rifle's zoom sounds. It fires 6 rounds a second, rising to 9 in
+The plasma rifle as Combat Revolved has it, without its 2x zoom: it does not
+zoom, as the stock rifle does not. It fires 6 rounds a second, rising to 9 in
 0.8 seconds (the stock rifle's 7 to 10 in 1.8) and falling back in 0.6; its
 bolts spread up to 0.75 degrees (the stock 2.5), building in 0.8 seconds and
 settling in 0.6 (the stock 2.5, and at once). Each round heats it 0.0861
@@ -164,20 +164,40 @@ stock none), a quarter to a hunter's armor (the stock half), all of it to a
 hunter's skin, cyborg armor and rubber, and half to hollow metal. A hunter's
 shield no longer reflects them.
 
-Its melee (Combat Revolved's is 91) and the flash of its firing are stock.
+Its melee (Combat Revolved's is 91), the flash of its firing and its HUD are
+stock.
 
 ## The mutators
 
-The game has the mutators built into it (`big_head`, `accurized_ma5b`,
-`revolved_plasma_rifle`), and the mutators in
-the `mutators` folder of the data root (the folder with `maps/`). Each
-mutator is a folder with a `mutator.toml`:
+The mutators are in two folders of the data root (the folder with `maps/`),
+each mutator a folder with a `mutator.toml`:
 
 ```
-mutators/
+stock_mutators/           the game's own: written again at each start
+  README.txt
+  accurized_ma5b/
+    mutator.toml
+  big_head/
+    mutator.toml
+  revolved_plasma_rifle/
+    mutator.toml
+mutators/                 yours: the game never writes here
   huge_heads/
     mutator.toml
 ```
+
+The stock mutators are embedded in the game (from `port/assets/mutators`,
+by `tools/embed_assets.py`). Each time the game looks for the mutators (as
+it starts, and as the Mods menu opens), it writes them
+into `stock_mutators`, in place of any file there that differs, and plays
+them as it has them: a change made in `stock_mutators` is lost, and a folder
+added there is not read. So two machines of one build always play the same
+stock mutators. Where `stock_mutators` cannot be written (a data root that
+cannot be written to), the game plays them all the same, and `debug.txt`
+says so.
+
+To make a mutator from a stock one, copy its folder into `mutators` and
+give it an `id` of its own: with the stock one's, it cannot be played.
 
 ```toml
 name = "Huge heads"     # what the Mods menu shows (else the folder's name)
@@ -208,16 +228,22 @@ and the Mods menu says why, if:
 Limits: 64 mutators, folder names of 63 bytes at most, 16 effects and
 parameters in a mutator.
 
-On the web, only the mutators built into the game are found: the page cannot
-add a mutators folder yet.
+On the web, only the stock mutators are found: the page cannot add a
+mutators folder yet.
 
 ## Turning them on
 
-The main menu's **Mods**, then **MUTATORS**, shows the mutators in the rows
-in place of the mods (built-in first, then the folders by name). **MODS**
-shows the mods again. A turns the chosen mutator on or off; the details say
-what it sets and why it cannot be played, if it cannot. **OK** keeps the
-mods and the mutators, **Cancel** forgets both.
+Server Setup (Create Game, before **START GAME**) has **MUTATOR OPTIONS**,
+below **MAP SHARING**: a screen of the mutators (the stock mutators first,
+then the folders of `mutators`, each by name), a row each, ON or OFF. A turns
+the chosen mutator on or off; the details say what it sets and why it cannot
+be played, if it cannot. **OK** keeps them, and the game started next plays
+them; **Cancel** forgets them.
+
+The main menu's **Mods**, then **MUTATORS**, shows the same rows in place of
+the mods, for games that have no Server Setup (the campaign). **MODS** shows
+the mods again. **OK** keeps the mods and the mutators, **Cancel** forgets
+both.
 
 The mutators turned on are `game.mutators` in `config.toml` (their ids,
 separated by commas; `HALO_MUTATORS` for one run). Empty, the default, plays

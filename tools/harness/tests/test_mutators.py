@@ -85,19 +85,22 @@ def test_message_id():
 
 
 def test_menu():
-    """the Mods screen's MUTATORS, as the generator writes it, runs a function the menus have (else the game
-    refuses the PC menus and plays the Xbox's)"""
+    """the Mods screen's MUTATORS and Server Setup's MUTATOR OPTIONS, as the generator writes them, run functions the
+    menus have (else the game refuses the PC menus and plays the Xbox's)"""
     import xml.etree.ElementTree as ET
     import port_settings
-    name = port_settings.MODS.replace('/', '.') + '.xml'
-    lines = port_settings.multiplayer_files()[name]
-    assert '\n'.join(lines) == read('port/assets/menus/ce/' + name), 'the screen is not the generator\'s'
-    root = ET.fromstring('\n'.join(lines))
-    runs = {handler.attrib['run'] for handler in root.iter('on') if 'run' in handler.attrib}
-    assert 'port mods switch' in runs
     tags = read('port/linux/game/menu_tags.c')
     table = tags[tags.index('"port mods init"'):]
     table = table[:table.index('};')]
-    for run_name in (name for name in runs if name.startswith('port mods')):
-        assert f'"{run_name}"' in table, run_name
-    assert '"port mods switch"' in read('port/linux/game/menu_functions.c')
+    functions = read('port/linux/game/menu_functions.c')
+    for screen, wanted in ((port_settings.MODS, 'port mods switch'),
+                           (f'{port_settings.MT}/server_settings', 'port mutators init')):
+        name = screen.replace('/', '.') + '.xml'
+        lines = port_settings.multiplayer_files()[name]
+        assert '\n'.join(lines) == read('port/assets/menus/ce/' + name), f'{name} is not the generator\'s'
+        root = ET.fromstring('\n'.join(lines))
+        runs = {handler.attrib['run'] for handler in root.iter('on') if 'run' in handler.attrib}
+        assert wanted in runs
+        for run_name in (name for name in runs if name.startswith(('port mods', 'port mutators'))):
+            assert f'"{run_name}"' in table, run_name
+            assert f'"{run_name}"' in functions, run_name
