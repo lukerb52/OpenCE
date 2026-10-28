@@ -34,3 +34,6 @@ dist/
 
 # tools
 claude.sh
+
+# add-ons built from maps (tools/cevehicle_build.c): rebuilt, never committed
+addons/**/*.cevehicle

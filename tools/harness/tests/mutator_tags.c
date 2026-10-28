@@ -200,6 +200,10 @@ static char *tag_get_name(long tag_index)
 /* the platform layer's, as test_port_mutators.py fakes it (no mutators folder) */
 struct fake_folder { char const *name; char const *text; unsigned long size; };
 static struct fake_folder folders[32];
+/* (files beside them, as test_port_mutators.py's stubs read them: none) */
+struct fake_file { char const *path; char const *bytes; unsigned long size; };
+static struct fake_file files[1];
+static int file_count;
 static int folder_count, listed, reads, logged;
 static char setting[300], written[300];
 
@@ -644,7 +648,7 @@ int main(int argc, char **argv)
 				"crosshairs = { from = 'y', run = 'z' }\n", "not run" },
 			{ "nameless", "[[tags]]\ngroup = \"weapon\"\nzoom_level_count = 1\n", "names its group and its tag" },
 			{ "reference", "[[tags]]\ngroup = \"weapon\"\ntag = 'x'\nzoom_in_sound = 3\n", "a tag's name" },
-			{ "nothing", "name = \"Nothing\"\n", "no effect and edits no tag" },
+			{ "nothing", "name = \"Nothing\"\n", "no effect, edits no tag and adds nothing" },
 			{ "array", "[[tags]]\ngroup = \"damage_effect\"\ntag = 'x'\n[tags.material_modifiers]\nlava = 1\n",
 				"name one of material_modifiers" },
 			{ "array_range", "[[tags]]\ngroup = \"damage_effect\"\ntag = 'x'\n[tags.material_modifiers]\n"
@@ -661,7 +665,7 @@ int main(int argc, char **argv)
 				"reload_time = 1\n", "no field" },
 			{ "gravity_range", "[[tags]]\ngroup = \"projectile\"\ntag = 'x'\nair_gravity_scale = -1\n",
 				"from 0 to 10" },
-			{ "later", "format = 3\n[[tags]]\ngroup = \"weapon\"\ntag = 'x'\nzoom_level_count = 1\n", "later build" },
+			{ "later", "format = 4\n[[tags]]\ngroup = \"weapon\"\ntag = 'x'\nzoom_level_count = 1\n", "later build" },
 		};
 		for (index = 0; index < (int)NUMBEROF(cases); index++)
 			folder(cases[index].id, cases[index].text);

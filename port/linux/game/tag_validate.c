@@ -1287,6 +1287,43 @@ boolean tag_validate_custom_edition_tags(
 	return validate_tag_table(&validation, header->instances, header->tag_count);
 }
 
+boolean tag_validate_addon_tags(
+	void *tag_header,
+	long size,
+	struct tag_validate_file_range const *file_range,
+	char const *addon_name)
+{
+	/* (the map's, for its structure bsps' checks as they load, and the
+	claims of its tags) */
+	static unsigned long saved_claims[CLAIM_WORDS];
+	struct tag_validate_globals_saved
+	{
+		struct tag_validate_header *header;
+		long tag_data_size;
+		unsigned long tag_cache_size;
+		struct tag_validate_file_range file_ranges[MAXIMUM_TAG_VALIDATE_FILE_RANGES];
+		short file_range_count;
+		boolean custom_edition;
+		char map_name[64];
+		long corrections;
+	} saved;
+	boolean valid;
+	long corrections;
+
+	typedef char verify_saved_size[sizeof(saved) == sizeof(tag_validate_globals) ? 1 : -1];
+
+	csmemcpy(&saved, &tag_validate_globals, sizeof(saved));
+	csmemcpy(saved_claims, tag_validate_claims, sizeof(saved_claims));
+	valid = size >= 0 && (unsigned long)size <= TAG_VALIDATE_MAXIMUM_TAG_CACHE_SIZE &&
+		tag_validate_custom_edition_tags(tag_header, size, (unsigned long)size, file_range, 1, addon_name);
+	corrections = tag_validate_globals.corrections;
+	csmemcpy(&tag_validate_globals, &saved, sizeof(saved));
+	csmemcpy(tag_validate_claims, saved_claims, sizeof(saved_claims));
+	tag_validate_globals.corrections = corrections;
+
+	return valid;
+}
+
 boolean tag_validate_structure_bsp(
 	long tag_index,
 	void *base,

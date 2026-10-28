@@ -313,6 +313,16 @@ boolean tag_validate_custom_edition_tags(
 	short file_range_count,
 	char const *map_name);
 
+/* an add-on's tags (port/linux/game/addons.c: size bytes at tag_header,
+laid out as a Custom Edition map's tags are, whose pixels and samples are in
+file_range): FALSE if they cannot be used. They are checked as
+tag_validate_custom_edition_tags checks a map's, and the map's own checks
+(its structure bsps' as they load) are as they were before */
+boolean tag_validate_addon_tags(
+	void *tag_header,
+	long size,
+	struct tag_validate_file_range const *file_range,
+	char const *addon_name);
 /* a structure bsp just read (size bytes at base, its header there) as tag
 tag_index: FALSE if it cannot be used */
 boolean tag_validate_structure_bsp(

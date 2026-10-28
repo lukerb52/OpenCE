@@ -15,8 +15,10 @@ files are `port/assets/mutators`.
 ## What a mutator can do
 
 A mutator is only data. It names effects that the game has built in, and
-gives values to their parameters; and it sets values of the map's tags, of
-the fields that the game lists (the tag edits, below). Nothing in a mutator
+gives values to their parameters; it sets values of the map's tags, of
+the fields that the game lists (the tag edits, below); and it can add a
+vehicle, with every tag it uses, to the maps it is played on (an add-on,
+`format = 3`: [addons.md](addons.md)), checked as a map's tags are. Nothing in a mutator
 runs. The game refuses a mutator that names an effect, a parameter, a key or
 a field that it does not have, or a value outside the range of its parameter
 or field. So a mutator can do no more than the built-in effects do, and than
@@ -222,13 +224,15 @@ format = 1              # the mutators' format it is made for
 scale = 4               # its parameters (else their defaults)
 ```
 
-Every key but `effects` or `tags` is optional. A mutator cannot be played,
-and the Mods menu says why, if:
+Every key but `effects`, `tags` or `addon` is optional. `addon` and
+`[[place]]` add a vehicle and place it ([addons.md](addons.md)). A mutator
+cannot be played, and the Mods menu says why, if:
 
 - `mutator.toml` is not TOML, or is larger than 64 KB;
 - it has a key that the game does not know (at the top or in `effects`);
-- it names no effect and edits no tag, or names an effect that the game does
-  not have, or a value out of its parameter's range;
+- it names no effect, edits no tag and adds nothing, or names an effect
+  that the game does not have, or a value out of its parameter's range;
+- its add-on or places are not as [addons.md](addons.md) says;
 - it edits a group, a field or an element (by its name) that the game does
   not edit, with a value that is not of the field's kind or is out of its
   range;
@@ -282,3 +286,6 @@ it.
   and makes the edits when it has them all. Edits of a group, field or value
   that its build does not take leave none made, and the log says so.
 - Each machine's console and `debug.txt` name the mutators of the game.
+- An add-on is not sent yet: each machine adds those of its own mutators
+  that are on, so every machine of a game must have the same add-ons on
+  (network version 43, [addons.md](addons.md)).

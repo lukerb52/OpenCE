@@ -57,8 +57,9 @@ are played instead (port/linux/game/network_mutators.c).
 
 /* ---------- constants */
 
-/* the mutators' format this build plays (2: tag edits) */
-#define MUTATORS_FORMAT 2
+/* the mutators' format this build plays (2: tag edits; 3: an add-on and its
+placements) */
+#define MUTATORS_FORMAT 3
 
 #define MAXIMUM_MUTATORS 64
 #define MAXIMUM_MUTATOR_FOLDER_LENGTH 64
@@ -78,6 +79,10 @@ copy's most elements (mutator_tags.c's) */
 #define TAG_EDIT_PATH_LENGTH 64
 #define TAG_EDIT_TEXT_LENGTH 256
 #define MAXIMUM_TAG_EDIT_ELEMENTS 64
+/* the most placements one mutator has */
+#define MAXIMUM_PLACES_PER_MUTATOR 16
+/* the largest add-on file played (docs/addons.md) */
+#define MAXIMUM_ADDON_FILE_SIZE (64UL * 1024 * 1024)
 
 /* a tag edit's kind (mutators.h's) */
 enum
@@ -111,6 +116,11 @@ struct port_mutator
 	long tag_edit_size;
 	long tag_edit_count;
 	long tag_count;
+	/* its add-on's file (docs/addons.md), else empty, and where it places
+	the add-on's vehicles */
+	char addon_path[MAXIMUM_PATH_LENGTH];
+	long place_count;
+	struct port_mutator_place places[MAXIMUM_PLACES_PER_MUTATOR];
 };
 
 /* ---------- globals */
@@ -525,11 +535,154 @@ static void tags_read(struct port_mutator *mutator, toml_datum_t tags, const cha
 }
 
 /* a mutator from its mutator.toml's text */
+/* a number of a table, or refused (when it is there and is not one, or
+`required` and it is not there) */
+static int toml_number(toml_datum_t table, const char *key, int required, double *number,
+	struct port_mutator *mutator, const char *path)
+{
+	toml_datum_t value = toml_get(table, key);
+	char reason[MAXIMUM_REFUSAL_LENGTH];
+
+	if (value.type == TOML_INT64)
+		*number = (double)value.u.int64;
+	else if (value.type == TOML_FP64)
+		*number = value.u.fp64;
+	else if (value.type != TOML_UNKNOWN || required)
+	{
+		snprintf(reason, sizeof(reason), "line %d: %s is %s", value.lineno, key,
+			value.type == TOML_UNKNOWN ? "missing" : "not a number");
+		refuse(mutator, path, reason);
+		return 0;
+	}
+	else
+		return 0;
+	return 1;
+}
+
+/* [[place]]: where the add-on's vehicles are placed, on which map */
+static void places_read(struct port_mutator *mutator, toml_datum_t places, const char *path)
+{
+	static const char *const keys[] = { "map", "vehicle", "position", "facing" };
+	char reason[MAXIMUM_REFUSAL_LENGTH];
+	int index;
+
+	if (places.type != TOML_ARRAY)
+	{
+		refuse(mutator, path, "place is not a list of tables ([[place]])");
+		return;
+	}
+	for (index = 0; index < places.u.arr.size; index++)
+	{
+		toml_datum_t table = places.u.arr.elem[index];
+		struct port_mutator_place *place;
+		toml_datum_t position;
+		double facing = 0.;
+		int key;
+		int field;
+
+		if (table.type != TOML_TABLE)
+		{
+			refuse(mutator, path, "place is not a list of tables ([[place]])");
+			return;
+		}
+		if (mutator->place_count == MAXIMUM_PLACES_PER_MUTATOR)
+		{
+			snprintf(reason, sizeof(reason), "it places more than %d vehicles", MAXIMUM_PLACES_PER_MUTATOR);
+			refuse(mutator, path, reason);
+			return;
+		}
+		for (key = 0; key < table.u.tab.size; key++)
+		{
+			size_t known;
+
+			for (known = 0; known < sizeof(keys) / sizeof(keys[0]); known++)
+			{
+				if (!strcmp(table.u.tab.key[key], keys[known]))
+					break;
+			}
+			if (known == sizeof(keys) / sizeof(keys[0]))
+			{
+				snprintf(reason, sizeof(reason), "line %d: a place has no key %.40s", table.u.tab.value[key].lineno,
+					table.u.tab.key[key]);
+				refuse(mutator, path, reason);
+			}
+		}
+		place = &mutator->places[mutator->place_count];
+		memset(place, 0, sizeof(*place));
+		if (!toml_text(table, "map", mutator, path) || !toml_text(table, "vehicle", mutator, path) ||
+			strlen(toml_text(table, "map", mutator, path)) >= sizeof(place->map) ||
+			strlen(toml_text(table, "vehicle", mutator, path)) >= sizeof(place->vehicle))
+		{
+			snprintf(reason, sizeof(reason), "line %d: a place needs a map and a vehicle (a tag's name)", table.lineno);
+			refuse(mutator, path, reason);
+			continue;
+		}
+		snprintf(place->map, sizeof(place->map), "%s", toml_text(table, "map", mutator, path));
+		snprintf(place->vehicle, sizeof(place->vehicle), "%s", toml_text(table, "vehicle", mutator, path));
+		position = toml_get(table, "position");
+		if (position.type != TOML_ARRAY || position.u.arr.size != 3)
+		{
+			snprintf(reason, sizeof(reason), "line %d: a place's position is three numbers (world units)", table.lineno);
+			refuse(mutator, path, reason);
+			continue;
+		}
+		for (field = 0; field < 3; field++)
+		{
+			toml_datum_t number = position.u.arr.elem[field];
+
+			if (number.type == TOML_INT64)
+				place->position[field] = (float)number.u.int64;
+			else if (number.type == TOML_FP64 && number.u.fp64 > -100000. && number.u.fp64 < 100000.)
+				place->position[field] = (float)number.u.fp64;
+			else
+			{
+				snprintf(reason, sizeof(reason), "line %d: a place's position is three numbers (world units)",
+					table.lineno);
+				refuse(mutator, path, reason);
+				break;
+			}
+		}
+		if (field < 3)
+			continue;
+		if (toml_number(table, "facing", 0, &facing, mutator, path) && (facing < -360. || facing > 360.))
+		{
+			snprintf(reason, sizeof(reason), "line %d: a place's facing is -360 to 360 degrees", table.lineno);
+			refuse(mutator, path, reason);
+			continue;
+		}
+		place->facing = (float)facing;
+		mutator->place_count++;
+	}
+}
+
+/* addon: the add-on file beside mutator.toml (a name alone: no folder) */
+static void addon_read(struct port_mutator *mutator, const char *path, const char *name)
+{
+	struct posix_file_information information;
+	size_t folder_length = strlen(path) - strlen("mutator.toml");
+
+	if (!name[0] || strchr(name, '/') || strchr(name, '\\') || !strcmp(name, "..") || name[0] == '.')
+	{
+		refuse(mutator, path, "its addon is not a file's name beside its mutator.toml");
+		return;
+	}
+	if (folder_length + strlen(name) >= sizeof(mutator->addon_path))
+	{
+		refuse(mutator, path, "its addon's path is too long");
+		return;
+	}
+	snprintf(mutator->addon_path, sizeof(mutator->addon_path), "%.*s%s", (int)folder_length, path, name);
+	if (posix_stat(mutator->addon_path, &information) != 0)
+		refuse(mutator, path, "its addon's file is not there");
+	else if (information.size_high || information.size_low > MAXIMUM_ADDON_FILE_SIZE)
+		refuse(mutator, path, "its addon's file is larger than 64 MB");
+}
+
 static void mutator_read(struct port_mutator *mutator, const char *folder, const char *text, size_t size,
 	const char *path)
 {
 	static const char *const keys[] = { "name", "id", "version", "authors", "description", "format", "effects",
-		"tags" };
+		"tags", "addon", "place" };
 	toml_result_t result;
 	toml_datum_t value;
 	char reason[MAXIMUM_REFUSAL_LENGTH];
@@ -601,8 +754,24 @@ static void mutator_read(struct port_mutator *mutator, const char *folder, const
 	value = toml_get(result.toptab, "tags");
 	if (value.type != TOML_UNKNOWN)
 		tags_read(mutator, value, path);
-	if (!mutator->key_count && !mutator->tag_edit_count)
-		refuse(mutator, path, "it turns on no effect and edits no tag");
+	if (toml_text(result.toptab, "addon", mutator, path))
+	{
+		/* (the stock mutators have none: their folders are written from
+		mutator.toml alone) */
+		if (mutator->stock)
+			refuse(mutator, path, "a stock mutator has no addon");
+		else
+			addon_read(mutator, path, toml_text(result.toptab, "addon", mutator, path));
+	}
+	value = toml_get(result.toptab, "place");
+	if (value.type != TOML_UNKNOWN)
+	{
+		places_read(mutator, value, path);
+		if (!mutator->addon_path[0])
+			refuse(mutator, path, "it places vehicles but has no addon");
+	}
+	if (!mutator->key_count && !mutator->tag_edit_count && !mutator->addon_path[0])
+		refuse(mutator, path, "it turns on no effect, edits no tag and adds nothing");
 	toml_free(result);
 }
 
@@ -874,6 +1043,87 @@ long port_mutators_tag_edits(unsigned char *edits, long maximum)
 	return size;
 }
 
+/* the mutators on that can be played that have an add-on, in their order */
+static const struct port_mutator *addon_mutator(long index)
+{
+	long mutator_index;
+
+	for (mutator_index = 0; mutator_index < port_mutators.count; mutator_index++)
+	{
+		const struct port_mutator *mutator = &port_mutators.mutators[mutator_index];
+
+		if (!mutator->on || mutator->refusal[0] || !mutator->addon_path[0])
+			continue;
+		if (!index--)
+			return mutator;
+	}
+	return NULL;
+}
+
+long port_mutators_addon_count(void)
+{
+	long count = 0;
+
+	if (!port_mutators.scans)
+		port_mutators_scan();
+	while (addon_mutator(count))
+		count++;
+	return count;
+}
+
+unsigned long port_mutators_addon_size(long index, char *name, unsigned long name_size)
+{
+	const struct port_mutator *mutator = addon_mutator(index);
+	struct posix_file_information information;
+
+	if (!mutator || posix_stat(mutator->addon_path, &information) != 0 || information.size_high ||
+		information.size_low > MAXIMUM_ADDON_FILE_SIZE)
+	{
+		return 0;
+	}
+	if (name && name_size)
+		snprintf(name, name_size, "%s", mutator->id);
+	return (unsigned long)information.size_low;
+}
+
+int port_mutators_addon_read(long index, void *buffer, unsigned long size)
+{
+	const struct port_mutator *mutator = addon_mutator(index);
+	size_t read_size = 0;
+	char *bytes;
+	int read;
+
+	if (!mutator || !(bytes = config_file_read(mutator->addon_path, &read_size)))
+		return 0;
+	read = read_size == size;
+	if (read)
+		memcpy(buffer, bytes, size);
+	else
+		platform_log("mutators: %s changed as it was read", mutator->addon_path);
+	free(bytes);
+	return read;
+}
+
+long port_mutators_places(struct port_mutator_place *places, long maximum)
+{
+	long count = 0;
+	long index;
+
+	if (!port_mutators.scans)
+		port_mutators_scan();
+	for (index = 0; index < port_mutators.count; index++)
+	{
+		const struct port_mutator *mutator = &port_mutators.mutators[index];
+		long place;
+
+		if (!mutator->on || mutator->refusal[0])
+			continue;
+		for (place = 0; place < mutator->place_count && count < maximum; place++)
+			places[count++] = mutator->places[place];
+	}
+	return count;
+}
+
 long port_mutators_count(void)
 {
 	return port_mutators.count;
@@ -939,8 +1189,13 @@ int port_mutators_details(long index, char *text, unsigned long size)
 		snprintf(text + length, size - length, "%sTag edits: %ld, of %ld tags", mutator->key_count ? "\n" : "",
 			mutator->tag_edit_count, mutator->tag_count);
 	length = strlen(text);
+	if (mutator->addon_path[0])
+		snprintf(text + length, size - length, "%sAdds: %s, placed %ld times", mutator->key_count ||
+			mutator->tag_edit_count ? "\n" : "", strrchr(mutator->addon_path, '/') ?
+			strrchr(mutator->addon_path, '/') + 1 : mutator->addon_path, mutator->place_count);
+	length = strlen(text);
 	snprintf(text + length, size - length, "%sPlayed in the next game you host or play alone; a game you join "
-		"plays its host's.\n", mutator->key_count || mutator->tag_edit_count ? "\n" : "");
+		"plays its host's.\n", mutator->key_count || mutator->tag_edit_count || mutator->addon_path[0] ? "\n" : "");
 	length = strlen(text);
 	if (mutator->description[0])
 		snprintf(text + length, size - length, "\n%s", mutator->description);

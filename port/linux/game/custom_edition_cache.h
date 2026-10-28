@@ -338,6 +338,24 @@ boolean custom_edition_models_convert(
 void custom_edition_models_dispose(
 	void);
 
+/* An add-on's gbxmodels (port/linux/game/addons.c: `count` of them, named
+`names`, as its tag data has them) given this build's layout and compressed
+geometry in buffers of their own, made from the add-on's `model_data_bytes`
+of model data, whose strips start at `index_data_offset`. Their geometry is
+checked to lie within it first. Returns the geometry, which
+custom_edition_addon_models_dispose releases, or NULL after logging why: the
+models are then partly converted and must not be used. */
+struct model;
+void *custom_edition_addon_models_convert(
+	struct model **models,
+	char const *const *names,
+	long count,
+	byte *model_data,
+	unsigned long model_data_bytes,
+	unsigned long index_data_offset);
+void custom_edition_addon_models_dispose(
+	void *geometry);
+
 /* Called by scenario_structure_bsp_load and scenario_structure_bsp_unload
 for the structure BSPs of a Custom Edition map: gives its materials
 compressed vertices and buffers, or releases them. The load returns FALSE

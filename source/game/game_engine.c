@@ -7843,6 +7843,19 @@ long game_engine_remap_vehicle(
 	(port/linux/game/custom_edition_objects.c) */
 	if (custom_edition_vehicles_by_placement())
 		return result;
+	/* port: and an add-on's vehicle, which no vehicle set names, is placed
+	where its mutator places it, unless the variant has no vehicles
+	(port/linux/game/addons.c) */
+	{
+		extern boolean addons_vehicle(long definition_index);
+
+		if (addons_vehicle(result) && !(game_engine &&
+			game_variant_options_get()->vehicle_set[0] == _game_engine_vehicles_none &&
+			game_variant_options_get()->vehicle_set[1] == _game_engine_vehicles_none))
+		{
+			return result;
+		}
+	}
 	/* port: and the PC vehicle set's are every one the map places
 	(game_engine_vehicle_placement_allowed) */
 	if (game_engine && (game_variant_options_get()->vehicle_set[0] == VARIANT_VEHICLE_SET_PC ||

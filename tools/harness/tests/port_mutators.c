@@ -19,6 +19,10 @@ game.mutators turns on, and what the Mods menu keeps.
 none) */
 struct fake_folder { char const *name; char const *text; unsigned long size; };
 static struct fake_folder folders[8];
+/* files beside the mutators' mutator.toml (their add-ons), by path */
+struct fake_file { char const *path; char const *bytes; unsigned long size; };
+static struct fake_file files[4];
+static int file_count;
 static int folder_count, listed, reads, logged;
 static char setting[300], written[300];
 
@@ -29,6 +33,13 @@ static void folder(char const *name, char const *text)
 	folders[folder_count].name = name;
 	folders[folder_count].text = text;
 	folders[folder_count++].size = text ? (unsigned long)strlen(text) : 0;
+}
+
+static void file(char const *path, char const *bytes)
+{
+	files[file_count].path = path;
+	files[file_count].bytes = bytes;
+	files[file_count++].size = (unsigned long)strlen(bytes);
 }
 
 /* whether the file written at `path` has `text` in it */
@@ -152,6 +163,55 @@ int main(int argc, char **argv)
 			!strcmp(keys[3], "big_head.scale") && values[3] == 4.0, "the keys of those that can be played, in order");
 		CHECK(!strcmp(port_mutators_name(find("zeta")), "Huge heads"), "the name");
 		CHECK(port_mutators_keys(keys, values, 3) == 3, "the most keys asked for");
+	}
+	else if (!strcmp(case_name, "addons"))
+	{
+		struct port_mutator_place places[8];
+		char bytes[64];
+		char name[64];
+
+		folder("falcon", "format = 3\naddon = \"falcon.cevehicle\"\n"
+			"[[place]]\nmap = \"bloodgulch\"\nvehicle = 'vehicles\\falcon\\falcon'\n"
+			"position = [35.75, -98.335, 1]\nfacing = -48.6\n"
+			"[[place]]\nmap = \"sidewinder\"\nvehicle = 'vehicles\\falcon\\falcon'\nposition = [1, 2, 3]\n");
+		file("/data/mutators/falcon/falcon.cevehicle", "cevh: the add-on's bytes");
+		folder("missing", "addon = \"gone.cevehicle\"\n");
+		folder("path", "addon = \"sub/falcon.cevehicle\"\n");
+		folder("unplaced", "[effects.big_head]\n[[place]]\nmap = \"bloodgulch\"\nvehicle = 'v'\nposition = [0, 0, 0]\n");
+		folder("position", "addon = \"p.cevehicle\"\n[[place]]\nmap = \"m\"\nvehicle = 'v'\nposition = [0, 0]\n");
+		file("/data/mutators/position/p.cevehicle", "cevh");
+		folder("unknown", "addon = \"u.cevehicle\"\n[[place]]\nmap = \"m\"\nvehicle = 'v'\nposition = [0, 0, 0]\n"
+			"team = \"red\"\n");
+		file("/data/mutators/unknown/u.cevehicle", "cevh");
+		strcpy(setting, "falcon,missing,path,unplaced,position,unknown");
+		port_mutators_scan();
+		CHECK(port_mutators_status(find("falcon"), text, sizeof(text)) == _port_mutator_fine, "an add-on: %s", text);
+		CHECK(port_mutators_status(find("missing"), text, sizeof(text)) == _port_mutator_unplayable &&
+			strstr(text, "not there"), "an add-on's file that is not there: %s", text);
+		CHECK(port_mutators_status(find("path"), text, sizeof(text)) == _port_mutator_unplayable &&
+			strstr(text, "beside"), "an add-on in another folder: %s", text);
+		CHECK(port_mutators_status(find("unplaced"), text, sizeof(text)) == _port_mutator_unplayable &&
+			strstr(text, "no addon"), "placements without an add-on: %s", text);
+		CHECK(port_mutators_status(find("position"), text, sizeof(text)) == _port_mutator_unplayable &&
+			strstr(text, "three numbers"), "a position of two numbers: %s", text);
+		CHECK(port_mutators_status(find("unknown"), text, sizeof(text)) == _port_mutator_unplayable &&
+			strstr(text, "team"), "a placement's key this build does not know: %s", text);
+		CHECK(port_mutators_addon_count() == 1, "the add-ons of the mutators on that can be played (%ld)",
+			port_mutators_addon_count());
+		CHECK(port_mutators_addon_size(0, name, sizeof(name)) == strlen("cevh: the add-on's bytes") &&
+			!strcmp(name, "falcon"), "the add-on's size and its mutator's id");
+		memset(bytes, 0, sizeof(bytes));
+		CHECK(port_mutators_addon_read(0, bytes, strlen("cevh: the add-on's bytes")) &&
+			!strcmp(bytes, "cevh: the add-on's bytes"), "the add-on's bytes");
+		CHECK(!port_mutators_addon_read(0, bytes, 4), "a read of another size");
+		CHECK(port_mutators_addon_size(1, name, sizeof(name)) == 0, "past the add-ons");
+		CHECK(port_mutators_places(places, 8) == 2 && !strcmp(places[0].map, "bloodgulch") &&
+			!strcmp(places[0].vehicle, "vehicles\\falcon\\falcon") && places[0].position[1] == -98.335f &&
+			places[0].facing == -48.6f && places[1].facing == 0.f && places[1].position[2] == 3.f,
+			"the placements, in order");
+		CHECK(port_mutators_places(places, 1) == 1, "the most placements asked for");
+		CHECK(port_mutators_details(find("falcon"), text, sizeof(text)) &&
+			strstr(text, "Adds: falcon.cevehicle, placed 2 times"), "an add-on's details: %s", text);
 	}
 	else if (!strcmp(case_name, "menu"))
 	{

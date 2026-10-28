@@ -617,6 +617,13 @@ void scenario_tags_unload(
 
 		menu_tags_unloaded();
 	}
+	/* port: the add-ons' tags go, after the menus', which were added after
+	them (port/linux/game/addons.c) */
+	{
+		extern void addons_tags_unloaded(void);
+
+		addons_tags_unloaded();
+	}
 	cache_file_close();
 	/* port: a Halo Custom Edition map has no Xbox vertex or index buffers
 	(port/linux/game/custom_edition_cache.c) */
@@ -1328,6 +1335,14 @@ long scenario_tags_load(
 				extern void powerup_render_bounds_tags_loaded(void);
 
 				powerup_render_bounds_tags_loaded();
+			}
+			/* port: the add-ons' tags (the mutators' .cevehicle files), after
+			the map's and before the menus', whose number is this machine's
+			alone (port/linux/game/addons.c) */
+			{
+				extern void addons_tags_loaded(char const *map_name, long scenario_index);
+
+				addons_tags_loaded(cache_file_globals.header.name, cache_file_globals.tag_header->scenario_tag_index);
 			}
 			/* port: the menus' tags, added to the map's (port/linux/game/menu_tags.c) */
 			{

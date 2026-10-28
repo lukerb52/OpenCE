@@ -281,7 +281,13 @@ its map's tags once it has them all. Then version 41 lets the edits set more fie
 projectile's speeds and damage ranges, a damage effect's damage): a build of
 40 would refuse a host's edits of them, and play the stock tags. Then version
 42 lets them set a weapon's magazines (its rounds and chamber time) and a
-projectile's gravity, which a build of 41 would refuse.
+projectile's gravity, which a build of 41 would refuse. Then version 43 adds
+the add-ons of the mutators on (`docs/addons.md`) to the map's tags as it
+loads, after its own: an add-on's vehicle is named in messages by its index
+there, and a build of 42 has no add-ons, so the tables differ. The messages
+are unchanged; each machine adds the add-ons of its own mutators, so until
+the host sends its add-ons, every machine of a game must have the same ones
+on.
 
 `port/linux/network_format.txt` records the wire format of the current
 version (`tools/network_format.py`): `test_linux_port.py` fails when the

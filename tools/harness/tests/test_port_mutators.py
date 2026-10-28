@@ -40,6 +40,11 @@ STUBS = (
                       '{\n\tint index;\n\tfor (index = 0; index < 16; index++)\n\t{\n'
                       '\t\tif (files_written[index].text && !strcmp(path, files_written[index].path))\n'
                       '\t\t{ *size = strlen(files_written[index].text); return strdup(files_written[index].text); }\n'
+                      '\t}\n\tfor (index = 0; index < file_count; index++)\n\t{\n'
+                      '\t\tif (!strcmp(path, files[index].path))\n'
+                      '\t\t{ char *bytes = malloc(files[index].size + 1);\n'
+                      '\t\t  memcpy(bytes, files[index].bytes, files[index].size + 1);\n'
+                      '\t\t  *size = files[index].size; return bytes; }\n'
                       '\t}\n\tfor (index = 0; index < folder_count; index++)\n\t{\n'
                       '\t\tchar wanted[256];\n'
                       '\t\tsnprintf(wanted, sizeof(wanted), "/data/mutators/%s/mutator.toml", folders[index].name);\n'
@@ -70,7 +75,10 @@ STUBS = (
                 '\t\tif (!strcmp(path, wanted)) { information->flags = _posix_file_is_directory; return 0; }\n'
                 '\t\tstrcat(wanted, "/mutator.toml");\n'
                 '\t\tif (folders[index].text && !strcmp(path, wanted))\n'
-                '\t\t{ information->size_low = folders[index].size; return 0; }\n\t}\n\treturn -1;\n}\n'),
+                '\t\t{ information->size_low = folders[index].size; return 0; }\n\t}\n'
+                '\tfor (index = 0; index < file_count; index++)\n'
+                '\t\tif (!strcmp(path, files[index].path)) { information->size_low = files[index].size; return 0; }\n'
+                '\treturn -1;\n}\n'),
 )
 
 # the game's check of each key (port/linux/game/mutators.c, which test_mutators.py tests)
@@ -110,6 +118,9 @@ def generated(fault=None):
     if fault == 'refused_on':
         source = mutated(source, 'if (!mutator->on || mutator->refusal[0])\n\t\t\tcontinue;\n\t\tfor (key = 0;',
                          'if (!mutator->on)\n\t\t\tcontinue;\n\t\tfor (key = 0;')
+    if fault == 'addon_path':
+        source = mutated(source, "if (!name[0] || strchr(name, '/') || strchr(name, '\\\\') ||",
+                         "if (!name[0] ||")
     if fault == 'rewritten':
         source = mutated(source, 'if (!file_holds(path, text) && !config_file_write(path, text))',
                          'if (!config_file_write(path, text))')
@@ -134,7 +145,7 @@ def generated(fault=None):
                     ('port_mutators_source.inc', source))
 
 
-@pytest.mark.parametrize('case', ['stock', 'stock_unwritable', 'folders', 'menu'])
+@pytest.mark.parametrize('case', ['stock', 'stock_unwritable', 'folders', 'addons', 'menu'])
 def test_case(case):
     status, output = run(build('port_mutators', generated()), case)
     assert status == 0, output
@@ -142,7 +153,7 @@ def test_case(case):
 
 @pytest.mark.parametrize('fault,case', [('unknown_key', 'folders'), ('size', 'folders'), ('refused_on', 'folders'),
                                         ('rewritten', 'stock'), ('not_overwritten', 'stock'),
-                                        ('stock_from_file', 'stock_unwritable')])
+                                        ('stock_from_file', 'stock_unwritable'), ('addon_path', 'addons')])
 def test_negative(fault, case):
     status, output = run(build('port_mutators', generated(fault)), case)
     assert status == CHECK_FAILED, output
