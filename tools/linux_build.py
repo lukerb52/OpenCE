@@ -686,10 +686,10 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
                 variables={"ldflags": " ".join(["--target=i686-linux-gnu", "-m32", "-no-pie", "-g", *sysroot_ldflags,
                                                 *extra_ldflags])},
             )
-            # the add-ons' builder (tools/cevehicle_build.c): the same, with
+            # the add-ons' builder (tools/addon_build.c): the same, with
             # the schemas' walk (tag_walk.c) and the Custom Edition maps'
             # sounds' decoder (custom_edition_sounds.c, with stb_vorbis)
-            builder = Path("tools/cevehicle_build.c")
+            builder = Path("tools/addon_build.c")
             builder_object = obj_dir / builder.with_suffix(".o")
             n.build(
                 outputs=builder_object,
@@ -699,7 +699,7 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
                 variables={"cflags": " ".join([posix_cflags, f"-I{ZLIB_DIR}", *ZLIB_DEFINES, posix_extra])},
             )
             n.build(
-                outputs=validator.parent / "cevehicle_build",
+                outputs=validator.parent / "addon_build",
                 rule="linux_tool_link",
                 inputs=[builder_object, obj_dir / (game_dir / "tag_walk.o"),
                         obj_dir / (game_dir / "custom_edition_sounds.o"), obj_dir / STB_VORBIS_SOURCE.with_suffix(".o"),
@@ -735,5 +735,5 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
     brokers = build_dir / "brokers.txt"
     n.build(outputs=brokers, rule="linux_copy", inputs=Path("port/assets/network/brokers.txt"))
     n.build(outputs="linux", rule="phony",
-            inputs=[output, brokers, validator, build_dir / "cevehicle_build", *sdl_outputs])
+            inputs=[output, brokers, validator, build_dir / "addon_build", *sdl_outputs])
     n.newline()

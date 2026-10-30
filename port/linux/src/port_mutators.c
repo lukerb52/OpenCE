@@ -39,9 +39,15 @@ mutator.toml (all but effects or tags may be left out):
 Each edit is kept as the bytes mutator_tags.c reads (its header says what
 they are).
 The mutators on are game.mutators's (their ids, separated by commas), which
-the Mods menu's MUTATORS list turns on and off. Where two mutators that are
-on set one parameter, the one found later sets it. On a client the host's
-are played instead (port/linux/game/network_mutators.c).
+the Mods menu's MUTATORS list turns on and off. A mutator whose id one found
+before it has is played by another (mutator_add): the same mutator again
+(its files' SHA-256 the same) is played once; another is played by its id
+and its folder's name (big_head@my_big_head), or where its folder has that
+one's name or that is taken too, its id and the start of its files' SHA-256
+(big_head@3fa2c1). Its files are not changed, and it is played by that id
+for as long as its folder and files are. Where two mutators that are on set
+one parameter, the one found later sets it. On a client the host's are
+played instead (port/linux/game/network_mutators.c).
 */
 
 #include "platform.h"
@@ -58,11 +64,16 @@ are played instead (port/linux/game/network_mutators.c).
 /* ---------- constants */
 
 /* the mutators' format this build plays (2: tag edits; 3: an add-on and its
-placements) */
-#define MUTATORS_FORMAT 3
+placements; 4: a weapon's) */
+#define MUTATORS_FORMAT 4
 
 #define MAXIMUM_MUTATORS 64
 #define MAXIMUM_MUTATOR_FOLDER_LENGTH 64
+/* an id, ended: its mutator.toml's, an @ and its folder's name */
+#define MAXIMUM_MUTATOR_ID_LENGTH (2 * MAXIMUM_MUTATOR_FOLDER_LENGTH)
+/* SHA-256's (p2p_crypto.c's), and the hex digits of it that an id is given */
+#define SHA256_SIZE 32
+#define ID_DIGEST_DIGITS 6
 /* the most effects and parameters one mutator sets */
 #define MAXIMUM_KEYS_PER_MUTATOR 16
 /* the largest mutator.toml read (a mutator is a few lines) */
@@ -97,7 +108,13 @@ enum
 struct port_mutator
 {
 	char folder[MAXIMUM_MUTATOR_FOLDER_LENGTH];
-	char id[MAXIMUM_MUTATOR_FOLDER_LENGTH];
+	/* what game.mutators names it by, and its mutator.toml's id (else its
+	folder's name), which differ where another mutator has that */
+	char id[MAXIMUM_MUTATOR_ID_LENGTH];
+	char given_id[MAXIMUM_MUTATOR_FOLDER_LENGTH];
+	/* the mutator found before it with its given_id, whose id it was not
+	played by, else empty */
+	char taken_by[MAXIMUM_MUTATOR_FOLDER_LENGTH + 32];
 	char name[128];
 	char version[32];
 	char authors[128];
@@ -119,8 +136,17 @@ struct port_mutator
 	/* its add-on's file (docs/addons.md), else empty, and where it places
 	the add-on's vehicles */
 	char addon_path[MAXIMUM_PATH_LENGTH];
+	int addon_kind;
 	long place_count;
 	struct port_mutator_place places[MAXIMUM_PLACES_PER_MUTATOR];
+	/* its mutator.toml's SHA-256, and its files' (mutator_digest): the
+	SHA-256 of its mutator.toml's and its add-on's file's, one after the
+	other; digest_state is 0 until that is made, 1 once it is, -1 if a file
+	cannot be read */
+	unsigned char toml_digest[SHA256_SIZE];
+	int toml_digest_made;
+	unsigned char digest[SHA256_SIZE];
+	int digest_state;
 };
 
 /* ---------- globals */
@@ -132,8 +158,9 @@ static const char stock_mutators_readme[] =
 	"The game writes these folders again each time it starts, in place of what\n"
 	"is here, and plays them as it has them: a change made here is lost, and a\n"
 	"folder added here is not read. To make a mutator of your own, copy one of\n"
-	"these folders into the mutators folder beside this one, and give it an id\n"
-	"of its own in its mutator.toml.\n";
+	"these folders into the mutators folder beside this one, and change it. It\n"
+	"is played by an id of its own: the id in its mutator.toml, else, while a\n"
+	"stock mutator has that, the id and its folder's name (big_head@my_head).\n";
 
 static struct
 {
@@ -148,6 +175,10 @@ static struct
 
 int mutators_key_check(const char *key, double value, char *reason, unsigned long size);
 int mutators_tag_edit_check(const unsigned char *edit, long size, char *reason, unsigned long reason_size);
+
+/* ---------- prototypes/P2P_CRYPTO.C (p2p_internal.h's) */
+
+void p2p_sha256(const void *data, int size, unsigned char *digest);
 
 /* ---------- private code */
 
@@ -199,7 +230,7 @@ static int id_valid(const char *id)
 		return 0;
 	for (; *id; id++)
 	{
-		if ((unsigned char)*id < 0x20 || *id == 0x7F || *id == ',' || *id == '"' || *id == '\\')
+		if ((unsigned char)*id < 0x20 || *id == 0x7F || *id == ',' || *id == '"' || *id == '\\' || *id == '@')
 			return 0;
 	}
 	return 1;
@@ -562,7 +593,7 @@ static int toml_number(toml_datum_t table, const char *key, int required, double
 /* [[place]]: where the add-on's vehicles are placed, on which map */
 static void places_read(struct port_mutator *mutator, toml_datum_t places, const char *path)
 {
-	static const char *const keys[] = { "map", "vehicle", "position", "facing" };
+	static const char *const keys[] = { "map", "vehicle", "weapon", "position", "facing" };
 	char reason[MAXIMUM_REFUSAL_LENGTH];
 	int index;
 
@@ -576,6 +607,7 @@ static void places_read(struct port_mutator *mutator, toml_datum_t places, const
 		toml_datum_t table = places.u.arr.elem[index];
 		struct port_mutator_place *place;
 		toml_datum_t position;
+		const char *tag;
 		double facing = 0.;
 		int key;
 		int field;
@@ -587,7 +619,8 @@ static void places_read(struct port_mutator *mutator, toml_datum_t places, const
 		}
 		if (mutator->place_count == MAXIMUM_PLACES_PER_MUTATOR)
 		{
-			snprintf(reason, sizeof(reason), "it places more than %d vehicles", MAXIMUM_PLACES_PER_MUTATOR);
+			snprintf(reason, sizeof(reason), "it places more than %d vehicles and weapons",
+				MAXIMUM_PLACES_PER_MUTATOR);
 			refuse(mutator, path, reason);
 			return;
 		}
@@ -609,16 +642,20 @@ static void places_read(struct port_mutator *mutator, toml_datum_t places, const
 		}
 		place = &mutator->places[mutator->place_count];
 		memset(place, 0, sizeof(*place));
-		if (!toml_text(table, "map", mutator, path) || !toml_text(table, "vehicle", mutator, path) ||
-			strlen(toml_text(table, "map", mutator, path)) >= sizeof(place->map) ||
-			strlen(toml_text(table, "vehicle", mutator, path)) >= sizeof(place->vehicle))
+		/* (a vehicle or a weapon, not both) */
+		place->weapon = toml_get(table, "weapon").type != TOML_UNKNOWN;
+		tag = toml_text(table, place->weapon ? "weapon" : "vehicle", mutator, path);
+		if (!toml_text(table, "map", mutator, path) || !tag ||
+			(place->weapon && toml_get(table, "vehicle").type != TOML_UNKNOWN) ||
+			strlen(toml_text(table, "map", mutator, path)) >= sizeof(place->map) || strlen(tag) >= sizeof(place->tag))
 		{
-			snprintf(reason, sizeof(reason), "line %d: a place needs a map and a vehicle (a tag's name)", table.lineno);
+			snprintf(reason, sizeof(reason), "line %d: a place needs a map and a vehicle or a weapon (a tag's name)",
+				table.lineno);
 			refuse(mutator, path, reason);
 			continue;
 		}
 		snprintf(place->map, sizeof(place->map), "%s", toml_text(table, "map", mutator, path));
-		snprintf(place->vehicle, sizeof(place->vehicle), "%s", toml_text(table, "vehicle", mutator, path));
+		snprintf(place->tag, sizeof(place->tag), "%s", tag);
 		position = toml_get(table, "position");
 		if (position.type != TOML_ARRAY || position.u.arr.size != 3)
 		{
@@ -655,6 +692,14 @@ static void places_read(struct port_mutator *mutator, toml_datum_t places, const
 	}
 }
 
+/* whether the name ends with the suffix (not case-sensitive) */
+static int name_ends(const char *name, const char *suffix)
+{
+	size_t length = strlen(name);
+
+	return length > strlen(suffix) && !names_compare(name + length - strlen(suffix), suffix);
+}
+
 /* addon: the add-on file beside mutator.toml (a name alone: no folder) */
 static void addon_read(struct port_mutator *mutator, const char *path, const char *name)
 {
@@ -669,6 +714,16 @@ static void addon_read(struct port_mutator *mutator, const char *path, const cha
 	if (folder_length + strlen(name) >= sizeof(mutator->addon_path))
 	{
 		refuse(mutator, path, "its addon's path is too long");
+		return;
+	}
+	/* (its kind, by its name: the game checks the file's when it adds it) */
+	if (name_ends(name, ".cevehicle"))
+		mutator->addon_kind = _port_mutator_addon_vehicle;
+	else if (name_ends(name, ".ceweapon"))
+		mutator->addon_kind = _port_mutator_addon_weapon;
+	else
+	{
+		refuse(mutator, path, "its addon is not a .cevehicle or a .ceweapon");
 		return;
 	}
 	snprintf(mutator->addon_path, sizeof(mutator->addon_path), "%.*s%s", (int)folder_length, path, name);
@@ -689,8 +744,11 @@ static void mutator_read(struct port_mutator *mutator, const char *folder, const
 	int index;
 
 	text_copy(mutator->folder, sizeof(mutator->folder), folder, 0);
+	text_copy(mutator->given_id, sizeof(mutator->given_id), folder, 0);
 	text_copy(mutator->id, sizeof(mutator->id), folder, 0);
 	text_copy(mutator->name, sizeof(mutator->name), folder, 0);
+	p2p_sha256(text, (int)size, mutator->toml_digest);
+	mutator->toml_digest_made = 1;
 	result = toml_parse(text, (int)size);
 	if (!result.ok)
 	{
@@ -702,7 +760,10 @@ static void mutator_read(struct port_mutator *mutator, const char *folder, const
 	if (toml_text(result.toptab, "name", mutator, path))
 		text_copy(mutator->name, sizeof(mutator->name), toml_text(result.toptab, "name", mutator, path), 0);
 	if (toml_text(result.toptab, "id", mutator, path))
-		text_copy(mutator->id, sizeof(mutator->id), toml_text(result.toptab, "id", mutator, path), 0);
+	{
+		text_copy(mutator->given_id, sizeof(mutator->given_id), toml_text(result.toptab, "id", mutator, path), 0);
+		text_copy(mutator->id, sizeof(mutator->id), mutator->given_id, 0);
+	}
 	text_copy(mutator->version, sizeof(mutator->version), toml_text(result.toptab, "version", mutator, path), 0);
 	text_copy(mutator->description, sizeof(mutator->description),
 		toml_text(result.toptab, "description", mutator, path), 1);
@@ -729,7 +790,7 @@ static void mutator_read(struct port_mutator *mutator, const char *folder, const
 	else if (value.type != TOML_UNKNOWN && value.type != TOML_INT64)
 		refuse(mutator, path, "its format is not a number");
 	if (!id_valid(mutator->id))
-		refuse(mutator, path, "its id is empty or has a comma, quote or backslash");
+		refuse(mutator, path, "its id is empty or has a comma, quote, backslash or @");
 	for (index = 0; index < result.toptab.u.tab.size; index++)
 	{
 		size_t key;
@@ -768,16 +829,71 @@ static void mutator_read(struct port_mutator *mutator, const char *folder, const
 	{
 		places_read(mutator, value, path);
 		if (!mutator->addon_path[0])
-			refuse(mutator, path, "it places vehicles but has no addon");
+			refuse(mutator, path, "it places vehicles or weapons but has no addon");
 	}
 	if (!mutator->key_count && !mutator->tag_edit_count && !mutator->addon_path[0])
 		refuse(mutator, path, "it turns on no effect, edits no tag and adds nothing");
 	toml_free(result);
 }
 
+/* where the mutator is, as the log and the Mods menu say it */
+static void mutator_place_text(const struct port_mutator *mutator, char *text, size_t size)
+{
+	snprintf(text, size, "%s/%s", mutator->stock ? "stock_mutators" : "mutators", mutator->folder);
+}
+
+/* the mutator's files' SHA-256 (its digest), made the first time it is
+asked for: 0 if a file cannot be read */
+static int mutator_digest(struct port_mutator *mutator)
+{
+	unsigned char digests[2 * SHA256_SIZE];
+	int size = SHA256_SIZE;
+
+	if (mutator->digest_state)
+		return mutator->digest_state > 0;
+	mutator->digest_state = -1;
+	if (!mutator->toml_digest_made)
+		return 0;
+	memcpy(digests, mutator->toml_digest, SHA256_SIZE);
+	if (mutator->addon_path[0])
+	{
+		size_t addon_size = 0;
+		char *addon = config_file_read(mutator->addon_path, &addon_size);
+
+		if (!addon || addon_size > MAXIMUM_ADDON_FILE_SIZE)
+		{
+			free(addon);
+			return 0;
+		}
+		p2p_sha256(addon, (int)addon_size, digests + SHA256_SIZE);
+		free(addon);
+		size += SHA256_SIZE;
+	}
+	p2p_sha256(digests, size, mutator->digest);
+	mutator->digest_state = 1;
+	return 1;
+}
+
+/* whether a mutator found before the list's `count`th is played by `id` */
+static int mutators_id_taken(long count, const char *id)
+{
+	long index;
+
+	for (index = 0; index < count; index++)
+	{
+		if (!names_compare(port_mutators.mutators[index].id, id))
+			return 1;
+	}
+	return 0;
+}
+
 /* (the mutator's tag edits are the list's after it) */
 static void mutator_add(const struct port_mutator *mutator)
 {
+	struct port_mutator *added;
+	char place[MAXIMUM_PATH_LENGTH];
+	long first = -1;
+	int same_folder = 0;
 	long index;
 
 	if (port_mutators.count == MAXIMUM_MUTATORS)
@@ -786,15 +902,66 @@ static void mutator_add(const struct port_mutator *mutator)
 		free(mutator->tag_edits);
 		return;
 	}
-	port_mutators.mutators[port_mutators.count] = *mutator;
+	added = &port_mutators.mutators[port_mutators.count];
+	*added = *mutator;
+	mutator_place_text(added, place, sizeof(place));
 	for (index = 0; index < port_mutators.count; index++)
 	{
-		if (!names_compare(port_mutators.mutators[index].id, mutator->id))
+		if (!names_compare(port_mutators.mutators[index].given_id, added->given_id))
 		{
-			refuse(&port_mutators.mutators[port_mutators.count], mutator->folder,
-				"another mutator has its id: give it one of its own");
-			break;
+			if (first < 0)
+				first = index;
+			if (!names_compare(port_mutators.mutators[index].folder, added->folder))
+				same_folder = 1;
+			/* (the same files again: played once) */
+			if (mutator_digest(added) && mutator_digest(&port_mutators.mutators[index]) &&
+				!memcmp(added->digest, port_mutators.mutators[index].digest, SHA256_SIZE))
+			{
+				char other[MAXIMUM_PATH_LENGTH];
+
+				mutator_place_text(&port_mutators.mutators[index], other, sizeof(other));
+				platform_log("mutators: %s is the same as %s: it is played once, as %s", place, other,
+					port_mutators.mutators[index].id);
+				free(added->tag_edits);
+				memset(added, 0, sizeof(*added));
+				return;
+			}
 		}
+	}
+	if (first >= 0)
+	{
+		char other[MAXIMUM_PATH_LENGTH];
+
+		mutator_place_text(&port_mutators.mutators[first], other, sizeof(other));
+		snprintf(added->taken_by, sizeof(added->taken_by), "%s", other);
+		snprintf(added->id, sizeof(added->id), "%s@%s", added->given_id, added->folder);
+		/* (where its folder's name is that of a mutator with its id, in the
+		other folder, its files' tell them apart) */
+		if (same_folder || mutators_id_taken(port_mutators.count, added->id))
+		{
+			if (mutator_digest(added))
+			{
+				int digit;
+
+				snprintf(added->id, sizeof(added->id), "%s@", added->given_id);
+				for (digit = 0; digit < ID_DIGEST_DIGITS; digit++)
+				{
+					size_t length = strlen(added->id);
+
+					snprintf(added->id + length, sizeof(added->id) - length, "%x",
+						(added->digest[digit / 2] >> (digit % 2 ? 0 : 4)) & 0xF);
+				}
+			}
+			if (!mutator_digest(added) || mutators_id_taken(port_mutators.count, added->id))
+			{
+				snprintf(added->id, sizeof(added->id), "%s", added->given_id);
+				refuse(added, place, "another mutator has its id, and its folder's name and files too");
+				port_mutators.count++;
+				return;
+			}
+		}
+		platform_log("mutators: %s has the id %s, as %s has: it is played as %s", place, added->given_id, other,
+			added->id);
 	}
 	port_mutators.count++;
 }
@@ -857,6 +1024,7 @@ static void mutators_find(const char *root)
 		if (information.size_high || information.size_low > MAXIMUM_MUTATOR_FILE_SIZE)
 		{
 			text_copy(mutator->folder, sizeof(mutator->folder), names[index], 0);
+			text_copy(mutator->given_id, sizeof(mutator->given_id), names[index], 0);
 			text_copy(mutator->id, sizeof(mutator->id), names[index], 0);
 			text_copy(mutator->name, sizeof(mutator->name), names[index], 0);
 			refuse(mutator, path, "its mutator.toml is larger than 64 KB");
@@ -864,6 +1032,7 @@ static void mutators_find(const char *root)
 		else if (!(text = config_file_read(path, &size)))
 		{
 			text_copy(mutator->folder, sizeof(mutator->folder), names[index], 0);
+			text_copy(mutator->given_id, sizeof(mutator->given_id), names[index], 0);
 			text_copy(mutator->id, sizeof(mutator->id), names[index], 0);
 			text_copy(mutator->name, sizeof(mutator->name), names[index], 0);
 			refuse(mutator, path, "its mutator.toml cannot be read");
@@ -1086,6 +1255,20 @@ unsigned long port_mutators_addon_size(long index, char *name, unsigned long nam
 	return (unsigned long)information.size_low;
 }
 
+int port_mutators_addon_kind(long index)
+{
+	const struct port_mutator *mutator = addon_mutator(index);
+
+	return mutator ? mutator->addon_kind : 0;
+}
+
+const char *port_mutators_addon_name(long index)
+{
+	const struct port_mutator *mutator = addon_mutator(index);
+
+	return mutator ? mutator->name : NULL;
+}
+
 int port_mutators_addon_read(long index, void *buffer, unsigned long size)
 {
 	const struct port_mutator *mutator = addon_mutator(index);
@@ -1174,6 +1357,10 @@ int port_mutators_details(long index, char *text, unsigned long size)
 			mutator->folder);
 	else
 		snprintf(text + length, size - length, "Folder: mutators/%s\n", mutator->folder);
+	length = strlen(text);
+	if (mutator->taken_by[0] && !mutator->refusal[0])
+		snprintf(text + length, size - length, "Played as %s: %s has its id, %s\n", mutator->id, mutator->taken_by,
+			mutator->given_id);
 	for (key = 0; key < mutator->key_count; key++)
 	{
 		const char *dot = strchr(mutator->keys[key], '.');

@@ -2282,6 +2282,11 @@ int port_mutators_details(long index, char *text, unsigned long size);
 void port_mutators_turn(long index, int on);
 int port_mutators_save(void);
 void port_mutators_revert(void);
+int port_mutators_addon_kind(long index);
+char const *port_mutators_addon_name(long index);
+/* (below: ui_widget.c's too) */
+long menus_loadout_addon_count(void);
+wchar_t const *menus_loadout_addon_name(long index);
 
 static struct
 {
@@ -5727,6 +5732,13 @@ static short gametype_option_index(struct gametype_option const *option, long va
 	return best;
 }
 
+/* whether the option is a custom loadout's weapon */
+static boolean loadout_weapon_option(struct gametype_option const *option)
+{
+	return option->kind == _option_option_byte &&
+		(option->offset == OPTIONS_FIELD(primary_weapon) || option->offset == OPTIONS_FIELD(secondary_weapon));
+}
+
 /* each of the screen's option rows' spinner, with the option */
 static void gametype_options_each(struct widget_instance *list, boolean save)
 {
@@ -5768,6 +5780,30 @@ static void gametype_options_each(struct widget_instance *list, boolean save)
 				{
 					platform_log("menus: could not set %s", option->setting);
 				}
+				continue;
+			}
+			/* (a custom loadout's weapons: the stock ones', then the add-ons'
+			of the mutators on, which a gametype naming one whose mutator is
+			off shows as none) */
+			if (loadout_weapon_option(option))
+			{
+				long addons = menus_loadout_addon_count();
+				long value = gametype_option_value(option, variant, options);
+
+				if (save)
+				{
+					short index = (short)PIN(spinner->parameters.list.selected_index, 0, option->count + addons - 1);
+
+					gametype_option_value_set(option, index < option->count ? option->values[index] :
+						_loadout_weapon_addon_first + index - option->count, variant, options);
+				}
+				else if (LOADOUT_WEAPON_ADDON(value))
+				{
+					spinner->parameters.list.selected_index = value - _loadout_weapon_addon_first < addons ?
+						(short)(option->count + value - _loadout_weapon_addon_first) : 0;
+				}
+				else
+					spinner->parameters.list.selected_index = gametype_option_index(option, value);
 				continue;
 			}
 			if (save)
@@ -5838,6 +5874,76 @@ static struct widget_instance *gametype_options_list(struct widget_instance *wid
 /* ---- the vehicle options: a side's (red's, blue's) set and counts, on
 the spinners while its side is shown */
 
+/* ---- the add-ons of the mutators on (port_mutators.c), by their mutators'
+names: the weapons a custom loadout lists after the stock ones (its
+spinners' extra items: ui_widget.c), and the vehicles a custom vehicle set
+counts, rows of their own (vehicles_layout) */
+
+/* (port_mutators.h's kinds) */
+enum
+{
+	_menu_addon_vehicle = 1,
+	_menu_addon_weapon,
+};
+
+#define ADDON_NAME_LENGTH 48
+/* the help of an add-on vehicle's row (ui_widget.c's
+SPINNER_EXTRA_DESCRIPTION_BASE + 0x81, as a text box's string list index) */
+#define ADDON_VEHICLE_DESCRIPTION (0x7000 + 0x81)
+
+/* the add-on (port_mutators.c's index) of the kind at the place among those
+of its kind, or NONE */
+static long addon_of_kind(int kind, long place)
+{
+	long index;
+	int each;
+
+	for (index = 0; (each = port_mutators_addon_kind(index)) != 0; index++)
+	{
+		if (each == kind && !place--)
+			return index;
+	}
+	return NONE;
+}
+
+static long addons_of_kind(int kind)
+{
+	long count = 0;
+
+	while (addon_of_kind(kind, count) != NONE)
+		count++;
+	return count;
+}
+
+/* an add-on's name in upper case, as the stock weapons' and vehicles' are */
+static void addon_name_wide(long addon, wchar_t *wide, short length)
+{
+	short character;
+
+	mods_wide_text(port_mutators_addon_name(addon), wide, length);
+	for (character = 0; wide[character]; character++)
+	{
+		if (wide[character] >= 'a' && wide[character] <= 'z')
+			wide[character] = (wchar_t)(wide[character] - 'a' + 'A');
+	}
+}
+
+long menus_loadout_addon_count(void)
+{
+	return MIN(addons_of_kind(_menu_addon_weapon), MAXIMUM_LOADOUT_ADDON_WEAPONS);
+}
+
+wchar_t const *menus_loadout_addon_name(long index)
+{
+	static wchar_t names[MAXIMUM_LOADOUT_ADDON_WEAPONS][ADDON_NAME_LENGTH];
+	long addon = VALID_INDEX(index, MAXIMUM_LOADOUT_ADDON_WEAPONS) ? addon_of_kind(_menu_addon_weapon, index) : NONE;
+
+	if (addon == NONE)
+		return L"";
+	addon_name_wide(addon, names[index], ADDON_NAME_LENGTH);
+	return names[index];
+}
+
 static char const *const vehicle_spinners[NUMBER_OF_VARIANT_VEHICLES] =
 {
 	"warthog_spinner", "ghost_spinner", "scorpion_spinner", "rwarthog_spinner", "banshee_spinner", "cgturret_spinner"
@@ -5845,6 +5951,17 @@ static char const *const vehicle_spinners[NUMBER_OF_VARIANT_VEHICLES] =
 /* (the presets' spinner: the vehicle sets 0 to 7, then PC and CUSTOM) */
 #define VEHICLE_PRESET_PC 8
 #define VEHICLE_PRESET_CUSTOM 9
+/* the add-on vehicles' rows (tools/port_settings.py's _vehicle_options_extras)
+and their spinners */
+static char const *const addon_vehicle_rows[MAXIMUM_VARIANT_ADDON_VEHICLES] =
+{
+	"op_addon_vehicle_1", "op_addon_vehicle_2"
+};
+static char const *const addon_vehicle_spinners[MAXIMUM_VARIANT_ADDON_VEHICLES] =
+{
+	"addon_vehicle_1_spinner", "addon_vehicle_2_spinner"
+};
+#define ADDON_VEHICLE_ROW_PREFIX "pc\\main_menu\\settings_select\\multiplayer_setup\\vehicle_options_edit\\"
 
 static struct widget_instance *vehicle_spinner(struct widget_instance *list, char const *name)
 {
@@ -5880,6 +5997,65 @@ static void vehicles_show(struct widget_instance *list)
 			spinner->parameters.list.selected_index =
 				(short)MIN(options->vehicle_counts[side][index], MAXIMUM_VARIANT_VEHICLE_COUNT);
 	}
+	for (index = 0; index < MAXIMUM_VARIANT_ADDON_VEHICLES; index++)
+	{
+		if ((spinner = vehicle_spinner(list, addon_vehicle_spinners[index])) != NULL)
+			spinner->parameters.list.selected_index = (short)(MAXIMUM_VARIANT_VEHICLE_COUNT -
+				MIN(options->addon_vehicles_fewer[side][index], MAXIMUM_VARIANT_VEHICLE_COUNT));
+	}
+}
+
+/* the add-on vehicles' rows, one for each the mutators on add (their labels
+their mutators' names), added to the list after the stock vehicles', which
+move up into the gap below the respawn time's to make room; the help below
+them when both are there */
+static void vehicles_layout(struct widget_instance *list)
+{
+	struct widget_instance *bar = named(list, "vehicle_button_bar", 0);
+	struct widget_instance *row;
+	long count = MIN(addons_of_kind(_menu_addon_vehicle), MAXIMUM_VARIANT_ADDON_VEHICLES);
+	short place = 0;
+	short index;
+
+	if (!count || !bar || named(list, addon_vehicle_rows[0], 0))
+		return;
+	for (row = list->child; row; row = row->next)
+	{
+		if (row != bar && row != named(list, "op_vehicles_respawn", 0))
+		{
+			row->vertical_offset -= 27;
+			place = MAX(place, row->vertical_offset);
+		}
+	}
+	for (index = 0; index < count; index++)
+	{
+		char name[256];
+		wchar_t label[ADDON_NAME_LENGTH + 1];
+		short length;
+
+		snprintf(name, sizeof(name), "%s%s", ADDON_VEHICLE_ROW_PREFIX, addon_vehicle_rows[index]);
+		row = ui_widget_load_by_name_or_tag(name, NONE, list, list->local_player_index, NONE, NONE, 0);
+		if (!row)
+			break;
+		/* (before the buttons, as the generated rows are) */
+		row->previous = bar->previous;
+		row->next = bar;
+		if (bar->previous)
+			bar->previous->next = row;
+		else
+			list->child = row;
+		bar->previous = row;
+		row->horizontal_offset = 54;
+		row->vertical_offset = (short)(place + 26 * (index + 1));
+		addon_name_wide(addon_of_kind(_menu_addon_vehicle, index), label, ADDON_NAME_LENGTH - 1);
+		length = (short)wcslen(label);
+		label[length] = ':';
+		label[length + 1] = 0;
+		snprintf(name, sizeof(name), "addon_vehicle_%d_label", index + 1);
+		text_set(named(row, name, 0), label);
+	}
+	if (index == MAXIMUM_VARIANT_ADDON_VEHICLES && list->parameters.list.extended_description)
+		list->parameters.list.extended_description->vertical_offset += 22;
 }
 
 /* the side shown's spinners kept (and the Xbox's vehicle set: red's, if it
@@ -5902,6 +6078,12 @@ static void vehicles_keep(struct widget_instance *list)
 		if ((spinner = vehicle_spinner(list, vehicle_spinners[index])) != NULL)
 			options->vehicle_counts[side][index] =
 				(byte)PIN(spinner->parameters.list.selected_index, 0, MAXIMUM_VARIANT_VEHICLE_COUNT);
+	}
+	for (index = 0; index < MAXIMUM_VARIANT_ADDON_VEHICLES; index++)
+	{
+		if ((spinner = vehicle_spinner(list, addon_vehicle_spinners[index])) != NULL)
+			options->addon_vehicles_fewer[side][index] = (byte)(MAXIMUM_VARIANT_VEHICLE_COUNT -
+				PIN(spinner->parameters.list.selected_index, 0, MAXIMUM_VARIANT_VEHICLE_COUNT));
 	}
 	variant->universal_variant.vehicle_set = options->vehicle_set[0] <= 4 ? options->vehicle_set[0] : 0;
 }
@@ -5935,6 +6117,18 @@ static void vehicles_update(struct widget_instance *list)
 			preset->parameters.list.selected_index = VEHICLE_PRESET_CUSTOM;
 		}
 	}
+	for (index = 0; preset && index < MAXIMUM_VARIANT_ADDON_VEHICLES; index++)
+	{
+		struct widget_instance *spinner = vehicle_spinner(list, addon_vehicle_spinners[index]);
+		byte fewer = spinner ? (byte)(MAXIMUM_VARIANT_VEHICLE_COUNT -
+			PIN(spinner->parameters.list.selected_index, 0, MAXIMUM_VARIANT_VEHICLE_COUNT)) : 0;
+
+		if (spinner && fewer != options->addon_vehicles_fewer[gametype_edit.vehicle_side][index])
+		{
+			options->addon_vehicles_fewer[gametype_edit.vehicle_side][index] = fewer;
+			preset->parameters.list.selected_index = VEHICLE_PRESET_CUSTOM;
+		}
+	}
 }
 
 /* "mp profile init X" (the list's creation): its spinners from the gametype */
@@ -5944,7 +6138,10 @@ static boolean gametype_options_init(struct widget_instance *list)
 		return campaign_fail();
 	gametype_options_each(list, FALSE);
 	if (named(list, "op_team", 0))
+	{
+		vehicles_layout(list);
 		vehicles_show(list);
+	}
 	return TRUE;
 }
 
@@ -6246,12 +6443,22 @@ static void gametype_option_help(struct widget_instance *list)
 			;
 		if (row == list->focused_child)
 		{
-			if (spinner)
+			/* (an add-on vehicle's row, and a spinner's extra item: their own
+			helps, past the list's) */
+			if (spinner && !strncmp(row->name, "op_addon_vehicle_", 17))
+				description->parameters.text_box.string_list_index = ADDON_VEHICLE_DESCRIPTION;
+			else if (spinner && ui_widget_spinner_extra_description(spinner,
+				spinner->parameters.list.selected_index) != NONE)
+			{
+				description->parameters.text_box.string_list_index =
+					ui_widget_spinner_extra_description(spinner, spinner->parameters.list.selected_index);
+			}
+			else if (spinner)
 				description->parameters.text_box.string_list_index = (short)(index + spinner->parameters.list.selected_index);
 			return;
 		}
 		if (spinner)
-			index += spinner->parameters.list.number_of_items;
+			index += ui_widget_spinner_own_item_count(spinner);
 	}
 }
 

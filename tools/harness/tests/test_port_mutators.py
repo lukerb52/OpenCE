@@ -108,8 +108,15 @@ int mutators_tag_edit_check(const unsigned char *edit, long size, char *reason, 
 '''
 
 
+def sha256_source(source):
+    """port_mutators.c with p2p_crypto.c's SHA-256 in place of its prototype"""
+    crypto = read('port/linux/src/p2p_crypto.c')
+    sha256 = crypto[crypto.index('/* ---------- SHA-256 */'):crypto.index('void p2p_hmac_sha256')]
+    return mutated(source, 'void p2p_sha256(const void *data, int size, unsigned char *digest);\n', sha256)
+
+
 def generated(fault=None):
-    source = read('port/linux/src/port_mutators.c')
+    source = sha256_source(read('port/linux/src/port_mutators.c'))
     if fault == 'unknown_key':
         source = mutated(source, '\t\t\trefuse(mutator, path, reason);\n\t\t}\n\t}\n\tvalue = toml_get(result.toptab, "effects");',
                          '\t\t}\n\t}\n\tvalue = toml_get(result.toptab, "effects");')
@@ -121,6 +128,16 @@ def generated(fault=None):
     if fault == 'addon_path':
         source = mutated(source, "if (!name[0] || strchr(name, '/') || strchr(name, '\\\\') ||",
                          "if (!name[0] ||")
+    if fault == 'same_files':
+        source = mutated(source, '!memcmp(added->digest, port_mutators.mutators[index].digest, SHA256_SIZE))',
+                         'FALSE)')
+    if fault == 'same_folder':
+        source = mutated(source, 'same_folder = 1;', 'same_folder = 0;')
+    if fault == 'kind':
+        source = mutated(source, '\telse\n\t{\n\t\trefuse(mutator, path, "its addon is not a .cevehicle or a .ceweapon");',
+                         '\telse\n\t{\n\t\tmutator->addon_kind = _port_mutator_addon_vehicle;')
+    if fault == 'at':
+        source = mutated(source, " || *id == '@')", ")")
     if fault == 'rewritten':
         source = mutated(source, 'if (!file_holds(path, text) && !config_file_write(path, text))',
                          'if (!config_file_write(path, text))')
@@ -145,7 +162,7 @@ def generated(fault=None):
                     ('port_mutators_source.inc', source))
 
 
-@pytest.mark.parametrize('case', ['stock', 'stock_unwritable', 'folders', 'addons', 'menu'])
+@pytest.mark.parametrize('case', ['stock', 'stock_unwritable', 'folders', 'addons', 'weapons', 'ids', 'menu'])
 def test_case(case):
     status, output = run(build('port_mutators', generated()), case)
     assert status == 0, output
@@ -153,7 +170,9 @@ def test_case(case):
 
 @pytest.mark.parametrize('fault,case', [('unknown_key', 'folders'), ('size', 'folders'), ('refused_on', 'folders'),
                                         ('rewritten', 'stock'), ('not_overwritten', 'stock'),
-                                        ('stock_from_file', 'stock_unwritable'), ('addon_path', 'addons')])
+                                        ('stock_from_file', 'stock_unwritable'), ('addon_path', 'addons'),
+                                        ('same_files', 'ids'), ('same_folder', 'ids'), ('at', 'ids'),
+                                        ('kind', 'weapons')])
 def test_negative(fault, case):
     status, output = run(build('port_mutators', generated(fault)), case)
     assert status == CHECK_FAILED, output

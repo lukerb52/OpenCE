@@ -41,9 +41,18 @@ facing a direction in degrees */
 struct port_mutator_place
 {
 	char map[64];
-	char vehicle[256];
+	/* the vehicle's or (weapon) the weapon's tag */
+	char tag[256];
+	int weapon;
 	float position[3];
 	float facing;
+};
+
+/* an add-on's kind, by its file's name (addon_file.h's) */
+enum
+{
+	_port_mutator_addon_vehicle = 1,
+	_port_mutator_addon_weapon,
 };
 
 /* the mutators on that can be played that add an add-on, in their order:
@@ -54,6 +63,10 @@ into name */
 unsigned long port_mutators_addon_size(long index, char *name, unsigned long name_size);
 /* its file's size bytes into buffer: 0 if they cannot be read */
 int port_mutators_addon_read(long index, void *buffer, unsigned long size);
+/* its kind (_port_mutator_addon_*), by its file's name, and its mutator's
+name (what the menus call its vehicle or weapon); 0 and NULL past them */
+int port_mutators_addon_kind(long index);
+const char *port_mutators_addon_name(long index);
 /* the placements of the mutators on that can be played, in their order: how
 many, at most `maximum` */
 long port_mutators_places(struct port_mutator_place *places, long maximum);

@@ -665,7 +665,7 @@ int main(int argc, char **argv)
 				"reload_time = 1\n", "no field" },
 			{ "gravity_range", "[[tags]]\ngroup = \"projectile\"\ntag = 'x'\nair_gravity_scale = -1\n",
 				"from 0 to 10" },
-			{ "later", "format = 4\n[[tags]]\ngroup = \"weapon\"\ntag = 'x'\nzoom_level_count = 1\n", "later build" },
+			{ "later", "format = 5\n[[tags]]\ngroup = \"weapon\"\ntag = 'x'\nzoom_level_count = 1\n", "later build" },
 		};
 		for (index = 0; index < (int)NUMBEROF(cases); index++)
 			folder(cases[index].id, cases[index].text);

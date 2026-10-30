@@ -142,15 +142,16 @@ int main(int argc, char **argv)
 		CHECK(port_mutators_count() == 10, "the folders with a mutator.toml, and the stock mutators (%ld)",
 			port_mutators_count());
 		CHECK(find("accurized_ma5b") == 0 && find("big_head") == 1 && find("revolved_plasma_rifle") == 2 &&
-			find("moon") == 3 && find("broken") == 4 && find("BIG_HEAD") == 5 && find("large") == 6 && find("range") == 7 &&
+			find("moon") == 3 && find("broken") == 4 && find("BIG_HEAD@copy") == 5 && find("large") == 6 &&
+			find("range") == 7 &&
 			find("unknown") == 8 && find("zeta") == 9, "the stock mutators first, then the folders by name");
 		CHECK(reads == 6, "the large file read, or one without mutator.toml (%d)", reads);
 		CHECK(port_mutators_status(find("moon"), text, sizeof(text)) == _port_mutator_unplayable &&
 			strstr(text, "moon_gravity"), "an effect this build lacks: %s", text);
 		CHECK(port_mutators_status(find("broken"), text, sizeof(text)) == _port_mutator_unplayable, "not TOML");
 		CHECK(logged >= 7, "the refusals and the folder without mutator.toml not logged (%d)", logged);
-		CHECK(port_mutators_status(find("BIG_HEAD"), text, sizeof(text)) == _port_mutator_unplayable &&
-			strstr(text, "one of its own"), "another's id (any case): %s", text);
+		CHECK(port_mutators_status(find("BIG_HEAD@copy"), text, sizeof(text)) == _port_mutator_fine,
+			"another's id (any case), played by its folder's: %s", text);
 		CHECK(port_mutators_details(find("zeta"), text, sizeof(text)) && strstr(text, "Folder: mutators/zeta"),
 			"a folder's details: %s", text);
 		CHECK(port_mutators_status(find("range"), text, sizeof(text)) == _port_mutator_unplayable &&
@@ -206,12 +207,84 @@ int main(int argc, char **argv)
 		CHECK(!port_mutators_addon_read(0, bytes, 4), "a read of another size");
 		CHECK(port_mutators_addon_size(1, name, sizeof(name)) == 0, "past the add-ons");
 		CHECK(port_mutators_places(places, 8) == 2 && !strcmp(places[0].map, "bloodgulch") &&
-			!strcmp(places[0].vehicle, "vehicles\\falcon\\falcon") && places[0].position[1] == -98.335f &&
+			!strcmp(places[0].tag, "vehicles\\falcon\\falcon") && places[0].position[1] == -98.335f &&
 			places[0].facing == -48.6f && places[1].facing == 0.f && places[1].position[2] == 3.f,
 			"the placements, in order");
 		CHECK(port_mutators_places(places, 1) == 1, "the most placements asked for");
 		CHECK(port_mutators_details(find("falcon"), text, sizeof(text)) &&
 			strstr(text, "Adds: falcon.cevehicle, placed 2 times"), "an add-on's details: %s", text);
+	}
+	else if (!strcmp(case_name, "ids"))
+	{
+		long hashed;
+		char hashed_id[64];
+		int digit;
+
+		/* (stock_mutators/big_head's text: the same mutator again) */
+		folder("big_head", (char const *)mutator_files_embedded[1].data);
+		folder("mine", "id = \"big_head\"\n[effects.big_head]\nscale = 4\n");
+		folder("accurized_ma5b", "[effects.big_head]\nscale = 3\n");
+		folder("at", "id = \"a@b\"\n[effects.big_head]\n");
+		strcpy(setting, "big_head@mine");
+		CHECK(port_mutators_scan() == 1 && port_mutators_count() == 6, "the same mutator again played once (%ld)",
+			port_mutators_count());
+		CHECK(find("big_head") == 1 && !strcmp(port_mutators.mutators[1].folder, "big_head") &&
+			port_mutators.mutators[1].stock, "the stock mutator kept");
+		text[0] = 0;
+		CHECK(find("big_head@mine") == 5 && port_mutators_on(5) &&
+			port_mutators_status(5, text, sizeof(text)) == _port_mutator_fine, "its folder's name: %s", text);
+		CHECK(port_mutators_keys(keys, values, 16) == 2 && values[1] == 4.0, "big_head@mine's keys");
+		CHECK(port_mutators_details(5, text, sizeof(text)) &&
+			strstr(text, "Played as big_head@mine: stock_mutators/big_head has its id, big_head"), "%s", text);
+		/* (its folder's name is the stock one's: its files' SHA-256's first
+		hex digits) */
+		hashed = 3;
+		CHECK(!strcmp(port_mutators.mutators[hashed].folder, "accurized_ma5b") &&
+			!port_mutators.mutators[hashed].stock, "the order: %s", port_mutators.mutators[hashed].id);
+		snprintf(hashed_id, sizeof(hashed_id), "accurized_ma5b@");
+		for (digit = 0; digit < 6; digit++)
+		{
+			unsigned char byte = port_mutators.mutators[hashed].digest[digit / 2];
+
+			snprintf(hashed_id + strlen(hashed_id), sizeof(hashed_id) - strlen(hashed_id), "%x",
+				digit % 2 ? byte & 0xF : byte >> 4);
+		}
+		CHECK(!strcmp(port_mutators.mutators[hashed].id, hashed_id) &&
+			port_mutators_status(hashed, text, sizeof(text)) == _port_mutator_fine, "%s, not %s",
+			port_mutators.mutators[hashed].id, hashed_id);
+		CHECK(port_mutators_status(find("a@b"), text, sizeof(text)) == _port_mutator_unplayable &&
+			strstr(text, "@"), "an id with an @: %s", text);
+		port_mutators_scan();
+		CHECK(find(hashed_id) == hashed && find("big_head@mine") == 5, "the same ids found again");
+	}
+	else if (!strcmp(case_name, "weapons"))
+	{
+		struct port_mutator_place places[8];
+
+		folder("dmr", "format = 4\naddon = \"dmr.ceweapon\"\n"
+			"[[place]]\nmap = \"bloodgulch\"\nweapon = 'bourrin\\weapons\\dmr\\dmr'\nposition = [31, -88, 0.5]\n");
+		file("/data/mutators/dmr/dmr.ceweapon", "cevh: a weapon");
+		folder("falcon", "format = 3\naddon = \"falcon.CEVEHICLE\"\n");
+		file("/data/mutators/falcon/falcon.CEVEHICLE", "cevh: a vehicle");
+		folder("kind", "addon = \"thing.bin\"\n");
+		file("/data/mutators/kind/thing.bin", "cevh");
+		folder("both", "addon = \"b.ceweapon\"\n[[place]]\nmap = \"m\"\nweapon = 'w'\nvehicle = 'v'\n"
+			"position = [0, 0, 0]\n");
+		file("/data/mutators/both/b.ceweapon", "cevh");
+		strcpy(setting, "dmr,falcon,kind,both");
+		port_mutators_scan();
+		CHECK(port_mutators_status(find("dmr"), text, sizeof(text)) == _port_mutator_fine, "a weapon: %s", text);
+		CHECK(port_mutators_status(find("kind"), text, sizeof(text)) == _port_mutator_unplayable &&
+			strstr(text, ".ceweapon"), "an add-on of neither kind: %s", text);
+		CHECK(port_mutators_status(find("both"), text, sizeof(text)) == _port_mutator_unplayable &&
+			strstr(text, "a vehicle or a weapon"), "a place of both: %s", text);
+		CHECK(port_mutators_addon_count() == 2 && port_mutators_addon_kind(0) == _port_mutator_addon_weapon &&
+			port_mutators_addon_kind(1) == _port_mutator_addon_vehicle && port_mutators_addon_kind(2) == 0,
+			"the add-ons' kinds, by their names (any case), in order");
+		CHECK(!strcmp(port_mutators_addon_name(0), "dmr") && port_mutators_addon_name(2) == NULL, "their names");
+		CHECK(port_mutators_places(places, 8) == 1 && places[0].weapon &&
+			!strcmp(places[0].tag, "bourrin\\weapons\\dmr\\dmr") && places[0].position[2] == 0.5f,
+			"a weapon's place");
 	}
 	else if (!strcmp(case_name, "menu"))
 	{

@@ -5,7 +5,7 @@ A tag's fields walked through its group's schema (tag_schema.h): every
 block, data, data in a file, tag reference and tag index in it, and in each
 of its blocks' elements. For tags the validator (tag_validate.c) has passed,
 whose pointers can be followed: the add-ons' builder finds what a tag uses
-and what in it points (tools/cevehicle_build.c), and the game makes an
+and what in it points (tools/addon_build.c), and the game makes an
 add-on's tags its own (port/linux/game/addons.c).
 */
 

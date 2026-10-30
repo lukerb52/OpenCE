@@ -653,6 +653,11 @@ PLAYER_OPTIONS_ROWS = ['number_of_lives', 'maximum_health', 'shields', 'respawn_
 # GUN TURRETS and CUSTOM (menu_functions.c's VEHICLE_PRESET_PC), and its help
 # among the sets' (its rows' values' in turn: gametype_option_help)
 VEHICLE_EDIT = "main_menu/settings_select/multiplayer_setup/vehicle_options_edit"
+# the custom vehicle set's rows of the vehicle add-ons of the mutators on
+# (game_engine.h's MAXIMUM_VARIANT_ADDON_VEHICLES), which menu_functions.c's
+# vehicles_layout adds to the screen's list after the stock vehicles' (it
+# names them, lays them out and gives their helps)
+ADDON_VEHICLE_ROWS = 2
 AIM_ASSIST_HELP = [
     "Players keep their current mouse aim assist setting.",
     "Disable mouse aim assist for mouse/keyboard players.\\nController and touch aim assist are unchanged.",
@@ -1667,6 +1672,35 @@ def _coop() -> list:
     return lines
 
 
+def _vehicle_options_extras() -> list:
+    """Vehicle Options' rows of the custom vehicle set's add-on vehicles, each
+    a count (NONE to 4), its label the mutator's name: no screen's children,
+    menu_functions.c's vehicles_layout adds those of the add-ons there are"""
+    lines = []
+    for row in range(1, ADDON_VEHICLE_ROWS + 1):
+        key = f"addon_vehicle_{row}"
+        lines += _widget(f"{VEHICLE_EDIT}/op_{key}", [("width", 512), ("height", 28),
+                                                       ("flags", "pass_unhandled_to_focused_child"),
+                                                       ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
+                         [f'<child widget="{VEHICLE_EDIT}/{key}_label"/>',
+                          f'<child widget="{VEHICLE_EDIT}/{key}_spinner" x="286" y="1"/>'])
+        # (no string list: its text the mutator's name, which a list's would
+        # be drawn over)
+        lines += _widget(f"{VEHICLE_EDIT}/{key}_label", [("type", "text"), ("controller", 1), ("width", 300),
+                                                          ("height", 22), ("font", "ui\\large_ui"),
+                                                          ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], [])
+        lines += _widget(f"{VEHICLE_EDIT}/{key}_spinner",
+                         [("type", "spinner"), ("top", 2), ("width", 206), ("height", 20),
+                          ("flags", "pass_unhandled_to_focused_child left_right_tabs_items"),
+                          ("string_list", f"{VEHICLE_EDIT}/var_vehicle_options"), ("font", "ui\\large_ui"),
+                          ("color", "#FF2896FF"), ("align", "center"), ("text_y", 4),
+                          ("list_flags", "items_from_strings"), ("header_bitmap", "bitmaps/arrow_sm_left"),
+                          ("footer_bitmap", "bitmaps/arrow_sm_right"), ("header_bounds", "7 -13 19 -7"),
+                          ("footer_bounds", "7 208 19 214")],
+                         ['<on event="left_mouse" run="mouse spinner 1wide click"/>'])
+    return lines
+
+
 def _item_options_extras() -> list:
     """Item Options' rows of the port's: the map's weapons (YES or NO), and
     the loadout, CATEGORY (the weapon set) or CUSTOM (each player's primary
@@ -1810,7 +1844,9 @@ def multiplayer_files() -> dict:
         f"{MT}/lobby".replace("/", ".") + ".xml": head + _lobby() + ["</menus>", ""],
         f"{MT}/coop".replace("/", ".") + ".xml": head + _coop() + ["</menus>", ""],
         "main_menu/new_select".replace("/", ".") + ".port.xml": head + _map_kind() + ["</menus>", ""],
-        "main_menu/settings_select/multiplayer_setup/item_options_edit".replace("/", ".") + ".port.xml": head + _item_options_extras() + ["</menus>", ""],
+        # (and Vehicle Options' add-on vehicles' rows)
+        "main_menu/settings_select/multiplayer_setup/item_options_edit".replace("/", ".") + ".port.xml":
+            head + _item_options_extras() + _vehicle_options_extras() + ["</menus>", ""],
         PLAYER_EDIT.replace("/", ".") + ".port.xml": head + _player_options_extras() + ["</menus>", ""],
         TEAMPLAY_EDIT.replace("/", ".") + ".port.xml": head + _teamplay_options_extras() + ["</menus>", ""],
         OPENCE_EDIT.replace("/", ".") + ".port.xml": head + _opence_options() + ["</menus>", ""],

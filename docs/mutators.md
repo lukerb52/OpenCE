@@ -17,8 +17,9 @@ files are `port/assets/mutators`.
 A mutator is only data. It names effects that the game has built in, and
 gives values to their parameters; it sets values of the map's tags, of
 the fields that the game lists (the tag edits, below); and it can add a
-vehicle, with every tag it uses, to the maps it is played on (an add-on,
-`format = 3`: [addons.md](addons.md)), checked as a map's tags are. Nothing in a mutator
+vehicle (`format = 3`) or a weapon (`format = 4`), with every tag it uses, to
+the maps it is played on (an add-on: [addons.md](addons.md)), checked as a
+map's tags are. Nothing in a mutator
 runs. The game refuses a mutator that names an effect, a parameter, a key or
 a field that it does not have, or a value outside the range of its parameter
 or field. So a mutator can do no more than the built-in effects do, and than
@@ -210,7 +211,8 @@ cannot be written to), the game plays them all the same, and `debug.txt`
 says so.
 
 To make a mutator from a stock one, copy its folder into `mutators` and
-give it an `id` of its own: with the stock one's, it cannot be played.
+change it. It can keep the stock one's `id`: see "Two mutators with one id",
+below.
 
 ```toml
 name = "Huge heads"     # what the Mods menu shows (else the folder's name)
@@ -237,14 +239,93 @@ cannot be played, and the Mods menu says why, if:
   not edit, with a value that is not of the field's kind or is out of its
   range;
 - it is made for a later `format`;
-- another mutator, found before it, has its `id` (not case-sensitive), or its
-  `id` has a comma, a quote or a backslash.
+- its `id` has a comma, a quote, a backslash or an `@`.
 
-Limits: 64 mutators, folder names of 63 bytes at most, 16 effects and
-parameters in a mutator.
+Limits: 64 mutators, folder names and ids of 63 bytes at most, 16 effects
+and parameters in a mutator.
+
+### Two mutators with one id
+
+The mutators are found in order: the stock mutators, then the folders of
+`mutators` by name. A mutator whose `id` (not case-sensitive) one found
+before it has is played as another, and its files are not changed:
+
+1. **The same files** (its `mutator.toml` and add-on, by their SHA-256) as a
+   mutator with its id: it is that mutator again, played once.
+2. **A folder of another name**: its id and its folder's name,
+   `big_head@my_big_head`.
+3. **A folder of the same name** (`mutators/big_head`, beside
+   `stock_mutators/big_head`), or where step 2's is taken: its id and the
+   first six hex digits of its files' SHA-256 (the SHA-256 of their SHA-256s,
+   one after the other, as a repository's index has it), `big_head@3fa2c1`.
+
+Its folder and files keep the id it is played by, and `game.mutators` names
+it by that. The log says each, and the Mods menu's details say what it is
+played as and why.
+
+```
+mutators: mutators/big_head_copy is the same as stock_mutators/big_head: it is played once, as big_head
+mutators: mutators/my_big_head has the id big_head, as stock_mutators/big_head has: it is played as big_head@my_big_head
+mutators: mutators/accurized_ma5b has the id accurized_ma5b, as stock_mutators/accurized_ma5b has: it is played as accurized_ma5b@9cc5d1
+```
+
+Should the hex digits be taken too, it cannot be played.
 
 On the web, only the stock mutators are found: the page cannot add a
 mutators folder yet.
+
+## Mutator repositories
+
+A mutator repository is a folder of mutators, laid out as `mutators` is,
+with a `mutator-index.toml` beside them, published as plain files on any
+web server (GitHub Pages, say). The game does not read repositories yet:
+the plan is that its link is given to the game, which lists the mutators
+in its index and installs those chosen into `mutators`.
+
+```
+mutator-index.toml        the index, written by tools/mutator_index.py
+falcon/
+  mutator.toml
+  falcon.cevehicle
+```
+
+The same folder can be the data root's `mutators` folder (a link to it):
+the game reads its folders, and the index beside them is not one.
+
+`tools/mutator_index.py <repository>` writes the index from each folder's
+`mutator.toml`: it lists the files the game plays the mutator from (its
+`mutator.toml` and its add-on, nothing else of its folder), with their sizes
+and SHA-256 checksums, which a download must match, and the mutator's
+SHA-256 (of those, one after the other: the game's, as above).
+`--check` fails if the index is not up to date, for a commit hook or CI.
+
+```toml
+format = 1                  # the index's format
+name = "Someone's mutators"
+description = "..."
+
+[[mutator]]
+folder = "falcon"           # the folder it is in, and is installed into
+id = "falcon"               # the rest as its mutator.toml has them
+name = "Falcon"
+version = "1"
+authors = []
+description = "..."
+format = 3                  # the mutators' format it is made for
+size = 10293512             # its files' bytes
+sha256 = "7323c317..."      # its files' SHA-256s' SHA-256
+
+[[mutator.file]]
+path = "mutator.toml"       # in its folder
+size = 1196
+sha256 = "5a2f9dbe..."
+```
+
+The tool checks what it can without the game: the folders' and ids' names,
+the files' sizes (a `mutator.toml` of 64 KB and an add-on of
+64 MB at most) and the format; it says where two mutators have one id, which the game
+plays as above. A repository and what it sends are untrusted
+input, as a map is: the game checks it all again.
 
 ## Turning them on
 

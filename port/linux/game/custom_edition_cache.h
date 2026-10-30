@@ -227,10 +227,12 @@ boolean custom_edition_reordered_bitmaps_find(
 	unsigned long loaded_bytes,
 	unsigned long behaviours);
 /* As custom_edition_reordered_bitmaps_find, in the loaded map's tags, which
-the validator has checked: for the bitmaps of mods (mod_bitmaps.c), Halo
-PC's on any map. FALSE after logging why it cannot. */
+the validator has checked: for the bitmaps of mods (mod_bitmaps.c) and
+add-ons (addons.c), Halo PC's on any map, with the Halo PC behaviours of the
+maps theirs were made from too (an add-on's). FALSE after logging why it
+cannot. */
 boolean custom_edition_loaded_reordered_bitmaps_find(
-	void);
+	unsigned long behaviours);
 /* The order (enum custom_edition_channel_order) Halo PC keeps the channels
 of bitmap `bitmap_index` of the tag `handle` names in, of those found. */
 short custom_edition_bitmap_channel_order(

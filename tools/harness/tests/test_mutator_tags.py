@@ -8,7 +8,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness import CHECK_FAILED, build, enum_with, mutated, read, run
-from test_port_mutators import CHECK_KEY, STUBS, stock_mutators
+from test_port_mutators import CHECK_KEY, STUBS, sha256_source, stock_mutators
 
 
 def stripped(path):
@@ -33,7 +33,7 @@ def generated(fault=None):
         tags = mutated(tags, 'value = edit->number / (real)TICKS_PER_SECOND;', 'value = edit->number;')
     if fault == 'append':
         tags = mutated(tags, 'count = (edit->append ? block->count : 0) +', 'count =')
-    source = read('port/linux/src/port_mutators.c').replace(
+    source = sha256_source(read('port/linux/src/port_mutators.c')).replace(
         'int mutators_key_check(const char *key, double value, char *reason, unsigned long size);', CHECK_KEY)
     enums = '\n'.join((enum_with(read('source/game/game_globals.h'), '_material_dirt = 0'),
                        enum_with(read('source/items/projectile_definitions.h'), '_projectile_material_response_disappear')))

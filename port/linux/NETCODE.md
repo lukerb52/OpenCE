@@ -287,7 +287,12 @@ loads, after its own: an add-on's vehicle is named in messages by its index
 there, and a build of 42 has no add-ons, so the tables differ. The messages
 are unchanged; each machine adds the add-ons of its own mutators, so until
 the host sends its add-ons, every machine of a game must have the same ones
-on.
+on. Then version 44 adds weapon add-ons (`.ceweapon`), which the host spawns
+as the map's netgame equipment, and gives the gametype's options a custom
+loadout's add-on weapons (from 16 in its weapons' bytes) and a custom
+vehicle set's counts of the first two add-on vehicles (in two of its spare
+bytes); the weapon and vehicle sets of one kind leave the add-ons' out. A
+build of 43 would read those options otherwise.
 
 `port/linux/network_format.txt` records the wire format of the current
 version (`tools/network_format.py`): `test_linux_port.py` fails when the

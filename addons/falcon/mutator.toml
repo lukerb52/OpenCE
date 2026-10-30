@@ -2,7 +2,7 @@
 # here until it has a repository of its own, and never in OpenCE's. Its
 # falcon.cevehicle is built from the map, not kept (.gitignore):
 #
-#   build/linux/cevehicle_build --map <custom_maps>/bigass_open_v1.1.map \
+#   build/linux/addon_build --map <custom_maps>/bigass_open_v1.1.map \
 #       --maps <custom_maps> --vehicle 'vehicles\falcon\falcon' \
 #       --riders 'characters\cyborg_mp\bigass with grackle' \
 #       --stock <maps>/beavercreek.map --stock <maps>/bloodgulch.map ... \
