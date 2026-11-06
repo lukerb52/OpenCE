@@ -1,4 +1,4 @@
-version 49
+version 64
 bound CHAT_TEXT_SIZE 64
 bound DISCORD_ID_SIZE 24
 bound DISCORD_NAME_SIZE 40
@@ -13,7 +13,16 @@ bound DISTRIBUTED_RELAYED_ACTION_MINIMUM_SIZE 14
 bound DISTRIBUTED_UNIT_STATE_MAXIMUM_SIZE 3 + 4 + (4 + 2) + (12 + 3 * 6) + 2 + 2 * 2 + 4 * 2 + 2 * NUMBER_OF_PLAYER_POWERUPS + 2 + 1
 bound DISTRIBUTED_UNIT_STATE_MINIMUM_SIZE 3
 bound GAME_ALLEGIANCE_BITVECTOR_LONGS 4
+bound HALO_PORT_MAXIMUM_NETWORK_MACHINES 128
 bound HALO_PORT_MAXIMUM_NETWORK_PLAYERS 128
+bound HALO_PORT_NETWORK_GAME_LOCAL_DATA_OFFSET (HALO_PORT_NETWORK_GAME_PLAYERS_END + 0x36)
+bound HALO_PORT_NETWORK_GAME_MACHINES_OFFSET 0x114
+bound HALO_PORT_NETWORK_GAME_PLAYERS_END (HALO_PORT_NETWORK_GAME_PLAYERS_OFFSET + HALO_PORT_MAXIMUM_NETWORK_PLAYERS * HALO_PORT_NETWORK_PLAYER_SIZE)
+bound HALO_PORT_NETWORK_GAME_PLAYERS_OFFSET (HALO_PORT_NETWORK_GAME_PLAYER_COUNT_OFFSET + 2)
+bound HALO_PORT_NETWORK_GAME_PLAYER_COUNT_OFFSET (HALO_PORT_NETWORK_GAME_MACHINES_OFFSET + HALO_PORT_MAXIMUM_NETWORK_MACHINES * HALO_PORT_NETWORK_MACHINE_SIZE)
+bound HALO_PORT_NETWORK_GAME_SIZE (HALO_PORT_NETWORK_GAME_PLAYERS_END + 0x3A + 32)
+bound HALO_PORT_NETWORK_MACHINE_SIZE 0x44
+bound HALO_PORT_NETWORK_PLAYER_SIZE 0x20
 bound LEVEL_NAME_BYTES 64
 bound MAP_SHARE_HASH_BYTES 32
 bound MAXIMUM_DEVICE_GROUPS 1024
@@ -46,6 +55,19 @@ define DISTRIBUTED_RELAYED_ACTION_SCRIPT_BUTTONS_BIT 7
 define DISTRIBUTED_TIME_WINDOW_TICKS (15 * TICKS_PER_SECOND)
 define DISTRIBUTED_UNIT_SCALE 32767.0f
 define DISTRIBUTED_VELOCITY_SCALE 1024.0f
+define MCC_PROTOCOL_ADVERTISED_FLAG 0x08
+define MCC_PROTOCOL_ADVERTISED_VERSION_OFFSET 4
+define MCC_PROTOCOL_JOIN_KIND 100
+define MCC_PROTOCOL_JOIN_MAX 512
+define MCC_PROTOCOL_VERSION 64
+define MCC_WORKSHOP_WIRE_OFFSET 64
+define MCC_WORKSHOP_WIRE_SIZE 64
+define MCC_WORKSHOP_WIRE_VERSION 1
+define THIRD_PERSON_PROTOCOL_JOIN_KIND 101
+define THIRD_PERSON_PROTOCOL_JOIN_MAX 520
+define THIRD_PERSON_PROTOCOL_JOIN_REVISION 1
+define THIRD_PERSON_PROTOCOL_MCC_VERSION 32713
+define THIRD_PERSON_PROTOCOL_VERSION 32712
 enum _distributed_actor_camouflaged_bit 4
 enum _distributed_actor_impulse_aligned_bit 6
 enum _distributed_actor_rides_bit 0
@@ -93,6 +115,10 @@ enum _distributed_message_map_share_request 83
 enum _distributed_message_map_share_sources 85
 enum _distributed_message_map_vote 94
 enum _distributed_message_map_vote_choice 95
+enum _distributed_message_mcc_campaign 97
+enum _distributed_message_mcc_game_speed 99
+enum _distributed_message_mcc_grenades 96
+enum _distributed_message_mcc_object_names 98
 enum _distributed_message_mutator_share_ask 114
 enum _distributed_message_mutator_share_done 117
 enum _distributed_message_mutator_share_entry 115
@@ -218,8 +244,9 @@ fields server_pregame_keep_alive 678699dea271
 fields server_remove_player_ingame 1718d4189972
 fields server_switch_to_pregame 678699dea271
 layout HALO_PORT_NETWORK_GAME_LOCAL_DATA_OFFSET (HALO_PORT_NETWORK_GAME_PLAYERS_END + 0x36)
-layout HALO_PORT_NETWORK_GAME_SIZE (HALO_PORT_NETWORK_GAME_PLAYERS_END + 0x3A)
+layout HALO_PORT_NETWORK_GAME_SIZE (HALO_PORT_NETWORK_GAME_PLAYERS_END + 0x3A + 32) /* MCC SHA-256 */
 layout HALO_PORT_NETWORK_GAME_VARIANT_OPTIONS_OFFSET (HALO_PORT_NETWORK_GAME_PLAYERS_END + 0xA)
+protocol OpenCE 49
 size message_client_add_player_request_ingame 0x20
 size message_client_add_player_request_pregame 0x20
 size message_client_broadcast_game_search 0x0C
@@ -324,3 +351,4 @@ struct distributed_voice_up 3d74ee44e4cb
 struct distributed_votekick_request 7e29ffd54bd1
 struct distributed_votekick_status b94458cdc180
 struct game_variant_options 363dea4d8bb6
+struct network_game b3ed48577869

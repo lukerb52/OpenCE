@@ -35,6 +35,7 @@ static struct
     struct bitmap_data *bitmap;
     long asset;
     boolean attempted;
+    void (*unbind)(unsigned long const *);
 } controller_glyph_cache[NUMBEROF(controller_glyph_assets)];
 
 short controller_glyph_style(void)
@@ -57,6 +58,8 @@ void controller_glyphs_dispose(void)
         if (controller_glyph_cache[i].bitmap)
         {
             hud_hires_register_placeholder(controller_glyph_cache[i].asset, NULL);
+            if (controller_glyph_cache[i].unbind)
+                controller_glyph_cache[i].unbind(controller_glyph_cache[i].bitmap->hardware_format);
             bitmap_delete(controller_glyph_cache[i].bitmap);
         }
     }
@@ -77,8 +80,9 @@ static short controller_glyph_asset_index(short style, short slot)
     return (short)(32 + family * 10 + slot - 4);
 }
 
-boolean controller_glyph_draw(short style, short index,
-    struct icon_hud_element_definition const *icon, rectangle2d *cursor, pixel32 color)
+static boolean controller_glyph_draw_internal(short style, short index,
+    struct icon_hud_element_definition const *icon, rectangle2d *cursor, pixel32 color,
+    void (*unbind)(unsigned long const *), boolean menu)
 {
     struct rasterizer_dynamic_screen_geometry_parameters parameters;
     struct dynamic_screen_vertex vertices[4];
@@ -104,6 +108,7 @@ boolean controller_glyph_draw(short style, short index,
             hud_hires_register_placeholder(asset, bitmap->hardware_format);
             controller_glyph_cache[key].asset = asset;
             controller_glyph_cache[key].bitmap = bitmap;
+            controller_glyph_cache[key].unbind = unbind;
             break;
         }
     }
@@ -112,6 +117,14 @@ boolean controller_glyph_draw(short style, short index,
     scale = local_player_count() > 1 ? 0.75f : 1.0f;
     cell_width = (slot < 6 ? 21.0f : slot < 8 ? 44.0f : 32.0f) * scale;
     cell_height = (slot < 6 ? 26.0f : slot < 8 ? 33.0f : 34.0f) * scale;
+    /* Menu helpers have a smaller, fixed footer than gameplay prompts. Keep
+     * their visible ink inside it and reserve space after the entire glyph. */
+    if (menu)
+    {
+        scale = 1.0f;
+        cell_width = slot < 6 ? 16.0f : 20.0f;
+        cell_height = slot < 6 ? 20.0f : 22.0f;
+    }
     width = entry->bounds[2] - entry->bounds[0];
     height = entry->bounds[3] - entry->bounds[1];
     fit = MIN(cell_width / width, cell_height / height);
@@ -136,6 +149,21 @@ boolean controller_glyph_draw(short style, short index,
         vertices[i].color = color;
     }
     rasterizer_psuedo_dynamic_screen_quad_draw(&parameters, vertices);
-    cursor->x0 += (short)((slot < 4 ? 22.0f : slot < 6 ? 20.0f : slot < 8 ? 45.0f : 33.0f) * scale);
+    cursor->x0 += (short)(menu ? cell_width + 10.0f :
+        (slot < 4 ? 22.0f : slot < 6 ? 20.0f : slot < 8 ? 45.0f : 33.0f) * scale);
     return TRUE;
+}
+
+boolean controller_glyph_draw(short style, short index,
+    struct icon_hud_element_definition const *icon, rectangle2d *cursor, pixel32 color,
+    void (*unbind)(unsigned long const *))
+{
+    return controller_glyph_draw_internal(style, index, icon, cursor, color, unbind, FALSE);
+}
+
+boolean controller_glyph_draw_menu(short style, short index, rectangle2d *cursor, pixel32 color)
+{
+    struct icon_hud_element_definition icon;
+    memset(&icon, 0, sizeof(icon));
+    return controller_glyph_draw_internal(style, index, &icon, cursor, color, NULL, TRUE);
 }

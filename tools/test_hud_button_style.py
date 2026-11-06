@@ -86,16 +86,20 @@ def test_supplied_gems_preserve_transparency_and_fit_existing_bounds():
         assert abs((bounds[1]+bounds[3])-(reference[1]+reference[3])) <= 1
 
 
-def test_legacy_button_styles_toggle_and_dispose(tmp_path):
-    path = ROOT / 'port/linux/game' / ('hud_hires_tags.c')
+@pytest.mark.parametrize('mcc', [False, True])
+def test_six_button_styles_toggle_and_dispose(tmp_path, mcc):
+    path = ROOT / 'port/linux/game' / ('mcc_hud_draw.c' if mcc else 'hud_hires_tags.c')
     source = path.read_text()
-    start = source.index('/* Original Xbox controller faces')
-    end = source.index('/* ---------- private code */', start)
+    start = source.index('static struct' if mcc else '/* Original Xbox controller faces')
+    end = source.index('/* Identify the controller entry' if mcc else '/* ---------- private code */', start)
     state = source[start:end]
-    names = ['hud_hires_button_draw']
+    if mcc:
+        state = source[start:source.index('static short mcc_weapon_frame', start)] + function(source, 'mcc_hud_glyphs_dispose') + '\n'
+    names = ['mcc_hud_button_bitmap'] if mcc else ['hud_hires_button_draw']
     routines = (ROOT/'port/linux/game/hud_button_layout.h').read_text() + '\n'.join(function(source, name) for name in names)
     tags = [a['tag'] for a in json.loads((ROOT/'port/assets/buttons/buttons.json').read_text())['assets']
-            if a['name'] in ['a_butn__0','b_butn__0','x_butn__0','y_butn__0','black_butn__0','white_butn__0'] or 'classic' in a or 'source_png' in a]
+            if a['name'] in ['a_butn__0','b_butn__0','x_butn__0','y_butn__0','black_butn__0','white_butn__0',
+                             'mcc_black_butn__0','mcc_white_butn__0'] or 'classic' in a or 'source_png' in a]
     prelude = r'''
 #define ce_hud_buttons_stock(icon, index) 1
 static int ce,stock_sheet=1;
@@ -121,7 +125,7 @@ struct rasterizer_dynamic_screen_geometry_parameters {
 };
 static int enabled=1,gems,live,last_asset=-1,draws;
 static short controller_glyph_style(void) {return (short)gems;}
-#define controller_glyph_draw(style,index,icon,cursor,color) 0
+#define controller_glyph_draw(style,index,icon,cursor,color,unbind) 0
 #define controller_glyphs_dispose() ((void)0)
 static pixel32 drawn_color;
 static int drawn_blend;
@@ -137,6 +141,7 @@ static struct bitmap_data *bitmap_2d_new(int w,int h,int m,int f) {
 }
 static int rasterizer_bitmap_new(struct bitmap_data *b) {b->hardware_format=(unsigned long *)b;return 1;}
 static void bitmap_delete(struct bitmap_data *b) {free(b);live--;}
+static void xgpu_mcc_texture_unbind(unsigned long const *t) {(void)t;}
 static void hud_hires_register_placeholder(long a,unsigned long const *t) {if(t)last_asset=(int)a;}
 static void rasterizer_psuedo_dynamic_screen_quad_draw(struct rasterizer_dynamic_screen_geometry_parameters *p,
     struct dynamic_screen_vertex *v) {
@@ -147,7 +152,7 @@ static void rasterizer_psuedo_dynamic_screen_quad_draw(struct rasterizer_dynamic
     prelude += 'static char const *tags[]={' + ','.join(json.dumps(t) for t in tags) + '};\n'
     prelude += 'static long hud_hires_asset_count(void) {return sizeof(tags)/sizeof(*tags);}\n'
     prelude += 'static char const *hud_hires_asset_tag(long i) {return tags[i];}\n'
-    call = r'''
+    call = 'assert(mcc_hud_button_bitmap((short)i));' if mcc else r'''
         buttons[i].flags=2;buttons[i].color=0xff123456;
         assert(hud_hires_button_draw(&buttons[i],&cursor,0x7fabcdef));
         assert(drawn_color==0xffffffff);
@@ -160,8 +165,9 @@ static void rasterizer_psuedo_dynamic_screen_quad_draw(struct rasterizer_dynamic
         assert(hud_hires_button_draw(&buttons[i],&cursor,0));
         assert(drawn_color==0x00ffffff);
         '''
-    dispose = 'hud_buttons_forget'
-    check_off = (r'''
+    dispose = 'mcc_hud_glyphs_dispose' if mcc else 'hud_buttons_forget'
+    check_off = (r'''enabled=0;gems=0;assert(mcc_hud_button_bitmap(0));
+        assert(!strstr(tags[last_asset],"classic"));''' if mcc else r'''
         enabled=0;assert(!hud_hires_button_draw(&buttons[0],&cursor,0xffffffff));
         ce=1;assert(!hud_hires_button_draw(&buttons[0],&cursor,0xffffffff));
         stock_sheet=0;assert(hud_hires_button_draw(&buttons[0],&cursor,0xffffffff));
@@ -202,7 +208,7 @@ int main(void) {
     OFF
     DISPOSE();DISPOSE();assert(live==0);return 0;
 }
-'''.replace('CALL',call).replace('CONTROL', 'assert(hud_hires_button_draw(&buttons[control],&cursor,0x7fabcdef));assert(drawn_color==0x7fabcdef);assert(drawn_blend==7);').replace('OFF',check_off).replace('DISPOSE',dispose))
+'''.replace('CALL',call).replace('CONTROL', 'assert(mcc_hud_button_bitmap((short)slot));' if mcc else 'assert(hud_hires_button_draw(&buttons[control],&cursor,0x7fabcdef));assert(drawn_color==0x7fabcdef);assert(drawn_blend==7);').replace('OFF',check_off).replace('DISPOSE',dispose))
 
 
 def test_visible_face_bounds_match_xbox_and_keep_black_white(tmp_path):

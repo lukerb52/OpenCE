@@ -22,9 +22,14 @@ Conventions carried over from the Xbox:
 */
 
 #include "xgpu.h"
+#include "shader_prepare.h"
+#include "plasma_model_shader.h"
+#include "plasma_occlusion.h"
+#include "mcc_environment_shader.h"
 #include "sdl_platform.h"
 #include "halo_ui_pointer.h"
 #include "port_config.h"
+#include "loading_widescreen.h"
 #include "posix.h"
 #include "main/console.h"
 #ifdef HALO_ANDROID
@@ -525,6 +530,13 @@ struct vertex_shader_object
 	/* a shader lit for each pixel failed to compile or link: lit as the
 	vertex shader lights it from then on */
 	BOOL lighting_failed;
+#ifndef HALO_ANDROID
+	/* Optional model lighting has separate lazy variants and failure state;
+	   toggling it off must recover the original shaders. */
+	GLuint plasma_shader[2], plasma_lit_shader[2];
+	BOOL plasma_lighting_failed;
+	BOOL plasma_model;
+#endif
 #ifndef HALO_GLES
 	/* the vertex array its draws last used, and the streams they had
 	(setup_streams: the layout follows from the two) */
@@ -532,8 +544,8 @@ struct vertex_shader_object
 	unsigned long vertex_array_streams;
 #endif
 	/* which of shader[] and lit_shader[] have been compiled (bits 0 and 1,
-	and 2 and 3): one that failed stays 0 and is not compiled again at each
-	draw */
+	and 2 and 3), with bits 4..7 for their optional lighting variants:
+	one that failed stays 0 and is not compiled again at each draw */
 	unsigned char shaders_tried;
 };
 
@@ -544,6 +556,16 @@ struct fragment_entry
 	struct fragment_entry *next;
 	unsigned long hash;
 	struct nv2a_pixel_shader_key key;
+	GLuint shader;
+};
+
+/* Full render-state keys can translate to identical GLSL. Own each source
+   and shader once for the GL context's lifetime, like the program cache. */
+struct fragment_source_entry
+{
+	struct fragment_source_entry *next;
+	unsigned long hash;
+	char *source;
 	GLuint shader;
 };
 
@@ -566,6 +588,9 @@ struct draw_uniforms
 	float screen_offset;
 	float texture_lod_bias[4];
 	float height_fade[4];
+	float shield_honeycomb[3][4];
+	/* display.reversed_depth: a z bias's depth units (nv2a_vsh.c) */
+	float depth_bias;
 };
 
 struct program_entry
@@ -584,12 +609,18 @@ struct program_entry
 	GLint texture_lod_bias;
 	GLint screen_offset;
 	GLint height_fade;
+	GLint shield_honeycomb;
+	GLint depth_bias;
 	/* nv2a_pixel_shader_key's source_blend's color, and what it last had */
 	GLint blend_constant;
 	float blend_constant_value[4];
 	/* the lights of a draw lit for each pixel (XGPU_MODEL_LIGHT_COUNT), and
 	constants_serial at their last upload */
 	GLint model_lights;
+#ifndef HALO_ANDROID
+	GLint plasma_model_slots;
+	struct plasma_occlusion_uniforms plasma_occlusion;
+#endif
 	unsigned long long model_lights_serial;
 
 	/* the vertex constants c[0..constant_count) the program uses; with
@@ -921,6 +952,7 @@ static void program_cache_store(GLuint program, unsigned long long vertex_hash, 
 #endif
 
 static struct fragment_entry *fragment_buckets[FRAGMENT_BUCKETS];
+static struct fragment_source_entry *fragment_source_buckets[FRAGMENT_BUCKETS];
 static struct program_entry *program_buckets[PROGRAM_BUCKETS];
 
 /* ---------- render targets */
@@ -1164,6 +1196,57 @@ struct gl_device
 };
 
 static struct gl_device device;
+static BOOL material_preparing;
+
+int render_prepare_texture(void const *header)
+{
+#ifndef HALO_GLES
+	struct xgpu_texture_description description;
+	GLenum target;
+	if (device.gl_ready) return xgpu_texture_get(header, NULL, &target, &description) != 0;
+#else
+	(void)header;
+#endif
+	return 0;
+}
+
+int render_material_prepare_mode(int enabled)
+{
+#ifndef HALO_GLES
+	if (!device.gl_ready) return 0;
+	material_preparing = enabled != 0;
+	if (!enabled) memset(device.textures, 0, sizeof(device.textures));
+	return 1;
+#else
+	(void)enabled;
+	return 0;
+#endif
+}
+
+/* The game owns map boundaries; only this backend knows whether GL exists. */
+void render_prepare_map(char const *name)
+{
+#ifndef HALO_GLES
+	if (device.gl_ready)
+	{
+		shader_prepare_begin(name, program_cache_load, program_cache_store);
+		if (config_boolean("display.shader_prepare")) xgpu_texture_names_prepare();
+	}
+#else
+	(void)name;
+#endif
+}
+
+void render_prepare_end(void)
+{
+#ifndef HALO_GLES
+	if (device.gl_ready)
+	{
+		shader_prepare_end();
+		xgpu_texture_names_dispose();
+	}
+#endif
+}
 
 /* debug.gpu_stats prints these once a second */
 static struct
@@ -2191,6 +2274,7 @@ static BOOL bind_targets(BOOL *has_depth)
 	*has_depth = depth != NULL;
 	return TRUE;
 }
+
 
 /* ---------- display.hdr */
 
@@ -3479,6 +3563,15 @@ void android_ce_texture_unbind(const void *resource)
 }
 #endif
 
+/* Unload can happen before a later draw replaces every texture stage. */
+void xgpu_mcc_texture_unbind(DWORD const *resource)
+{
+	unsigned long stage;
+	for (stage = 0; stage < D3DTSS_MAXSTAGES; stage++)
+		if ((DWORD const *)device.textures[stage] == resource)
+			device.textures[stage] = NULL;
+}
+
 void WINAPI D3DDevice_SetPalette(DWORD stage, D3DPalette *palette)
 {
 	if (stage < D3DTSS_MAXSTAGES)
@@ -3602,6 +3695,15 @@ HRESULT WINAPI D3DDevice_CreateVertexShader(CONST DWORD *declaration, CONST DWOR
 		memcpy(object->instructions, function + 1, object->instruction_count * 4 * sizeof(DWORD));
 	}
 	parse_declaration(object, declaration);
+#ifndef HALO_ANDROID
+	if (object->instructions)
+	{
+		struct nv2a_vertex_lighting lighting;
+		/* Keep the feature's instruction-based recognition independent of
+		   which programs the game marks for per-pixel lighting. */
+		object->plasma_model = nv2a_vertex_shader_lighting(object->instructions, object->instruction_count, &lighting) && lighting.lights == 2;
+	}
+#endif
 	/* odd values are FVF codes; programmable shader handles are even */
 	*handle = (DWORD)object;
 	return S_OK;
@@ -3780,16 +3882,23 @@ static BOOL words_equal(const void *a, const void *b, unsigned long size)
 
 /* lit: the shader that hands the lighting's normal and position on
 (vertex_shader_object lit_shader) */
-static GLuint vertex_shader_get(struct vertex_shader_object *program, BOOL immediate, BOOL lit)
+static GLuint vertex_shader_get(struct vertex_shader_object *program, BOOL immediate, BOOL lit, BOOL plasma_model)
 {
 	int variant = immediate ? 1 : 0;
 	GLuint *shader = lit ? &program->lit_shader[variant] : &program->shader[variant];
 	unsigned char tried = (unsigned char)(1 << (variant + (lit ? 2 : 0)));
 
+#ifndef HALO_ANDROID
+	if (plasma_model)
+	{
+		shader = lit ? &program->plasma_lit_shader[variant] : &program->plasma_shader[variant];
+		tried <<= 4;
+	}
+#endif
 	if (!*shader && !(program->shaders_tried & tried))
 	{
 		char *source = nv2a_vertex_shader_to_glsl(program->instructions, program->instruction_count,
-			immediate ? 0 : device.vertex_shader->packed_mask, lit ? &program->lighting : NULL);
+			immediate ? 0 : device.vertex_shader->packed_mask, lit ? &program->lighting : NULL, plasma_model);
 
 		program->shaders_tried |= tried;
 		*shader = xgpu_compile_shader(GL_VERTEX_SHADER, source, "vertex");
@@ -3799,8 +3908,8 @@ static GLuint vertex_shader_get(struct vertex_shader_object *program, BOOL immed
 			char path[512];
 			FILE *file;
 
-			snprintf(path, sizeof(path), "%s/vs%03lu_%d%s.glsl", debug_settings.dump_shaders, program->id, variant,
-				lit ? "_lit" : "");
+			snprintf(path, sizeof(path), "%s/vs%03lu_%d%s%s.glsl", debug_settings.dump_shaders, program->id, variant,
+				lit ? "_lit" : "", plasma_model ? "_plasma" : "");
 			if ((file = fopen(path, "w")) != NULL)
 			{
 				fputs(source, file);
@@ -3813,6 +3922,51 @@ static GLuint vertex_shader_get(struct vertex_shader_object *program, BOOL immed
 }
 
 typedef char pixel_shader_key_size_assert[sizeof(struct nv2a_pixel_shader_key) % 4 == 0 ? 1 : -1];
+
+static unsigned long fragment_source_hash(const char *source)
+{
+	unsigned long hash = 2166136261UL;
+	while (*source)
+		hash = (hash ^ (unsigned char)*source++) * 16777619UL;
+	return hash;
+}
+
+/* Consumes source. A hash only chooses candidates: compare every byte before
+   sharing an object. No generator, driver workaround or shader state is changed. */
+static GLuint fragment_source_get(char *source)
+{
+	unsigned long hash = fragment_source_hash(source);
+	struct fragment_source_entry **bucket = &fragment_source_buckets[hash % FRAGMENT_BUCKETS];
+	struct fragment_source_entry *entry;
+	GLuint shader;
+
+	for (entry = *bucket; entry; entry = entry->next)
+	{
+		if (entry->hash == hash && !strcmp(entry->source, source))
+		{
+			free(source);
+			return entry->shader;
+		}
+	}
+	shader = xgpu_compile_shader(GL_FRAGMENT_SHADER, source, "pixel");
+	/* Register shared objects once for the upstream program-binary cache. */
+	shader_hash_set(shader, source);
+	entry = malloc(sizeof(*entry));
+	if (entry)
+	{
+		entry->hash = hash;
+		entry->source = source;
+		entry->shader = shader;
+		entry->next = *bucket;
+		*bucket = entry;
+	}
+	else
+	{
+		/* The full-key cache still owns the result if sharing cannot allocate. */
+		free(source);
+	}
+	return shader;
+}
 
 static GLuint fragment_shader_get(const struct nv2a_pixel_shader_key *key)
 {
@@ -3845,8 +3999,6 @@ static GLuint fragment_shader_get(const struct nv2a_pixel_shader_key *key)
 	entry->hash = hash;
 	entry->key = *key;
 	source = nv2a_pixel_shader_to_glsl(key);
-	entry->shader = xgpu_compile_shader(GL_FRAGMENT_SHADER, source, "pixel");
-	shader_hash_set(entry->shader, source);
 	if (debug_settings.dump_shaders)
 	{
 		char path[512];
@@ -3859,14 +4011,14 @@ static GLuint fragment_shader_get(const struct nv2a_pixel_shader_key *key)
 			fclose(file);
 		}
 	}
-	free(source);
+	entry->shader = fragment_source_get(source);
 	entry->next = *bucket;
 	*bucket = entry;
 	recent[recent_next++ % RECENT_FRAGMENT_COUNT] = entry;
 	return entry->shader;
 }
 
-static struct program_entry *program_get(GLuint vertex_shader, GLuint fragment_shader)
+static struct program_entry *program_get(GLuint vertex_shader, GLuint fragment_shader, BOOL plasma_model)
 {
 	static struct program_entry *last;
 	unsigned long hash = (vertex_shader * 2654435761UL) ^ fragment_shader;
@@ -3874,6 +4026,10 @@ static struct program_entry *program_get(GLuint vertex_shader, GLuint fragment_s
 	struct program_entry *entry;
 	int stage;
 
+#ifndef HALO_GLES
+	if (!material_preparing)
+		shader_prepare_record(vertex_shader, fragment_shader, shader_hash(vertex_shader), shader_hash(fragment_shader));
+#endif
 	if (last && last->vertex_shader == vertex_shader && last->fragment_shader == fragment_shader)
 		return last;
 	for (entry = *bucket; entry; entry = entry->next)
@@ -3896,7 +4052,9 @@ static struct program_entry *program_get(GLuint vertex_shader, GLuint fragment_s
 		return NULL;
 
 #ifndef HALO_GLES
-	entry->program = program_cache_load(shader_hash(vertex_shader), shader_hash(fragment_shader));
+	entry->program = shader_prepare_take(shader_hash(vertex_shader), shader_hash(fragment_shader));
+	if (!entry->program)
+		entry->program = program_cache_load(shader_hash(vertex_shader), shader_hash(fragment_shader));
 	if (!entry->program)
 	{
 		/* (linked as xgpu_link_program does, keeping its binary) */
@@ -3973,8 +4131,21 @@ static struct program_entry *program_get(GLuint vertex_shader, GLuint fragment_s
 	entry->texture_lod_bias = glGetUniformLocation(entry->program, "texture_lod_bias");
 	entry->screen_offset = glGetUniformLocation(entry->program, "screen_offset");
 	entry->height_fade = glGetUniformLocation(entry->program, "height_fade");
+	entry->shield_honeycomb = glGetUniformLocation(entry->program, "shield_honeycomb");
+	entry->depth_bias = glGetUniformLocation(entry->program, "depth_bias");
 	entry->blend_constant = glGetUniformLocation(entry->program, "blend_constant");
 	entry->model_lights = glGetUniformLocation(entry->program, "model_lights");
+#ifndef HALO_ANDROID
+	entry->plasma_model_slots = -1;
+	if (plasma_model)
+	{
+		entry->plasma_model_slots = glGetUniformLocation(entry->program, "plasma_model_slots");
+		if (entry->plasma_model_slots >= 0)
+			plasma_occlusion_model_initialize(entry->program, &entry->plasma_occlusion);
+	}
+#else
+	(void)plasma_model;
+#endif
 	for (stage = 0; stage < D3DTSS_MAXSTAGES; stage++)
 	{
 		char name[8];
@@ -3983,6 +4154,44 @@ static struct program_entry *program_get(GLuint vertex_shader, GLuint fragment_s
 		glUniform1i(glGetUniformLocation(entry->program, name), stage);
 	}
 	last = entry;
+	return entry;
+}
+
+/* Select both stages together. Only actual selected feature lights need the
+   optional variant; the mask already respects local settings and host policy. */
+static BOOL per_pixel_lighting(void);
+static struct program_entry *draw_program_get(struct vertex_shader_object *program, BOOL immediate,
+	struct nv2a_pixel_shader_key *key, unsigned int plasma_mask)
+{
+	struct program_entry *entry = NULL;
+	BOOL plasma_model = FALSE;
+	BOOL *failed = &program->lighting_failed;
+#ifndef HALO_ANDROID
+	plasma_model = plasma_mask && program->plasma_model;
+	if (plasma_model)
+		failed = &program->plasma_lighting_failed;
+#else
+	(void)plasma_mask;
+#endif
+	key->plasma_model = 0;
+	key->per_pixel_lighting = 0;
+	if (program->lighting.lights && !*failed && per_pixel_lighting())
+	{
+		key->per_pixel_lighting = (unsigned char)program->lighting.lights;
+		key->plasma_model = (unsigned char)plasma_model;
+		entry = program_get(vertex_shader_get(program, immediate, TRUE, plasma_model), fragment_shader_get(key), plasma_model);
+		if (!entry)
+		{
+			/* Keep each variant's fallback independent of the other. */
+			platform_log("GPU: vertex shader %lu cannot be lit for each pixel here (refer to the shader log above): "
+				"lit for each vertex", program->id);
+			*failed = TRUE;
+			key->per_pixel_lighting = 0;
+			key->plasma_model = 0;
+		}
+	}
+	if (!entry)
+		entry = program_get(vertex_shader_get(program, immediate, FALSE, plasma_model), fragment_shader_get(key), plasma_model);
 	return entry;
 }
 
@@ -4476,7 +4685,20 @@ static void bind_textures(struct nv2a_pixel_shader_key *key, float texture_scale
 			GLenum gl_target;
 			GLuint gl_texture;
 
-			if (target)
+			if (material_preparing)
+			{
+				if (!xgpu_mcc_texture_describe((DWORD const *)texture, &description))
+					xgpu_texture_describe(texture->Format, texture->Size, &description);
+				gl_target = description.cube_map ? GL_TEXTURE_CUBE_MAP :
+					description.depth > 1 ? GL_TEXTURE_3D : GL_TEXTURE_2D;
+				gl_texture = 0;
+				if (description.linear)
+				{
+					texture_scale[stage][0] = 1.0f / (float)description.width;
+					texture_scale[stage][1] = 1.0f / (float)description.height;
+				}
+			}
+			else if (target)
 			{
 				/* (multisampled: its pixels drawn since, resolved) */
 				render_target_resolve(target);
@@ -4767,11 +4989,20 @@ static void apply_raster_state(BOOL has_depth)
 
 		offset[0] = dword_to_float(rs[D3DRS_POLYGONOFFSETZSLOPESCALE]);
 		offset[1] = dword_to_float(rs[D3DRS_POLYGONOFFSETZOFFSET]);
-		/* (display.reversed_depth: toward the camera is up) */
+		/* The slope is the depth's change across a pixel, and a target drawn
+		at several pixels to the game's one (render_target_get) has that many
+		times less depth across each: the Xbox's slope term, taken across its
+		own pixels, is that many times the scale. On a surface seen at an
+		angle it is most of the bias (the Pelican's lights on its curved hull
+		sank in at 1080 lines with it a 2.25th as large). */
+		offset[0] *= target_scale[0] > target_scale[1] ? target_scale[0] : target_scale[1];
+		/* (display.reversed_depth: toward the camera is up, and the units,
+		which a floating-point depth buffer measures by the depth itself,
+		are the vertex program's, in the Xbox's measure: depth_bias) */
 		if (xgpu_reversed_depth)
 		{
 			offset[0] = -offset[0];
-			offset[1] = -offset[1];
+			offset[1] = 0.0f;
 		}
 		if (memcmp(gl_state.polygon_offset, offset, sizeof(offset)))
 		{
@@ -4806,11 +5037,27 @@ static void gl_check_errors(const char *where)
 
 /* the uniforms of the latest draws, converted from these inputs; the serial
 counts the conversions */
-#define DRAW_UNIFORM_INPUT_COUNT (4 + 4 + 16 + 1 + 16 + 2 + 4 + 1 + 1 + 7 * D3DTSS_MAXSTAGES + 4)
+#define DRAW_UNIFORM_INPUT_COUNT (4 + 4 + 16 + 1 + 16 + 2 + 4 + 1 + 1 + 7 * D3DTSS_MAXSTAGES + 4 + 12 + 2)
 
 /* the height fade of the draws that follow (d3d8_gl_set_height_fade): off
 while its scale is zero */
 static float height_fade_value[4];
+static float shield_honeycomb_value[3][4];
+
+/* Draw-local extension for shield_honeycomb_gl.h. A zero scale disables it;
+the caller restores that state immediately after the owned plasma draw. */
+void d3d8_gl_set_shield_honeycomb(float scale, float time,
+	const float *difference, const float *parallel, float classic_surface)
+{
+	shield_honeycomb_value[0][0] = scale != 0.f ? classic_surface : 0.f;
+	shield_honeycomb_value[0][3] = scale;
+	if (scale != 0.f)
+	{
+		memcpy(shield_honeycomb_value[1], difference, 4 * sizeof(float));
+		memcpy(shield_honeycomb_value[2], parallel, 4 * sizeof(float));
+		shield_honeycomb_value[1][3] = time;
+	}
+}
 
 /* The draws that follow fade out above a height on their model (the shield
 flare rising up a body: port/linux/game/overshield_effect.c): each vertex's
@@ -4899,6 +5146,7 @@ static struct program_entry *prepare_draw(BOOL immediate)
 	struct program_entry *entry;
 	struct draw_uniforms uniforms;
 	BOOL has_depth = FALSE;
+	unsigned int plasma_mask = 0;
 	int stage;
 
 	/* (the fixed-function pipeline's draws: immediate mode's only) */
@@ -4927,6 +5175,8 @@ static struct program_entry *prepare_draw(BOOL immediate)
 	key.combiner_state[D3DRS_PSFINALCOMBINERCONSTANT0] = 0;
 	key.combiner_state[D3DRS_PSFINALCOMBINERCONSTANT1] = 0;
 	key.texture_modes = D3D__RenderState[D3DRS_PSTEXTUREMODES];
+	key.mcc_bump_attenuation = mcc_environment_shader_active();
+	key.shield_honeycomb = shield_honeycomb_value[0][3] != 0.f;
 	/* the textures before the targets: a render target the draw samples
 	has its multisampled pixels resolved by a blit (render_target_resolve),
 	which binds framebuffers of its own, and the back buffer can be both
@@ -4961,23 +5211,13 @@ static struct program_entry *prepare_draw(BOOL immediate)
 	key.count_samples = device.visibility_test_active && xgpu_capabilities.atomic_counters;
 #endif
 
-	entry = NULL;
-	if (program->lighting.lights && !program->lighting_failed && per_pixel_lighting())
-	{
-		key.per_pixel_lighting = (unsigned char)program->lighting.lights;
-		entry = program_get(vertex_shader_get(program, immediate, TRUE), fragment_shader_get(&key));
-		if (!entry)
-		{
-			/* drawn as the vertex shader lights it instead (not at all,
-			were it to fail too) */
-			platform_log("GPU: vertex shader %lu cannot be lit for each pixel here (refer to the shader log above): "
-				"lit for each vertex", program->id);
-			program->lighting_failed = TRUE;
-			key.per_pixel_lighting = 0;
-		}
-	}
-	if (!entry)
-		entry = program_get(vertex_shader_get(program, immediate, FALSE), fragment_shader_get(&key));
+#ifndef HALO_ANDROID
+	if (program->plasma_model)
+		plasma_mask = plasma_model_lighting_mask();
+#endif
+	entry = draw_program_get(program, immediate, &key, plasma_mask);
+	/* The loading pass needs the identical shader key, but no draw uniforms. */
+	if (material_preparing) return entry;
 	if (!entry)
 	{
 		stats.skipped_link++;
@@ -5063,6 +5303,13 @@ static struct program_entry *prepare_draw(BOOL immediate)
 		constants_checkpoint_first = XGPU_VERTEX_CONSTANT_COUNT;
 		constants_checkpoint_last = 0;
 	}
+#ifndef HALO_ANDROID
+	if (plasma_mask && entry->plasma_model_slots >= 0)
+	{
+		plasma_occlusion_bind_model(&entry->plasma_occlusion);
+		glUniform2f(entry->plasma_model_slots, (plasma_mask & 1) ? 1.0f : 0.0f, (plasma_mask & 2) ? 1.0f : 0.0f);
+	}
+#endif
 	/* the lights of a draw lit for each pixel, from the same registers, when
 	any of them changed since the program last had them */
 	if (entry->model_lights >= 0 && entry->model_lights_serial != constants_serial)
@@ -5125,6 +5372,10 @@ static struct program_entry *prepare_draw(BOOL immediate)
 		}
 		memcpy(&inputs[count], height_fade_value, sizeof(height_fade_value));
 		count += 4;
+		memcpy(&inputs[count], shield_honeycomb_value, sizeof(shield_honeycomb_value));
+		count += 12;
+		inputs[count++] = D3D__RenderState[D3DRS_SOLIDOFFSETENABLE];
+		inputs[count++] = D3D__RenderState[D3DRS_POLYGONOFFSETZOFFSET];
 		if (!draw_uniforms_serial || !words_equal(inputs, draw_uniform_inputs, sizeof(inputs)))
 		{
 			struct draw_uniforms *converted = &draw_uniforms;
@@ -5164,6 +5415,14 @@ static struct program_entry *prepare_draw(BOOL immediate)
 			}
 			converted->screen_offset = (float)UI_OFFSET;
 			memcpy(converted->height_fade, height_fade_value, sizeof(converted->height_fade));
+			memcpy(converted->shield_honeycomb, shield_honeycomb_value, sizeof(converted->shield_honeycomb));
+			/* (display.reversed_depth: the z bias's units, the Xbox's depth
+			units toward the camera, in the depth the vertex program writes:
+			one is 1 / viewport_scale.z, the depth buffer's range over the
+			viewport's) */
+			converted->depth_bias = xgpu_reversed_depth && D3D__RenderState[D3DRS_SOLIDOFFSETENABLE] &&
+				device.viewport_scale[2] != 0.0f ?
+				-dword_to_float(D3D__RenderState[D3DRS_POLYGONOFFSETZOFFSET]) / device.viewport_scale[2] : 0.0f;
 		}
 	}
 	/* and a program that has had them since needs none of them */
@@ -5186,7 +5445,14 @@ static struct program_entry *prepare_draw(BOOL immediate)
 	uniform_float(entry->screen_offset, &entry->uniforms.screen_offset, draw_uniforms.screen_offset);
 	uniform_vec4(entry->texture_lod_bias, entry->uniforms.texture_lod_bias, draw_uniforms.texture_lod_bias, 1);
 	uniform_vec4(entry->height_fade, entry->uniforms.height_fade, draw_uniforms.height_fade, 1);
+	uniform_vec4(entry->shield_honeycomb, entry->uniforms.shield_honeycomb[0], draw_uniforms.shield_honeycomb[0], 3);
+	uniform_float(entry->depth_bias, &entry->uniforms.depth_bias, draw_uniforms.depth_bias);
 	return entry;
+}
+
+void render_material_prepare_draw(void)
+{
+	if (material_preparing) prepare_draw(FALSE);
 }
 
 /* ---------- tracing (debug.gpu_trace_frame) */
@@ -7650,7 +7916,9 @@ reads back (GetBackBuffer with -1, progress_bar.c) and draws again blurred,
 a little larger and fainter, under each new frame: the trails of its light.
 Here it is a render target of the menus' 640x480, which takes the 640
 columns in the middle of the frame (where the loading screen draws, as the
-menus do on a wide screen) once the loading screen has drawn it, while the
+menus do on a wide screen), or the whole width while widescreen loading is
+active. The effect and its feedback stay in their original 640x480 space;
+only their horizontal presentation changes. Capture happens while the
 screen asks for it: at its BlockUntilVerticalBlank, its last call, so that
 what is drawn over it after (the download screen's words) leaves no trail. */
 
@@ -7724,6 +7992,13 @@ static void front_buffer_take(void)
 	width = (GLint)(FRONT_BUFFER_WIDTH * back_buffer->target.scale[0] + 0.5f);
 	left = ((GLint)back_buffer->target.gl_width - width) / 2;
 	if (left < 0)
+	{
+		left = 0;
+		width = (GLint)back_buffer->target.gl_width;
+	}
+	/* The loading feature expands the original effect across this width.
+	Capture all of it back into the stock feedback texture, not its centre. */
+	if (loading_widescreen_active())
 	{
 		left = 0;
 		width = (GLint)back_buffer->target.gl_width;
@@ -7817,6 +8092,9 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 				hdr.float_window ? hdr.sdr_white : 0.0f)))
 		{
 			glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer_get(back_buffer->target.texture, 0));
+			/* Creating the source framebuffer binds both targets. A cached
+			map can reach this first blit without a loading-screen draw. */
+			glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 			/* row 0 of the render target is the top of the picture */
 			glBlitFramebuffer(0, 0, (GLint)back_buffer->target.gl_width, (GLint)back_buffer->target.gl_height,
 				x, y + height, x + width, y, GL_COLOR_BUFFER_BIT, GL_LINEAR);

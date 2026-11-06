@@ -123,7 +123,11 @@ symbols in this file:
 #include "rasterizer/xbox/rasterizer_xbox_draw_primitives.h"
 #include "rasterizer/xbox/rasterizer_xbox_internal.h"
 #include "rasterizer/xbox/rasterizer_xbox_models.h"
+#include "needler_lighting.h" /* port: port/linux/game/needler_lighting.c */
+#include "ammo_counter_lighting.h" /* port: port/linux/game/ammo_counter_lighting.c */
 #include "view_fov.h" /* port: port/linux/game/view_fov.c */
+
+#include "shield_look.h" /* port: port/linux/game/shield_look.c */
 
 /* ---------- constants */
 
@@ -1664,7 +1668,10 @@ void _rasterizer_model_draw(
 					NUMBER_OF_SHADER_ANIMATION_FUNCTIONS ||
 				!local_parameters->effect.modifier_animation.values ||
 				local_parameters->effect.modifier_animation.values[
-					intensity_exponent_source-1] != 0.0f)
+					intensity_exponent_source-1] != 0.0f ||
+				/* port: a recharge layer can outlast the hit intensity function. */
+				shield_recharge_visible(local_parameters->effect.modifier_shader,
+					local_parameters->effect.modifier_animation.values))
 			{
 				group = _rasterizer_model_transparent_geometry_submit(
 					local_parameters->effect.modifier_shader,
@@ -1990,6 +1997,11 @@ void _rasterizer_model_draw(
 					self_illumination_color.green *= external_color->green;
 					self_illumination_color.blue *= external_color->blue;
 				}
+
+				/* port: optional AR screen emission, confined to its authored mask. */
+				ammo_counter_lighting_screen(shader, &self_illumination_color);
+				/* port: optional masked needle emission in both weapon models. */
+				needler_lighting_material(shader, &self_illumination_color);
 
 				if (shader_model->model.change_color_source>0 &&
 					shader_model->model.change_color_source<
@@ -2331,6 +2343,9 @@ void _rasterizer_model_draw(
 						shader_model->model.flags,
 						_shader_model_true_atmospheric_fog_bit));
 
+				/* port: boost only the optional AR display material draw. */
+				ammo_counter_lighting_draw_begin(shader, pixel_shader.rgb_outputs[7]);
+
 				IDirect3DDevice8_SetRenderState(
 					global_d3d_device,
 					D3DRS_CULLMODE,
@@ -2419,6 +2434,8 @@ void _rasterizer_model_draw(
 								vertex_buffer);
 					}
 				}
+				/* port: restore the display output before fog or another material. */
+				ammo_counter_lighting_draw_end();
 			}
 
 			if (local_environment_fog_screen_flag)

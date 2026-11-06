@@ -73,6 +73,7 @@ index and tag, since the map placed them at the same index everywhere.
 /* ---------- headers */
 
 #include "cseries.h"
+#include "mcc_object_names.h"
 #include "cseries/errors.h"
 #include "cache/cache_files.h"
 #include "camera/camera_scripting.h"
@@ -121,10 +122,15 @@ index and tag, since the map placed them at the same index everywhere.
 #include "coop_vehicles.h"
 #include "coop_spectate.h"
 #include "network_coop.h"
+#include "third_person_protocol.h"
 #include "network_distributed.h"
 #include "../src/server_events.h" /* port: port/linux/src/server_events.c */
 #include "../src/server_json.h" /* port: port/linux/src/server_json.c */
 #include "../src/server_log.h" /* port: port/linux/src/server_log.c */
+
+/* players.c's ownership helpers, absent from its original header. */
+void network_player_detach_unit(long player_index);
+void local_player_set_player_index(short local_player_index, long player_index);
 
 /* ---------- constants */
 
@@ -1330,6 +1336,8 @@ static void host_send_object_names(
 	struct distributed_coop_object_names *names = &message.names;
 	short name_index;
 
+	/* Expanded MCC maps carry all names in their dedicated messages. */
+	if (mcc_object_names_active()) return;
 	csmemset(names, 0, sizeof(*names));
 	names->structure_bsp_index = global_structure_bsp_index_get();
 	names->name_count = (short)MIN(global_scenario_get()->object_names.count, MAXIMUM_OBJECT_NAMES_PER_SCENARIO);
@@ -2960,6 +2968,81 @@ boolean network_coop_vote_skip(
 	return TRUE;
 }
 
+/* A checkpoint holds gameplay players, but the session roster and the machine
+table live outside it. Keep the host's current membership when loading an older
+checkpoint: a departed player must not come back, nor a late joiner disappear.
+This runs before the saved-game camera and input caches are rebuilt. */
+void network_coop_restore_players(void)
+{
+	struct network_game *game;
+	struct data_iterator iterator;
+	struct player_datum *player;
+	short machine, local;
+	long slot;
+
+	if (!third_person_session_active() || !coop_host())
+		return;
+	game = network_game_get_game();
+	if (!game || !player_data || !player_data->valid)
+		return;
+	for (local = 0; local < MAXIMUM_LOCAL_PLAYERS; local++)
+		local_player_set_player_index(local, NONE);
+	for (machine = 0; machine < HALO_PORT_MAXIMUM_NETWORK_MACHINES; machine++)
+		csmemset(machine_get_player_list(machine), NONE, MAXIMUM_LOCAL_PLAYERS * sizeof(long));
+
+	data_iterator_new(&iterator, player_data);
+	while ((player = data_iterator_next(&iterator)) != NULL)
+	{
+		struct network_player *member;
+		long unit_index;
+
+		slot = DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.datum_index);
+		member = slot < HALO_PORT_MAXIMUM_NETWORK_PLAYERS ? &game->players[slot] : NULL;
+		if (network_player_is_valid(member) && member->player_list_index == slot &&
+			member->machine_index == player->network_player_data.machine_index &&
+			member->controller_index == player->network_player_data.controller_index)
+		{
+			player->network_player_data = *member;
+			csmemcpy(player->name, member->name, sizeof(player->name));
+			player->quit_out_of_game = FALSE;
+			player->quit_out_of_game_time = NONE;
+			machine_get_player_list(member->machine_index)[member->controller_index] = iterator.datum_index;
+			if (network_game_player_is_local(member))
+				local_player_set_player_index(member->controller_index, iterator.datum_index);
+		}
+		else
+		{
+			/* Retain a quit datum until its slot is reused, as a normal leave
+			does. network_game_spawn_player then forgets all its object owners. */
+			unit_index = player->unit_index;
+			network_player_detach_unit(iterator.datum_index);
+			if (unit_index != NONE)
+				object_delete(unit_index);
+			player->quit_out_of_game = TRUE;
+			player->quit_out_of_game_time = NONE;
+		}
+	}
+	for (slot = 0; slot < HALO_PORT_MAXIMUM_NETWORK_PLAYERS; slot++)
+	{
+		struct network_player *member = &game->players[slot];
+		long player_index;
+
+		if (!network_player_is_valid(member) || member->player_list_index != slot)
+			continue;
+		player = distributed_player((short)slot);
+		if (player && !player->quit_out_of_game)
+			continue;
+		if (!network_game_spawn_player(member))
+		{
+			error(_error_silent, "co-op: could not restore current player %ld", slot);
+			continue;
+		}
+		player_index = distributed_player_from_byte((byte)slot);
+		if (network_game_player_is_local(member))
+			local_player_set_player_index(member->controller_index, player_index);
+	}
+}
+
 /* The host reverted its game state, clock included. The clock is
 put back, since clients and the netcode expect it to only go forward, and
 the script threads' wake times move by the same amount so they still wake
@@ -2986,6 +3069,7 @@ void network_coop_reverted(
 	}
 	/* (the dropships' riders kept are of the game state reverted from) */
 	coop_enemies_reset();
+	network_objects_host_reverted();
 	error(_error_silent, "co-op: reverted %ld ticks, clock kept at %ld", ticks, now);
 	event_new(_coop_event_reverted);
 }
@@ -3296,6 +3380,8 @@ void network_coop_handle_object_names(
 {
 	struct distributed_coop_object_names const *names = entries;
 	short name_index;
+
+	if (mcc_object_names_active()) return;
 
 	if (!coop_client())
 		return;

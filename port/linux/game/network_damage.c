@@ -67,6 +67,8 @@ being hit looks and feels like on the clients).
 #include "scenario/scenario.h"
 #include "units/units.h"
 #include "network_distributed.h"
+#include "mcc_grenades.h"
+#include "third_person.h"
 
 #include <math.h>
 
@@ -479,7 +481,7 @@ static struct damage_trail_point
 	real radius;
 	real eye;
 	boolean mounted;
-	/* (the muzzle the player's machine said: a hand, not a vehicle's gun) */
+	/* A client-reported hand, rather than a host-owned vehicle/shoulder muzzle. */
 	boolean hand;
 	real_point3d muzzle;
 } damage_trails[MAXIMUM_TRACKED_PLAYERS][PLAYER_TRAIL_POINTS];
@@ -1327,6 +1329,8 @@ than one damage), the vehicle they drove lately; 0 when none of them deals
 it; how they deal it (the _damage_source flags); how far from them what
 they fire deals it; and the type of grenade when nothing but a grenade of
 theirs deals it, else NONE */
+#include "mcc_network_damage.inc"
+
 static real distributed_player_deals(
 	short player_index,
 	long damage_index,
@@ -1408,6 +1412,7 @@ static real distributed_player_deals(
 			*kinds |= this_kinds;
 		}
 	}
+	mcc_network_extra_grenade_damage(player_index, damage_index, kinds, reach, grenade_type, &grenade_rate);
 	if (rate > 0.0f)
 		*grenade_type = NONE;
 	rate = MAX(rate, grenade_rate);
@@ -1571,6 +1576,10 @@ static void distributed_note_targets(
 							point->mounted = distributed_vehicle_muzzle(vehicle_index, &point->muzzle);
 						}
 					}
+					/* Shoulder origins come from the host's own weapon pose.
+					The existing visibility check still traces eye-to-muzzle. */
+					else if (third_person_muzzle_history(unit_index, &point->muzzle))
+						point->mounted = TRUE;
 					/* on foot, shots that leave from elsewhere than the
 					camera (a VR player's hand, which may be past a corner
 					the camera is behind): from there as from a vehicle's
@@ -2925,6 +2934,11 @@ void network_damage_note_grenade(
 	short index;
 	short slot = 0;
 
+	if (mcc_grenades_active() && grenade_type >= 2)
+	{
+		mcc_network_note_extra_grenade(unit_index, grenade_type);
+		return;
+	}
 	if (game_connection() != _game_connection_network_server || unit->unit.player_index == NONE ||
 		grenade_type < 0 || grenade_type >= NUMBER_OF_UNIT_GRENADE_TYPES)
 	{

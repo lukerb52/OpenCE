@@ -136,6 +136,7 @@ symbols in this file:
 #include "sound/sound_manager.h"
 #include "tag_schema.h"
 #include "custom_edition_cache.h" /* port: port/linux/game/custom_edition_cache.c */
+#include "mcc_cache.h" /* independent MCC dispatch */
 #include "cache_file_formats.h" /* port: CUSTOM_EDITION_TAG_CACHE_BYTES */
 #include "map_share.h" /* port: port/linux/game/map_share.c */
 #ifdef HALO_ANDROID
@@ -382,6 +383,9 @@ boolean cache_file_tag_cache_contains(
 	void const *tag_cache = physical_memory_get_tag_cache_base_address();
 	unsigned long tag_cache_size = TAG_CACHE_SIZE;
 
+	if (mcc_cache_tags_loaded())
+		return mcc_cache_contains(address, size);
+
 	if (custom_edition_cache_tags_loaded())
 	{
 		tag_cache = halo_custom_edition_tag_cache();
@@ -602,6 +606,11 @@ char const *cache_files_map_directory(
 void scenario_tags_unload(
 	void)
 {
+	/* port: forget draw-only shield copies before any map tags go away. */
+	{
+		extern void shield_look_reset(void); /* port/linux/game/shield_look.c */
+		shield_look_reset();
+	}
 	/* port: the high-res HUD forgets this map's bitmaps (port/linux/game/hud_hires_tags.c) */
 	{
 		extern void hud_hires_tags_unloaded(void);
@@ -610,12 +619,22 @@ void scenario_tags_unload(
 	}
 	sound_cache_close();
 	texture_cache_close();
+	/* port: shield sprite assets unwind before other appended tag tables. */
+	{
+		extern void shield_arcs_unload(void); /* port/linux/game/shield_arcs.inl */
+		shield_arcs_unload();
+	}
 	/* port: the mods' tags go, after the sound and texture caches that held
 	their sounds and bitmaps (port/linux/game/mods.c) */
 	{
 		extern void mods_tags_unloaded(void);
 
 		mods_tags_unloaded();
+	}
+	/* port: MCC's appended pause table unwinds before the native menu table. */
+	{
+		extern void mcc_pause_runtime_unload(void);
+		mcc_pause_runtime_unload();
 	}
 	/* port: the menus' tags go, and the map's own table comes back
 	(port/linux/game/menu_tags.c): after the texture cache, which writes to
@@ -635,6 +654,14 @@ void scenario_tags_unload(
 	cache_file_close();
 	/* port: a Halo Custom Edition map has no Xbox vertex or index buffers
 	(port/linux/game/custom_edition_cache.c) */
+	if (mcc_cache_tags_loaded())
+	{
+		mcc_cache_tags_unload();
+		cache_file_globals.tags_loaded = FALSE;
+		global_tag_instances = NULL;
+		global_tag_count = 0;
+		return;
+	}
 	if (custom_edition_cache_tags_loaded())
 		custom_edition_cache_tags_unload();
 	else
@@ -1018,6 +1045,8 @@ boolean cache_files_map_plays_multiplayer(
 	build[0] = 0;
 	if (!map_name || !map_name[0])
 		return TRUE;
+	if (mcc_level_name(map_name))
+		return TRUE;
 	/* port: a Halo Custom Edition map (custom_maps\<name>) is converted for
 	this build as it loads (port/linux/game/custom_edition_cache.c): its
 	header's build is Halo PC's, not one to check */
@@ -1086,6 +1115,8 @@ game's own maps, whose builds of other regions play together. */
 unsigned long cache_files_map_version(
 	char const *map_name)
 {
+	if (mcc_level_name(map_name))
+		return mcc_cache_checksum(map_name);
 	return custom_edition_level_name(map_name) ? custom_edition_map_version(map_name) : 0;
 }
 
@@ -1113,6 +1144,8 @@ boolean cache_files_map_present(
 
 	if (!map_name || !map_name[0])
 		return TRUE;
+	if (mcc_level_name(map_name))
+		return mcc_cache_require(map_name, version);
 	if (custom_edition_level_name(map_name))
 	{
 		if (custom_edition_cache_present(map_name, version, message, sizeof(message)) ||
@@ -1162,6 +1195,9 @@ boolean cache_files_give_time_to_precache(
 {
 	boolean result = FALSE;
 
+	if (mcc_level_name(map_name))
+		return mcc_cache_precache_ready(map_name); /* port: MCC readiness polling, not admission */
+
 	/* port: no map named yet is nothing to precache. A client joining over
 	the internet asks for its multiplayer map (network_game_client_update_precache_status)
 	before the host's settings name it: an empty name, which matched a cache
@@ -1192,7 +1228,11 @@ boolean cache_files_give_time_to_precache(
 			short status = cache_files_precache_map_status(&progress);
 
 			if (status == 2)
-				display_error_damaged_media();
+			{
+				/* port: CE explains its refusal without changing the fatal path. */
+				if (!custom_edition_cache_display_error(map_name))
+					display_error_damaged_media();
+			}
 			else if (status == 1)
 				cache_files_precache_map_end();
 		}
@@ -1200,7 +1240,11 @@ boolean cache_files_give_time_to_precache(
 		{
 			cache_files_precache_set_priority(0);
 			if (!cache_files_precache_map_begin(map_name, FALSE))
-				display_error_damaged_media();
+			{
+				/* port: Xbox retains its fixed error; CE supplies its own text. */
+				if (!custom_edition_cache_display_error(map_name))
+					display_error_damaged_media();
+			}
 		}
 	}
 
@@ -1215,6 +1259,11 @@ long scenario_tags_load(
 	void *tag_cache_base_address;
 	boolean read_complete;
 
+	/* port: a failed or different map load must not inherit shield eligibility. */
+	{
+		extern void shield_look_reset(void); /* port/linux/game/shield_look.c */
+		shield_look_reset();
+	}
 	stripped_scenario_name = tag_name_strip_path(scenario_name);
 	result = NONE;
 	/* port: the map being loaded, by its name (cache_file_loaded_map_name) */
@@ -1222,6 +1271,41 @@ long scenario_tags_load(
 	cache_file_loaded_name[sizeof(cache_file_loaded_name) - 1] = 0;
 	texture_cache_open();
 	sound_cache_open();
+	if (mcc_level_name(scenario_name))
+	{
+		cache_file_globals.tag_header = mcc_cache_tags_load(scenario_name, &cache_file_globals.header);
+		if (cache_file_globals.tag_header)
+		{
+			extern void menu_tags_loaded(char const *map_name);
+			extern void mods_tags_loaded(char const *map_name);
+			global_tag_instances = cache_file_globals.tag_header->tag_instances;
+			global_tag_count = cache_file_globals.tag_header->tag_count;
+			cache_file_globals.tags_loaded = TRUE;
+			menu_tags_loaded(scenario_name);
+			{
+				extern boolean mcc_pause_runtime_load(void);
+				if (!mcc_pause_runtime_load())
+				{
+					scenario_tags_unload();
+					return NONE;
+				}
+			}
+			/* port: clear prior mods; MCC resources remain authored. */
+			mods_tags_loaded(scenario_name);
+			result = cache_file_globals.tag_header->scenario_tag_index;
+		}
+		else
+		{
+			sound_cache_close();
+			texture_cache_close();
+			/* port: shield sprite assets unwind before other appended tag tables. */
+			{
+				extern void shield_arcs_unload(void); /* port/linux/game/shield_arcs.inl */
+				shield_arcs_unload();
+			}
+		}
+		return result;
+	}
 	/* port: a Halo Custom Edition map (custom_maps\<name>) is read in place
 	into a tag cache of its own, converted for this build and checked as its
 	own maps are (port/linux/game/custom_edition_cache.c). It has no Xbox
@@ -1431,6 +1515,17 @@ boolean scenario_structure_bsp_load(
 	/* port: the bsp's header, once read and checked */
 	struct cache_file_structure_bsp_header *structure_bsp_header;
 
+	if (mcc_cache_tags_loaded())
+	{
+		void *mcc_header, *mcc_structure;
+		if (!cache_file_structure_bsp_tag_valid(reference) ||
+			!mcc_cache_bsp_load(reference, &mcc_header, &mcc_structure))
+			return FALSE;
+		cache_file_globals.structure_bsp_header = mcc_header;
+		cache_get_tag_instance(reference->structure_bsp.index)->base_address = mcc_structure;
+		return TRUE;
+	}
+
 	/* port: the tag data's size was checked as the map loaded
 	(cache_file_header_verify); the bsp's reference is the map's, and is
 	checked before anything is read where it says (a Custom Edition map's
@@ -1568,6 +1663,14 @@ void scenario_structure_bsp_unload(
 	struct scenario_structure_bsp_reference *reference)
 {
 	struct cache_file_tag_instance *tag_instance;
+
+	if (mcc_cache_tags_loaded())
+	{
+		mcc_cache_bsp_unload();
+		cache_get_tag_instance(reference->structure_bsp.index)->base_address = NULL;
+		cache_file_globals.structure_bsp_header = NULL;
+		return;
+	}
 
 #ifdef HALO_ANDROID
 	{

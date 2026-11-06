@@ -159,6 +159,19 @@ static const struct config_setting config_settings[] =
 		"In first person, point the view where the player aims now instead of\n"
 		"where the last tick left it: the view turns the frame the mouse moves,\n"
 		"not up to two ticks (66 ms) later." },
+	{ "display.third_person_smooth", _config_boolean, "true", "HALO_THIRD_PERSON_SMOOTH", _environment_value, _platform_all,
+		"Smooth camera recovery and shoulder changes; false uses sharp movement." },
+	{ "display.third_person_left_shoulder", _config_boolean, "false", "HALO_THIRD_PERSON_LEFT_SHOULDER", _environment_value, _platform_all,
+		"Use the left shoulder. Swap shoulders with B (controls.swap_shoulder)." },
+	{ "display.third_person_distance", _config_real, "0.85", "HALO_THIRD_PERSON_DISTANCE", _environment_value, _platform_all,
+		"Shoulder camera distance behind the eye, in world units (0.3 to 2.0)." },
+	{ "display.third_person_height", _config_real, "0.12", "HALO_THIRD_PERSON_HEIGHT", _environment_value, _platform_all,
+		"Shoulder camera height along camera up, in world units (-0.2 to 0.6)." },
+	{ "display.third_person_offset", _config_real, "0.24", "HALO_THIRD_PERSON_OFFSET", _environment_value, _platform_all,
+		"Shoulder camera lateral offset, in world units (0.0 to 0.6)." },
+	{ "display.third_person", _config_boolean, "false", "HALO_THIRD_PERSON", _environment_value, _platform_all,
+		"On foot, use a right-shoulder camera. Zoom returns to first person.\n"
+		"The reticle follows the stock aim point; weapon behaviour is unchanged." },
 	{ "display.fov", _config_real, "0.0", "HALO_FOV", _environment_value, _platform_all,
 		"The first-person view's field of view on foot, in degrees across at\n"
 		"16:9 (20 to 150); 0 keeps the stock view. Vehicles, cinematics and\n"
@@ -172,6 +185,21 @@ static const struct config_setting config_settings[] =
 		"Off, they are not drawn; firing, animation, sound and lights go on." },
 	{ "display.passenger_third_person", _config_boolean, "false", "HALO_PASSENGER_THIRD_PERSON", _environment_value, _platform_all,
 		"Third-person Warthog and Scorpion passengers. Weapon zoom is disabled." },
+	{ "display.shield_look", _config_string, "\"classic\"", "HALO_SHIELD_LOOK", _environment_value, _platform_all,
+		"Shield appearance (saved values retain their existing profiles):\n"
+		"\"classic\" (DEFAULT) keeps the map's own look.\n"
+		"\"classic_with_sprinkles\" (CLASSIC WITH SPRINKLES) adds layers, arcs\n"
+		"and recharge to the classic surface. \"classic_honeycomb2\"\n"
+		"(INFINITE HONEYCOMB) lights hexagonal links with flowing classic plasma.\n"
+		"\"enhanced\" (MARK VI) uses CMT body and first-person shields.\n"
+		"Non-default looks preserve custom map colour.\n"
+		"Arm Shields controls all arms. Local drawing only; independent of mods." },
+	{ "display.viewmodel_shield", _config_boolean, "false", "HALO_VIEWMODEL_SHIELD", _environment_value, _platform_all,
+		"The energy shield's flare on the first-person arms too, as on the body\n"
+		"(the stock game draws it on the body only)." },
+	{ "display.first_person_legs", _config_boolean, "false", "HALO_FIRST_PERSON_LEGS", _environment_value, _platform_all,
+		"Your own legs in first person, seen looking down: your body as others\n"
+		"see it, drawn from the waist down, moving as it moves." },
 	{ "display.high_res_hud", _config_boolean, "true", "HALO_HIGH_RES_HUD", _environment_value, _platform_all,
 		"Draw the HUD (meters, counters, panels, motion sensor, reticles,\n"
 		"waypoints, scopes) from the high-res assets (8x the maps' bitmaps);\n"
@@ -180,18 +208,20 @@ static const struct config_setting config_settings[] =
 		"Manual high-res gameplay button style, preserved while automatic detection\n"
 		"is on. Xbox: classic, gems, menu_gems (dark gems), xbox_modern.\n"
 		"PlayStation: ps_classic, ps_gems, ps_dark_gems, ps_modern.\n"
-		"Switch: switch_classic, switch_gems, switch_modern. Requires high_res_hud." },
+		"Switch: switch_classic, switch_gems, switch_modern. Controllers require high_res_hud.\n"
+		"keyboard selects binding-aware keyboard/mouse glyphs without that requirement." },
 	{ "display.hud_bumper_style", _config_string, "\"original\"", "HALO_HUD_BUMPER_STYLE", _environment_value, _platform_all,
 		"Xbox Classic, Gems and Dark Gems bumpers: original (black/white) or modern\n"
 		"(LB/RB). Shared by local players, including automatic button detection.\n"
 		"Requires high_res_hud; other button styles keep their own artwork." },
 	{ "input.auto_button_detection", _config_boolean, "true", "HALO_AUTO_BUTTON_DETECTION", _environment_value, _platform_all,
-		"Limit Button Style to the assigned controller's family. Unknown devices\n"
-		"keep the manual choice. Device detection itself is always available." },
+		"Follow active keyboard/mouse or controller input for button prompts.\n"
+		"Controllers use their family's saved artwork; unknown controllers keep\n"
+		"the manual choice. Off uses the manual style. Device detection always runs." },
 	{ "input.controller_p1", _config_string, "\"\"", "HALO_CONTROLLER_P1", _environment_value, _platform_all,
 		"P1 custom controller layout; empty uses the profile. Edit in Gamepads >\n"
-		"Button Remapping. v2: stores 25 physical-button names, including unbound.\n"
-		"Gameplay and debug camera have separate bindings. Old ten-action layouts\n"
+		"Button Remapping. v3: stores 26 physical-button names, including unbound.\n"
+		"Gameplay and debug camera have separate bindings. Old ten-action and v2 layouts\n"
 		"are accepted. See docs/reading/controller_remapping.md for the full order." },
 	{ "input.controller_p2", _config_string, "\"\"", "HALO_CONTROLLER_P2", _environment_value, _platform_all,
 		"P2 custom controller buttons, same format as controller_p1. Empty uses the profile." },
@@ -209,6 +239,9 @@ static const struct config_setting config_settings[] =
 		"Draw the menus' and HUD's text with the fonts in port/assets/fonts\n"
 		"(Overpass) at the resolution the game draws at, and the menus' titles\n"
 		"from port/assets/titles; false draws the maps' bitmap fonts and titles." },
+	{ "display.widescreen_loading", _config_boolean, "true", "HALO_WIDESCREEN_LOADING", _environment_value, _platform_all,
+		"Widen the stock loading screen, keeping its original picture, sweep\n"
+		"and glow trails, including MCC. False keeps the central 4:3 framing." },
 	{ "display.shadow_resolution", _config_integer, "128", "HALO_SHADOW_RESOLUTION", _environment_value,
 		_platform_all,
 		"The size the objects' shadows are drawn at, in pixels each way: 128 as\n"
@@ -216,6 +249,14 @@ static const struct config_setting config_settings[] =
 	{ "display.menus", _config_string, "\"pc\"", "HALO_MENUS", _environment_value, _platform_all,
 		"The menus: \"pc\" for the PC version's main menu (port/assets/menus,\n"
 		"and a menus folder here for your own), \"xbox\" for the Xbox's." },
+	{ "display.changelog", _config_boolean, "true", "HALO_CHANGELOG", _environment_value, _platform_all,
+		"Show CHANGELOG beneath the build labels in the PC main menu.\n"
+		"Restart the game after changing this setting." },
+	{ "display.menu_frontend", _config_string, "\"modern\"", "HALO_MENU_FRONTEND", _environment_value, _platform_all,
+		"Optional submenu frontend: \"off\" keeps display.menus, or choose\n"
+		"\"modern\", \"pc\" or \"xbox\". Change it in Interface or Video Setup > Graphics.\n"
+		"Settings use the selected style in gameplay too. Changes made while\n"
+		"playing take effect on return to the main menu. Pause roots stay native." },
 	{ "display.menu_language", _config_string, "\"maps\"", "HALO_MENU_LANGUAGE", _environment_value, _platform_all,
 		"The PC menus' language: \"maps\" for the language of the Custom Edition\n"
 		"whose loc.map is in custom_maps (as that edition shows them; English\n"
@@ -264,6 +305,18 @@ static const struct config_setting config_settings[] =
 		"Keep the GPU programs the game links under the save root (shader_cache),\n"
 		"and load them from there next time instead of linking them again, which\n"
 		"stalls a frame on some drivers; false links each every run." },
+	{ "display.shader_prepare", _config_boolean, "false", "HALO_SHADER_PREPARE", _environment_value, _platform_desktop,
+		"Prepare observed shader pairs and bounded opaque/transparent material\n"
+		"variants while loading. Uses recipe files in shader_cache and can\n"
+		"extend loading. Effects outside this pass still prepare on first use." },
+	{ "display.mcc_texture_prepare_mb", _config_integer, "0", "HALO_MCC_TEXTURE_PREPARE_MB", _environment_value, _platform_desktop,
+		"MCC only: prepare large non-paletted textures during loading, within\n"
+		"this estimated GPU memory budget in MiB (0 disables, maximum 512).\n"
+		"Does not change texture quality or the Xbox/Custom Edition caches." },
+	{ "display.texture_prepare_mb", _config_integer, "0", "HALO_TEXTURE_PREPARE_MB", _environment_value, _platform_desktop,
+		"Xbox/Custom Edition: prepare non-paletted textures while loading.\n"
+		"Budget in MiB (0 disables, maximum 128), conservatively accounting\n"
+		"for both guest and GPU storage. MCC uses its own preparation budget." },
 	{ "display.stats_log", _config_boolean, "false", "HALO_STATS_LOG", _environment_value, _platform_all,
 		"A line a second in the log with the frame rate, the mode, the map, the\n"
 		"renderer and the size of the 3D view, so a graphics bug's report or two\n"
@@ -289,10 +342,10 @@ static const struct config_setting config_settings[] =
 		"resolutions; \"highest\" draws the models \"native\" does, each at its most\n"
 		"detailed level." },
 	{ "display.reversed_depth", _config_boolean, "true", "HALO_REVERSED_DEPTH", _environment_value, _platform_desktop,
-		"Keep depth in 32-bit floats, reversed (1 near, 0 far), as precise far\n"
-		"away as near: surfaces a few millimetres apart (the lights on Blood\n"
-		"Gulch's base) stay apart at any distance in place of flickering\n"
-		"through each other. false: 24 bits, as the Xbox's. Taken up when the\n"
+		"Keep depth in 32-bit floats, reversed (1 near, 0 far), improving\n"
+		"precision at a distance. This reduces flickering between closely\n"
+		"spaced surfaces, such as the lights on Blood Gulch's base.\n"
+		"false: 24 bits, as the Xbox's. Taken up when the\n"
 		"game starts." },
 	{ "display.hdr", _config_boolean, "false", "HALO_HDR", _environment_value, _platform_all,
 		"Draw the 3D view into a floating-point back buffer, which keeps what\n"
@@ -347,6 +400,8 @@ static const struct config_setting config_settings[] =
 		"Reverberate the world's sounds as the place the player is in does (the\n"
 		"maps' sound environments, as the Xbox's I3DL2 reverb did); false keeps\n"
 		"them dry." },
+	{ "audio.stereo_doppler", _config_boolean, "false", "HALO_STEREO_DOPPLER", _environment_value, _platform_all,
+		"Apply Doppler pitch changes to positioned stereo sounds (an extension to Xbox behavior)." },
 	{ "audio.resampler", _config_string, "\"sinc\"", "HALO_AUDIO_RESAMPLER", _environment_value, _platform_all,
 		"How sounds are converted to the output's rate: \"sinc\" with a\n"
 		"band-limited low pass; \"linear\" between neighbouring samples,\n"
@@ -378,6 +433,22 @@ static const struct config_setting config_settings[] =
 		"The touch controls' swipe aiming gets a controller's aim assist: the\n"
 		"aim slows over a target and follows a moving one. false: none, as a\n"
 		"mouse (the bullets' own autoaim stays)." },
+	{ "input.gyro_aim", _config_string, "\"legacy\"", "HALO_GYRO_AIM", _environment_value, _platform_android,
+		"Android gyro: \"legacy\" keeps the touch layout's saved gyro switch\n"
+		"and look sensitivity (off in a new layout). \"false\" disables it,\n"
+		"\"true\" enables it, \"zoom\" enables it only while zoomed. The last\n"
+		"two use the independent gyro sensitivity and inversion below." },
+	{ "input.gyro_sensitivity_horizontal", _config_real, "1.0", "HALO_GYRO_SENSITIVITY_HORIZONTAL",
+		_environment_value, _platform_android,
+		"Android gyro horizontal sensitivity in true/zoom mode: 0.25 to 10.\n"
+		"1 follows the sensor's turn; independent of swipe sensitivity." },
+	{ "input.gyro_sensitivity_vertical", _config_real, "1.0", "HALO_GYRO_SENSITIVITY_VERTICAL",
+		_environment_value, _platform_android,
+		"Android gyro vertical sensitivity in true/zoom mode: 0.25 to 10." },
+	{ "input.gyro_invert_horizontal", _config_boolean, "false", "HALO_GYRO_INVERT_HORIZONTAL",
+		_environment_value, _platform_android, "Invert Android gyro yaw in true/zoom mode." },
+	{ "input.gyro_invert_vertical", _config_boolean, "false", "HALO_GYRO_INVERT_VERTICAL",
+		_environment_value, _platform_android, "Invert Android gyro pitch in true/zoom mode." },
 	{ "input.mouse_sensitivity", _config_real, "1.0", "HALO_MOUSE_SENSITIVITY", _environment_value, _platform_desktop,
 		"How far the view turns for the mouse's movement." },
 	{ "input.playstation_kernel_driver", _config_boolean, "false", "HALO_PLAYSTATION_KERNEL_DRIVER",
@@ -386,6 +457,23 @@ static const struct config_setting config_settings[] =
 		"kernel's driver of it (hid-playstation, hid-sony), which needs no setup;\n"
 		"false: through SDL's own, which needs Steam's udev rules to open it. Read\n"
 		"at start-up." },
+	{ "input.adaptive_triggers", _config_boolean, "false", "HALO_ADAPTIVE_TRIGGERS", _environment_value,
+		_platform_desktop,
+		"A PS5 DualSense's adaptive triggers (dualsense.c): the trigger mapped\n"
+		"to fire feels like the weapon; grenade/zoom effects follow their\n"
+		"trigger. Only L2/R2 have actuators. Free while paused, in menus,\n"
+		"reloading or switching. Other controllers are never touched. On\n"
+		"Linux with input.playstation_kernel_driver it needs write access to the\n"
+		"controller's hidraw device (Steam's udev rules)." },
+	{ "input.trigger_strength", _config_string, "\"normal\"", "HALO_TRIGGER_STRENGTH", _environment_value,
+		_platform_desktop,
+		"How strong a DualSense's trigger effects are: \"light\" (a hair\n"
+		"trigger: every hold or click a short light break at the top of the\n"
+		"pull), \"normal\", \"strong\" (every effect two steps firmer)." },
+	{ "input.lightbar", _config_string, "\"off\"", "HALO_LIGHTBAR", _environment_value, _platform_desktop,
+		"A PS5 DualSense's lightbar and player lights: \"player_color\", the\n"
+		"lightbar in your color (your team's in a team game) and the player\n"
+		"lights your split-screen number. \"off\": left alone." },
 	{ "input.invert_mouse", _config_boolean, "false", "HALO_MOUSE_INVERT", _environment_set_is_true, _platform_desktop,
 		"Moving the mouse forward looks down." },
 	{ "network.block_mouse_aim_assist", _config_boolean, "false", "HALO_NET_BLOCK_MOUSE_AIM_ASSIST", _environment_value,
@@ -459,8 +547,21 @@ static const struct config_setting config_settings[] =
 		"Showing the scores (the controller's Back)." },
 	{ "controls.pause", _config_string, "\"Escape\"", "HALO_KEY_PAUSE", _environment_value, _platform_all,
 		"The pause menu (the controller's Start)." },
+	{ "controls.free_look", _config_string, "\"Left Alt\"", "HALO_KEY_FREE_LOOK", _environment_value, _platform_all,
+		"Hold to orbit the third-person camera without changing aim." },
+	{ "controls.toggle_perspective", _config_string, "\"N\"", "HALO_KEY_TOGGLE_PERSPECTIVE", _environment_value, _platform_all,
+		"Toggle first-person and third-person view during play." },
+	{ "controls.swap_shoulder", _config_string, "\"B\"", "HALO_KEY_SWAP_SHOULDER", _environment_value, _platform_all,
+		"Swap third-person shoulders. Up to two keyboard or mouse bindings." },
 	{ "controls.screenshot", _config_string, "\"F10\"", "HALO_KEY_SCREENSHOT", _environment_value, _platform_all,
 		"Save a PNG screenshot beside maps/ (press once per capture)." },
+	{ "controls.camera_distance", _config_string, "\"Left Alt\"", "HALO_KEY_CAMERA_DISTANCE", _environment_value, _platform_all,
+		"Hold with the mouse wheel to adjust shoulder distance; ordinary scrolling switches weapons." },
+	{ "controls.camera_height", _config_string, "\"Left Shift, Right Shift\"", "HALO_KEY_CAMERA_HEIGHT", _environment_value, _platform_all,
+		"Hold with the mouse wheel to raise or lower the shoulder camera." },
+	{ "controls.camera_offset", _config_string, "\"CapsLock\"", "HALO_KEY_CAMERA_OFFSET", _environment_value, _platform_all,
+		"Hold with the mouse wheel to move the camera left or right, across either shoulder.\n"
+		"Caps Lock is a held key, not its typing-toggle state. Wheel up moves right." },
 	{ "controls.push_to_talk", _config_string, "\"V\"", "HALO_KEY_PUSH_TO_TALK", _environment_value, _platform_all,
 		"Voice chat: talk while it is held (audio.voice_chat \"push_to_talk\")." },
 	{ "controls.chat", _config_string, "\"T\"", "HALO_KEY_CHAT", _environment_value, _platform_all,
@@ -506,10 +607,32 @@ static const struct config_setting config_settings[] =
 		"as CUSTOM SINGLEPLAYER and CUSTOM MULTIPLAYER. Their tags are checked\n"
 		"as the game's own maps' are before they run; false refuses them\n"
 		"(docs/custom_edition_caches.md)." },
+	{ "android.cheat_menu", _config_boolean, "false", "HALO_ANDROID_CHEAT_MENU", _environment_value, _platform_android,
+		"Show a CHEATS touch button and Options entry during offline or hosted games.\n"
+		"Off by default; joining clients cannot use it.\n"
+		"Menu-owned switches reset on disabling the menu or leaving a map." },
+	{ "bots.enhanced", _config_boolean, "false", "HALO_BOTS_ENHANCED", _environment_value, _platform_all,
+		"Optional enhanced bots: tactical roles, navigation and CTF/King goals.\n"
+		"Read at map load. False keeps the inherited Slayer bot behavior." },
+	{ "bots.network", _config_boolean, "false", "HALO_BOTS_NETWORK", _environment_value, _platform_all,
+		"Allow host-controlled bots in multiplayer network games. Read when\n"
+		"creating a host or pressing OK in the lobby's Bots settings. Enabling\n"
+		"reserves 63 free machine IDs until the host closes, even if disabled\n"
+		"again. Clients use ordinary player replication. False by default." },
+	{ "bots.routes", _config_string, "\"direct\"", "HALO_BOT_ROUTES", _environment_value, _platform_all,
+		"Enhanced bots' routes: \"direct\", \"lanes\" or \"mixed\". Direct takes\n"
+		"the shortest route; lanes spreads attackers across side routes." },
+	{ "bots.vehicles", _config_boolean, "false", "HALO_BOT_VEHICLES", _environment_value, _platform_all,
+		"Let enhanced bots enter, drive and use vehicles and turrets." },
+	{ "bots.thread", _config_boolean, "false", "HALO_BOT_THREAD", _environment_value, _platform_all,
+		"Run enhanced bots' path searches on a snapshot worker. Read at map\n"
+		"load; off by default. Fixed-tick benchmarks always search synchronously." },
 	{ "bots.count", _config_integer, "0", "HALO_BOTS", _environment_value, _platform_all,
-		"Computer players (bots) in a local (split screen) Slayer game: 0 to 15\n"
-		"join its lobby with the players, as far as the game has room. Not in\n"
-		"system link or internet games. 0: none, as in the stock game." },
+		"Computer players (bots): 0 to 63. Local Slayer by default; bots.enhanced\n"
+		"also allows CTF/King, and bots.network enables host-controlled network\n"
+		"bots. Network humans replace bots, which return when humans leave.\n"
+		"The initial humans plus this count set the session population target.\n"
+		"0: no initial bots, as in the stock game." },
 	{ "bots.skill", _config_string, "\"normal\"", "HALO_BOT_SKILL", _environment_value, _platform_all,
 		"How well the bots play: \"recruit\", \"easy\", \"normal\", \"heroic\",\n"
 		"\"veteran\" or \"legendary\" (how soon they react, how well they aim,\n"
@@ -517,35 +640,60 @@ static const struct config_setting config_settings[] =
 	{ "bots.teams", _config_string, "\"even\"", "HALO_BOT_TEAMS", _environment_value, _platform_all,
 		"In team games: \"even\" puts the bots on both teams, evening them with\n"
 		"the players; \"against\" puts them all on the team the players are not on." },
-	{ "display.viewmodel_shield", _config_boolean, "false", "HALO_VIEWMODEL_SHIELD", _environment_value, _platform_all,
-		"The energy shield's flare on the first-person arms too, as on the body\n"
-		"(the stock game draws it on the body only)." },
-	{ "display.first_person_legs", _config_boolean, "false", "HALO_FIRST_PERSON_LEGS", _environment_value, _platform_all,
-		"Your own legs in first person, seen looking down: your body as others\n"
-		"see it, drawn from the waist down, moving as it moves." },
+	{ "display.dynamic_lighting_reset", _config_boolean, "true", "HALO_DYNAMIC_LIGHTING_RESET", _environment_value, _platform_all,
+		"Migration marker: old saved dynamic-lighting preferences were reset to off.\n"
+		"Leave true to retain lighting choices made after that one-time reset." },
+	{ "display.plasma_occlusion", _config_boolean, "false", "HALO_PLASMA_OCCLUSION", _environment_value, _platform_desktop,
+		"Collision-filtered projectile, Covenant emitter and Shield Glow visibility.\n"
+		"Off preserves unoccluded plasma lighting. At most eight occluded lights." },
+	{ "display.jackal_shield_lighting", _config_boolean, "false", "HALO_JACKAL_SHIELD_LIGHTING", _environment_value, _platform_desktop,
+		"Soft illumination from visible Jackal shields, following their colour and pose.\n"
+		"Stock shield effects remain intact. Optional occlusion uses plasma_occlusion." },
+	{ "display.weapon_glow", _config_boolean, "false", "HALO_WEAPON_GLOW", _environment_value, _platform_desktop,
+		"Held energy weapons cast soft light. Disabled by default." },
+	{ "display.plasma_prong_lighting", _config_boolean, "false", "HALO_PLASMA_PRONG_LIGHTING", _environment_value, _platform_desktop,
+		"Short, soft forward spill from plasma-weapon prongs. Separate from Weapon Glow.\n"
+		"Off by default; uses the shared eight-light occlusion budget when enabled." },
+	{ "display.vehicle_lighting", _config_boolean, "false", "HALO_VEHICLE_LIGHTING", _environment_value, _platform_desktop,
+		"Vehicle engines and headlights illuminate nearby surfaces. Disabled by default." },
+	{ "display.world_lighting", _config_boolean, "false", "HALO_WORLD_LIGHTING", _environment_value, _platform_desktop,
+		"Visible powerups and teleporters cast soft light. Disabled by default." },
+	{ "display.needler_lighting", _config_boolean, "false", "HALO_NEEDLER_LIGHTING", _environment_value, _platform_desktop,
+	  "Soft pink-purple spill and luminous crystals on held Needlers." },
+	{ "display.ammo_counter_lighting", _config_boolean, "false", "HALO_AMMO_COUNTER_LIGHTING", _environment_value, _platform_desktop,
+	  "Blue spill and screen emission from held Assault Rifle ammo counters (off by default)." },
+	{ "display.fuel_rod_lighting", _config_boolean, "false", "HALO_FUEL_ROD_LIGHTING", _environment_value, _platform_desktop,
+		"Soft green illumination from exposed Grunt and Hunter fuel rods.\n"
+		"Stock weapon effects remain intact. Optional occlusion uses plasma_occlusion." },
+	{ "display.covenant_shield_lighting", _config_boolean, "false", "HALO_COVENANT_SHIELD_LIGHTING", _environment_value, _platform_desktop,
+		"Soft illumination from active stationary Covenant shield emitters.\n"
+		"Stock shield effects remain intact. Optional occlusion uses plasma_occlusion." },
+	{ "display.muzzle_lighting", _config_boolean, "false", "HALO_MUZZLE_LIGHTING", _environment_value, _platform_desktop,
+		"Optional soft muzzle illumination with a smooth render-time fade.\n"
+		"Stock flash effects remain intact. Off keeps stock lighting." },
+	{ "display.plasma_lighting", _config_boolean, "false", "HALO_PLASMA_LIGHTING", _environment_value, _platform_desktop,
+		"Supported plasma, Covenant and rocket flight lights follow rendered poses\n"
+		"with soft world/model falloff and omni highlights. Off keeps stock lighting." },
 	{ "display.overshield_effect", _config_boolean, "false", "HALO_OVERSHIELD_EFFECT", _environment_value, _platform_all,
 		"The overshield as this machine draws it: its flare rising up the body as\n"
 		"it charges (2 seconds, 3 from a shield that was down) and staying lit,\n"
-		"its energy slower, in its own color (the powerup's), on the first-person\n"
-		"arms too with viewmodel_shield; a hit on it plays what the projectile\n"
-		"plays on an Elite's shield. Only what is drawn and heard changes.\n"
-		"In a network game, the host's network.shield_effects decides, unless\n"
-		"it is \"players\" (each player's own) or the game is co-op." },
-	{ "display.shield_glow", _config_boolean, "false", "HALO_SHIELD_GLOW", _environment_value, _platform_all,
-		"Energy shields light what is around them as they flare, as plasma\n"
-		"does, in the shield's own color. In a network game, the host's\n"
+		"its energy slower: green above 200% shields, reddish-pink below.\n"
+		"Arms also require Arm Shields. A hit on it plays\n"
+		"what the projectile plays on an Elite's shield. Only what is drawn\n"
+		"and heard changes. Online, the host decides through network.shield_effects,\n"
+		"unless it is \"players\" or the game is co-op (each player's own)." },
+
+	{ "display.shield_glow", _config_boolean, "false", "HALO_SHIELD_GLOW", _environment_value, _platform_desktop,
+		"Energy shields cast soft body-sized light using the selected shield\n"
+		"appearance and overshield layer colour. Optional wall blocking uses\n"
+		"plasma_occlusion. In a network game, the host's\n"
 		"network.shield_effects decides, unless it is \"players\" (each\n"
-		"player's own) or the game is co-op." },
-	{ "display.shield_glow_intensity", _config_string, "\"default\"", "HALO_SHIELD_GLOW_INTENSITY", _environment_value, _platform_all,
+		"player's own)." },
+	{ "display.shield_glow_intensity", _config_string, "\"default\"", "HALO_SHIELD_GLOW_INTENSITY", _environment_value, _platform_desktop,
 		"How far the shield glow reaches: \"default\" or \"light_show\" (three\n"
 		"times as far, and at full strength from a third of the flare).\n"
 		"In a network game, the host's network.shield_effects decides, unless\n"
-		"it is \"players\" (each player's own) or the game is co-op." },
-	{ "display.shield_color", _config_string, "\"default\"", "HALO_SHIELD_COLOR", _environment_value, _platform_all,
-		"Your energy shield's color, as this machine draws it: \"default\" (the\n"
-		"shield's own) or a multiplayer armor color: white, black, red, blue,\n"
-		"gray, yellow, green, pink, purple, cyan, cobalt, orange, teal, sage,\n"
-		"brown, tan, maroon or salmon." },
+		"it is \"players\" (each player's own)." },
 
 	{ "game.unlock_all_levels", _config_boolean, "false", "HALO_UNLOCK_ALL_LEVELS", _environment_value, _platform_all,
 		"true: a profile made from now on starts with every campaign level\n"
@@ -589,10 +737,29 @@ static const struct config_setting config_settings[] =
 	{ "paths.custom_maps", _config_string, "\"\"", "HALO_CUSTOM_MAPS_ROOT", _environment_value, _platform_desktop,
 		"The custom_maps folder (Custom Edition maps, and their bitmaps.map,\n"
 		"sounds.map and loc.map); empty for the one in the data folder." },
+	{ "paths.steam", _config_string, "\"\"", "HALO_STEAM_ROOT", _environment_value, _platform_desktop,
+		"A Steam folder (or Steam library) to check first for subscribed Halo CE\n"
+		"Workshop items. Empty uses automatic discovery: Windows registry, Linux\n"
+		"Steam/XDG hints, usual folders and their libraries. Windows paths use single\n"
+		"quotes: 'D:\\Steam'." },
+	{ "game.mcc_campaigns", _config_boolean, "false", "HALO_MCC_CAMPAIGNS", _environment_value, _platform_all,
+		"Use explicit MCC campaign manifests for mission discovery, ordering and\n"
+		"progression. Reopen the map list after changing this." },
+	{ "game.workshop_maps", _config_boolean, "false", "HALO_WORKSHOP_MAPS", _environment_value, _platform_desktop,
+		"Discover installed Halo CE Steam Workshop maps. Read-only desktop\n"
+		"discovery; manually installed mcc_maps packages always remain available." },
+	{ "game.mcc_collections", _config_boolean, "false", "HALO_MCC_COLLECTIONS", _environment_value, _platform_all,
+		"Group identified MCC packages into the bundled Workshop collections.\n"
+		"Works with imported packages without Steam; reopen the map list after changing." },
 
 	{ "network.address", _config_string, "\"\"", "HALO_NET_ADDRESS", _environment_value, _platform_all,
 		"This machine's IPv4 address for system link, for a machine on several\n"
 		"networks; empty chooses one." },
+	{ "network.session_compatibility", _config_string, "\"opence_crossplay\"", "HALO_SESSION_COMPATIBILITY", _environment_value, _platform_all,
+        "Host session: opence_crossplay disables shoulder cameras; gulchce_third_person requires matching camera clients. Fixed once the lobby opens. MCC maps always require GulchCE." },
+	{ "network.camera_policy", _config_string, "\"player_choice\"", "HALO_CAMERA_POLICY", _environment_value, _platform_all,
+		"Host camera rule for new matches: player_choice, forced_on, or forced_off.\n"
+		"Applies to LAN, internet and co-op matches; scope and collision overrides remain." },
 	{ "network.broadcast", _config_string, "\"\"", "HALO_NET_BROADCAST", _environment_value, _platform_all,
 		"Comma-separated IPv4 addresses system link sends its announcements to\n"
 		"instead of the local network's broadcast address (for VPNs); empty for\n"
@@ -1192,7 +1359,8 @@ static const struct config_setting config_settings[] =
 	{ "debug.test_input", _config_string, "\"\"", "HALO_TEST_INPUT", _environment_value, _platform_all,
 		"\"bot:<seed>\" plays controller 1 with a scripted pattern (automated\n"
 		"network tests); \"look:<seed>\" stands still, only turning and looking\n"
-		"up and down; \"menu:<buttons>\" presses menu buttons one a second (a,\n"
+		"up and down; \"legs:<seed>\" walks, strafes, crouches and jumps while\n"
+		"looking down; \"menu:<buttons>\" presses menu buttons one a second (a,\n"
 		"b, x, y, up, down, left, right, start, back or wait, separated by\n"
 		"spaces or commas), for testing the menus; empty for none." },
 	{ "debug.virtual_gamepads", _config_integer, "0", "HALO_VIRTUAL_GAMEPADS", _environment_value, _platform_desktop,
@@ -2073,22 +2241,23 @@ static const struct
 	{ "display.resolution_scaling", { "native", "75%", "50%", "25%", "original", NULL }, NULL },
 	{ "display.anti_aliasing", { "off", "fxaa", "smaa", "ssaa2x", "msaa2x", "msaa4x", "msaa8x", NULL }, NULL },
 	{ "display.hud_button_style", { "classic", "gems", "menu_gems", "dark_gems", "xbox_modern",
-		"ps_classic", "ps_gems", "ps_dark_gems", "ps_modern", "switch_classic", "switch_gems", "switch_modern", NULL }, NULL },
+		"ps_classic", "ps_gems", "ps_dark_gems", "ps_modern", "switch_classic", "switch_gems", "switch_modern", "keyboard", NULL }, NULL },
 	{ "display.hud_button_style_xbox", { "classic", "gems", "menu_gems", "dark_gems", "xbox_modern", NULL }, NULL },
 	{ "display.hud_bumper_style", { "original", "modern", NULL }, NULL },
 	{ "display.hud_button_style_ps", { "ps_classic", "ps_gems", "ps_dark_gems", "ps_modern", NULL }, NULL },
 	{ "display.hud_button_style_switch", { "switch_classic", "switch_gems", "switch_modern", NULL }, NULL },
+	{ "display.shield_look", { "classic", "classic_with_sprinkles", "enhanced", "classic_honeycomb2", NULL }, NULL },
 	{ "display.menus", { "pc", "xbox", NULL }, NULL },
+	{ "display.menu_frontend", { "off", "modern", "pc", "xbox", NULL }, NULL },
 	{ "display.player_names", { "all", "allies", "enemies", "none", NULL }, NULL },
 	{ "display.scoreboard_team_layout", { "teams", "score", NULL }, NULL },
 	{ "display.chat_style", { "colors", "white", NULL }, NULL },
-	{ "display.shield_glow_intensity", { "default", "light_show", NULL }, NULL },
-	{ "display.shield_color", { "default", "white", "black", "red", "blue", "gray", "yellow", "green", "pink",
-		"purple", "cyan", "cobalt", "orange", "teal", "sage", "brown", "tan", "maroon", "salmon", NULL }, NULL },
 	{ "audio.resampler", { "sinc", "linear", NULL }, NULL },
 	{ "audio.voice_chat", { "push_to_talk", "open_mic", "off", NULL }, NULL },
 	{ "input.touch_controls", { "auto", "on", "off", NULL }, NULL },
 	{ "network.mutator_host_scripts", { "ask", "always", "never", NULL }, NULL },
+	{ "input.gyro_aim", { "legacy", "false", "true", "zoom", NULL }, NULL },
+	{ "bots.routes", { "direct", "lanes", "mixed", NULL }, NULL },
 	{ "game.console_log", { "important", "all", "none", NULL }, NULL },
 	{ "game.language", { "", "ja", "de", "fr", "es", "it", NULL }, NULL },
 	{ "network.text_chat", { "on", "links", "off", NULL }, NULL },
@@ -2133,6 +2302,21 @@ static void config_check_words(void)
 		if (index < 0 || !(config_settings[index].platforms & CONFIG_PLATFORM))
 			continue;
 		value = &config_values[index];
+		/* Preserve the approved shield profile from the earlier playtest. */
+		if (!strcmp(config_words[word_index].name, "display.shield_look") &&
+			config_word_is(value->string, strlen(value->string), "enhanced2"))
+		{
+			free(value->string);
+			value->string = strdup("enhanced");
+		}
+		/* Retired shield presets return to the stock selection. */
+		if (!strcmp(config_words[word_index].name, "display.shield_look") &&
+			(config_word_is(value->string, strlen(value->string), "honeycomb") ||
+			config_word_is(value->string, strlen(value->string), "classic_honeycomb")))
+		{
+			free(value->string);
+			value->string = strdup("classic");
+		}
 		for (word = 0; words[word] && !config_word_is(value->string, strlen(value->string), words[word]); word++)
 		{
 		}
@@ -2324,6 +2508,8 @@ static void config_apply_server_mode(void)
 }
 #endif
 
+#include "lighting_settings_migration.inl"
+
 static void config_load(void)
 {
 	char path[1024];
@@ -2392,8 +2578,27 @@ static void config_load(void)
 		if (result.ok)
 		{
 			char *completed;
+			int reset_lighting = lighting_settings_legacy(result.toptab);
+			int lighting_migrated = !reset_lighting;
+			if (reset_lighting)
+			{
+				char *migrated = lighting_settings_migrate(text, result.toptab);
+				if (migrated)
+				{
+					toml_result_t checked = toml_parse(migrated, (int)strlen(migrated));
+					if (checked.ok)
+					{
+						toml_free(result); result = checked;
+						free(text); text = migrated;
+						lighting_migrated = 1;
+					}
+					else { toml_free(checked); free(migrated); }
+				}
+				platform_log("settings: reset old dynamic-lighting preferences to off%s",
+					lighting_migrated ? "" : " in memory; the file could not be migrated");
+			}
 
-			if (joined && !skipped && !config_answer_only)
+			if (joined && !skipped && !config_answer_only && lighting_migrated)
 			{
 				if (config_write_file(path, text))
 					platform_log("settings: joined the sections %s had twice", path);
@@ -2401,7 +2606,12 @@ static void config_load(void)
 					platform_log("settings: cannot write %s", path);
 			}
 			for (index = 0; index < NUMBER_OF_CONFIG_SETTINGS; index++)
+			{
 				config_set_from_file(&config_values[index], &config_settings[index], result.toptab);
+				if (reset_lighting && lighting_settings_reset_key(config_settings[index].name))
+					config_set_from_text(&config_values[index], config_settings[index].type,
+						config_settings[index].type == _config_string ? "default" : "false");
+			}
 #if !defined(HALO_ANDROID) && !defined(HALO_WEB)
 			if (config_values[config_setting_index("server.enabled")].boolean && !config_probe_mode)
 				config_server_mode = 1;
@@ -2415,10 +2625,10 @@ static void config_load(void)
 				platform_log("settings: %d line%s of config.toml skipped; every other setting in it is used", skipped,
 					skipped == 1 ? "" : "s");
 			}
-			else if (!config_answer_only)
+			else if (!config_answer_only && lighting_migrated)
 			{
 				completed = config_add_missing(text, result.toptab);
-				if (completed && !config_write_file(path, completed))
+				if ((completed || reset_lighting) && !config_write_file(path, completed ? completed : text))
 					platform_log("settings: cannot write %s", path);
 				free(completed);
 			}

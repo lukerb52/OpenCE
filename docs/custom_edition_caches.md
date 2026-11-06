@@ -15,6 +15,15 @@ the Xbox maps' are, before anything reads them
 
 ## Running a map
 
+Load refusals name the map and explain known causes such as required OpenSauce
+features, unreadable files, missing resources or the tag-cache limit. Later
+conversion failures identify the failing stage, with detailed checks in
+`debug.txt`. Precache failures retain the fatal media screen and later load
+failures retain the existing fatal error path; clearer text does not add retry
+or return-to-menu recovery.
+If a startup command fails before the UI map has loaded, the existing fatal
+path has no error widget to draw; the explanation is still written to the log.
+
 Custom Edition maps run when the `game.custom_edition` setting is on, as it
 is by default (`custom_edition = true` under `[game]` in `config.toml`, or
 `HALO_CUSTOM_EDITION`). Put the maps and Custom Edition's `bitmaps.map`,
@@ -243,7 +252,7 @@ changed:
   size of the one its Xbox counterpart draws (256×64 for 128×32, 512×512 for
   256×256), with the same scale, and every unflagged one a bitmap of the same
   size ([Evidence](#observed-not-stated-by-the-sources-established-on-the-sample-maps)).
-  This build ignores the flag, so it drew them twice too large; the
+  The Xbox renderer ignores the flag, so it drew them twice too large; the
   placements of the unit, weapon and grenade HUD interfaces and the HUD
   globals' messages that have it get half their scale, and lose the flag (32
   in `bloodgulch.map`). Halo PC reads the flag only on statics, meters and
@@ -252,11 +261,14 @@ changed:
   digits', so a flagged number keeps the flag and `hud_draw_numbers` draws
   its digits at half their size, spaced as the digits tag says. A bitmap may ask the
   same of every element that draws it, with Halo PC's bitmap flags *half hud
-  scale* and *force hud use highres scale* (Invader's `bitmap.json`): an
-  element drawing such a bitmap (a static or meter, its bitmap after its
-  placement; a crosshair's or overlay's items, their crosshair's or
-  overlay's) gets half its scale too. None of the 18 Custom Edition maps on
-  hand, nor `bitmaps.map`, sets either.
+  scale* (bit 4) and *force hud use highres scale* (bit 7), documented in
+  Invader's `bitmap.json`. Placement high resolution OR bitmap force-highres
+  supplies one halving; bitmap half-scale supplies a separate halving.
+  Both bitmap flags therefore give quarter scale. Crosshair and overlay
+  items continue to ignore the placement flag. These bitmap flags were
+  absent from the original sample of 18 maps and its `bitmaps.map`.
+  [CE HUD scaling](reading/hud_corrections.md#custom-edition-authored-hd-scaling)
+  describes conversion, drawing and the preserved known-map exceptions.
 - **Maps made around Halo PC's own behaviour.** Chimera fixes Halo PC to draw
   as the Xbox does, and keeps a list of the maps made around Halo PC's way
   instead, by map name (in lower case) and tag data checksum, with the
@@ -270,9 +282,11 @@ changed:
   number's digits drawn at half size (`hud_number_scale`), bitmaps' HUD scale
   flags cleared (`disable_bitmap_hud_scale_flags`), and model shaders'
   detail after reflection flag flipped (`invert_detail_after_reflection`).
-  Not yet: Halo PC's fixed-function meters (`gearbox_meters`), its
+  Partially supported: PC meter tint (`gearbox_meters`) and legacy warning
+  placement (`old_widescreen_fix`), described below. Not yet: the complete
+  fixed-function meter pipeline, its
   transparent chicago multiply, bump attenuation and environment shader
-  types, the old widescreen HUD and embedded Lua.
+  types, the remaining old widescreen HUD behavior and embedded Lua.
 - **The score hint.** String 100 of `ui\multiplayer_game_text` is Halo PC's
   `Hold "%s" for score`, which Halo PC fills in with its score key; this
   build copies it as it is (`game_engine.c`, the press-back-for-score
@@ -280,6 +294,114 @@ changed:
   score, in the same four characters.
 
 ### In the game (`custom_edition_cache.c`, `custom_edition_geometry.c`, `custom_edition_bitmaps.c`)
+
+The High-Res HUD registers CE bitmaps after menus and before loose-tag mods,
+using the same unload cleanup as Xbox maps. Compatible shared HUD redraws
+are listed in `port/assets/hud/custom_edition.json`. The first mip's
+dimensions, byte count and CRC in hardware order must also match: shared
+`bitmaps.map` resources can contain custom artwork. Embedded custom sheets
+retain their own pixels; placements, anchors,
+offsets and sprite definitions are never rewritten by this replacement.
+With High-Res HUD disabled, the original CE pixels remain authoritative.
+Xbox registration and MCC's separate loading branch are unchanged.
+
+`tools/ce_hud_signatures.py <stock bitmaps.map>` records these fingerprints
+for the existing layout allowlist without distributing game pixels. The
+reference resource SHA-256 is recorded in the JSON (the two local copies
+inspected matched). `ce_stock.json` inventories all 77 bitmaps in that
+resource's `ui\hud\bitmaps` groups. Stock pieces without redraws, including
+CE-only lettering and symbols, use the existing fourfold HUD interpolation
+at runtime; custom pixels never qualify. Its compressed/512-pixel extension
+in `xbox_textures.c` is necessary because only that renderer service can
+decode those formats; it activates only for a verified CE stock sheet.
+
+`ce_layout.json` packs the OpenCE unit and ammunition meter redraws into
+CE's different sprite arrangement. The recipe records source and destination
+artwork bounds, not merely sprite rectangles: CE's internal padding differs.
+For the full-size shield and health sprites, preserve the redraw's screen
+coordinates relative to the top-right anchor instead of fitting the stock
+pixel bounds. CE's half placement scale and different sprite padding require
+translation only; stretching those shapes misaligns the separately drawn
+background, most visibly at the health cross and shield emblem.
+The reference was the stock CE resource above and Xbox Blood Gulch. The
+generator (`python tools/ce_hud_assets.py build`) needs only committed OpenCE
+redraws. Red categorical meter thresholds are resized with nearest sampling;
+coverage and alpha remain filtered. No retail pixels are shipped.
+
+Stock crosshairs use the redraws where their normalized sprite layout agrees;
+CE-only crosshairs use interpolation. Controller prompts use the existing
+OpenCE button-style path when their CE controller definitions match stock.
+The messaging sheet may contain custom weapon pictures: TSC, Snow Grove
+and Bigass retain the stock controller entries but use those same sequence
+numbers for weapons. Controller records are identified by their address in
+the button array; weapon records continue to draw their authored pictures.
+Embedded custom messaging sheets use a controller fallback even with
+High-Res HUD off, because those sheets have no matching stock buttons.
+When disabled, the original low-resolution controller sprites are read from
+the shared `hud_msg_icons_sm` resource, including animated stick prompts.
+The bounded reader accepts its stock two-image ARGB layout, preserves the
+sprite frames, sizes the 20-pixel faces to the native 26-pixel gameplay size,
+centers them on the active font's capitals with room for the adjacent text,
+and releases the textures on
+map unload. The selected button redraw style applies only when enabled.
+Shared stock CE sheets retain the original low-resolution path when disabled.
+Custom controller offsets/sequences stay authored.
+HUD text still follows the separate High-Res Text setting.
+
+Custom meter sheets may also supply static artwork. Snow Grove's protected
+HUD sheets and TSC Evolved Multiplayer's `default\vitals`, `default\visr_meter`
+and `vehicles\vehicle_vitals` exercise this case. Such mixed-use sheets retain
+their original channels in the texture cache. A CE meter draw now scopes a
+shader conversion from `(R,G,B,A)` to `(A,A,A,R)`: the fill threshold is alpha,
+and the shape is red. Ordinary draws of the same texture remain unchanged.
+Already-converted meter textures and OpenCE replacements skip this conversion.
+The scope ends immediately after drawing and is also cleared on texture-map
+cleanup. Xbox and MCC do not enter it. No authored artwork, anchors, scales,
+offsets or sprite rectangles are changed.
+
+The small `hud_draw.c` hook is needed to identify the current consumer;
+load-time bitmap classification alone cannot distinguish these two uses.
+The texture description and shader key carry that decision to the sample,
+without changing the shared texture's upload or sampler state.
+
+For maps already identified by the name/checksum compatibility table as
+depending on `gearbox_meters`, the meter's emitted color is no longer
+multiplied by Xbox's `1-opacity` intensity. TSC's shield and ammo meters
+have opacity 1, which otherwise turns their filled areas black. The
+map's colors, threshold, empty color and fade remain in use. The public
+[Chimera meter shader](https://github.com/SnowyMouse/chimera/blob/master/src/chimera/halo_data/shaders/pixel/hlsl/hud_meters.psh)
+also omits that intensity multiplication. This is a targeted tint correction,
+not a claim of implementing the entire PC fixed-function renderer.
+
+Bigass Open v1.1 (`bigass_open_v1.1`, tag checksum `D2BC19F7`) needs a
+different ammo-sheet interpretation from Bigass v3 (`852EE757`). Inspection
+of `bourrin\hud\v3\bitmaps\all icons wips` shows that Open's twelve weapon
+meter sequences keep their thin shapes in alpha and fill progression in
+color, whereas v3 keeps those channels reversed. The local compatibility
+entry marks only this sheet as explicitly Xbox-ordered; that identity
+survives static-icon use and suppresses the per-draw CE channel swap.
+Other meter sheets retain their existing interpretation. The classification
+is rebuilt with the map and cleared on bitmap disposal, including failed
+loads. No pixel data or HUD placements are edited.
+
+Both revisions use the same `iris italic` HUD-number metrics
+`(16,14,0,0,6,7)` and half-scale digit placements. Open's entry also enables
+the existing `hud_number_scale` conversion, producing `(8,7,0,0,3,4)` so
+the current-magazine and reserve digits advance consistently with their
+drawn size. These corrections apply with High-Res HUD on or off and are
+matched by both map name and tag checksum; unrelated CE, Xbox and MCC
+maps do not acquire them. No unrelated v3 shader or Lua flags are inherited.
+
+CE warning crosshair states (ammo, heat and reload) draw in HUD coordinates,
+without the FOV or passenger-camera transform used by aiming reticles.
+For `old_widescreen_fix` maps, nonzero warning offsets also retain
+their distance from the corresponding edge of the authored 640x480 canvas,
+accounting for PC's 8-pixel HUD margins and OpenCE's current title-safe frame.
+Snow Grove places its low/reload warnings this way beside its ammo panel;
+their bitmap scale and animation remain authored, and offsets translate
+with the panel rather than being scaled toward the aiming point.
+The draw uses a placement copy, without modifying the loaded tags. Xbox and
+MCC retain their existing crosshair drawing and meter tint behavior.
 
 - **Models.** Every `mod2` part is given this build's part layout (the first
   0x68 bytes of the 0x84-byte Custom Edition part are the same fields; the
@@ -302,14 +424,27 @@ changed:
 - **Bitmaps.** Every bitmap must pass the game's own `bitmap_verify` and be
   of a kind the texture cache and the swizzling code handle (a format with a
   hardware texture, a compressed flag that agrees with the format,
-  power-of-two sizes unless linear, square cube maps, all its pixels
-  present). Halo PC draws a 2D bitmap of any size, so an uncompressed one
+  power-of-two sizes unless linear or the bounded DXT case below, square
+  cube maps, all its pixels present). Halo PC draws a 2D bitmap of any size,
+  so an uncompressed one
   whose sides are not powers of two is made linear as the map loads, and
   drawn from its first level (birdcage-plus's 3840 by 64 needler plasma).
   Its pixels are laid out for Halo PC, levels as the tag stores them,
   unswizzled; as they arrive, the game's own
   `rasterizer_xbox_bitmap_rebuild_hardware_format` lays them out as an Xbox
   cache would (swizzled, cube maps face by face, padded).
+  Non-power-of-two DXT1/3/5 2D bitmaps are also supported when both sides
+  are multiples of four, no larger than 4096, depth is one and there are
+  no mip levels beyond the base level. These retain their compressed blocks
+  without rebuilding. The port's descriptor extension records exact sides
+  in the Size word while keeping normalized texture coordinates. Admission
+  still checks the compressed flag and required pixel bytes; other
+  non-power-of-two compressed, cube, volume and P8 layouts remain refused.
+  The extension requires ownership by the loaded CE tag cache and is disabled
+  while MCC tags are loaded; Xbox and MCC descriptors retain their own paths.
+  `tools/test_ce_npot_bitmaps.py` exercises the real admission and descriptor
+  functions with synthetic 200 by 112 textures, malformed layouts and legacy
+  cases. It does not establish that an entire custom map or authored UI works.
 - **Chicago extra layers.** January's transparent chicago shader draws its
   extra layers in a loop that never advances
   (`rasterizer_xbox_transparent_geometry.c`, marked as a preserved bug). No
@@ -335,7 +470,9 @@ changed:
   which leaves them compressed). A bitmap also drawn another way (a
   multipurpose map that is also a base map, say) keeps its channels, since
   the renderer has one order for each texture, and is logged: 3 in
-  `bloodgulch.map`, all multipurpose maps.
+  `bloodgulch.map`, all multipurpose maps. Mixed-use CE HUD meter sheets
+  instead select meter channels in the shader for that draw, as described
+  above; their ordinary artwork still reads the original channels.
 - **Reads.** The renderer write-protects the memory it has made textures of
   and learns of changes from the faults writes take; the kernel fails a read
   into such memory instead. Every read of the map is therefore made into a

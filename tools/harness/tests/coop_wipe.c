@@ -47,7 +47,16 @@ static long tick,main_loss_last_tick;
 static boolean paused,all_dead,save_succeeds;
 static int reverts,respawns;
 static struct {boolean lost_map,saving_map;short loss_timer;} main_globals;
-static struct {boolean saved_game_valid;} game_state_globals;
+static struct {boolean saved_game_valid;void *base_address;unsigned long cpu_allocation_size;} game_state_globals;
+#define GAME_STATE_SIZE 1024
+#define GAME_STATE_CPU_SIZE 512
+static int mcc_loaded,mcc_capture_succeeds=1,mcc_captures;
+static int mcc_cache_tags_loaded(void){return mcc_loaded;}
+static int mcc_checkpoint_capture(void *image,unsigned long bytes,unsigned long used,unsigned long capacity)
+{
+ CHECK(image==game_state_globals.base_address&&bytes==GAME_STATE_SIZE&&used==game_state_globals.cpu_allocation_size&&capacity==GAME_STATE_CPU_SIZE,"checkpoint bounds");
+ mcc_captures++;return mcc_capture_succeeds;
+}
 static long game_time_get(void){return tick;}
 static boolean game_time_get_paused(void){return paused;}
 static boolean players_are_all_dead(void){return all_dead;}
@@ -80,6 +89,7 @@ static void setup(void)
  connection=_game_connection_network_server;active=TRUE;memset(&lobby,0,sizeof(lobby));browser_enabled=TRUE;policy="auto";
  tick=main_loss_last_tick=0;paused=FALSE;all_dead=TRUE;save_succeeds=TRUE;reverts=respawns=diagnostics=0;
  memset(&main_globals,0,sizeof(main_globals));game_state_globals.saved_game_valid=FALSE;
+ mcc_loaded=FALSE;mcc_capture_succeeds=TRUE;mcc_captures=0;
  network_coop_new_game();game_state_save();
 }
 static void wipe(void){main_lost_map();tick+=92;main_lost_map_private();}
@@ -116,6 +126,12 @@ int main(int argc,char **argv)
   add_player();save_succeeds=FALSE;game_state_save();
   CHECK(!network_coop_wipe_reverts(),"failed save replaced membership snapshot");
   setup();game_state_globals.saved_game_valid=FALSE;wipe();CHECK(!reverts&&respawns==1,"missing saved state rewound");
+ } else CASE("mcc-save") {
+  CHECK(!mcc_captures,"legacy save entered MCC");
+  mcc_loaded=TRUE;game_state_save();
+  CHECK(mcc_captures==1&&game_state_globals.saved_game_valid,"MCC checkpoint capture skipped");
+  mcc_capture_succeeds=FALSE;game_state_save();
+  CHECK(mcc_captures==2&&!game_state_globals.saved_game_valid,"failed MCC capture left valid checkpoint");
  } else CASE("new-map") {
   CHECK(network_coop_wipe_reverts(),"valid checkpoint rejected");
   host_attachment_count=3;host_looping_sound_count=2;

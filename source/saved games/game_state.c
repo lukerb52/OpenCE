@@ -95,6 +95,7 @@ symbols in this file:
 /* ---------- headers */
 
 #include "cseries.h"
+#include "dualsense_game.h" /* port: port/linux/game/dualsense_game.c */
 #include "cseries_windows.h"
 #include "cseries/errors.h"
 #include "real_math.h"
@@ -102,13 +103,14 @@ symbols in this file:
 #include "game_state.h"
 #include "coop_vehicles.h" /* port: preserve replacement-vehicle homes across reverts */
 #include "mutator_scripts.h" /* port: port/linux/game/mutator_scripts.c */
-#include "network_coop.h" /* port: checkpoint membership for host team-wipe reverts */
+#include "network_coop.h" /* port: checkpoint roster restoration and host team-wipe policy */
 #include "game.h"
 #include "tag_files.h"
 #include "cache_files.h"
 #include "scenario.h"
 #include "main.h"
 #include "objects.h"
+#include "objects/widgets/lightning.h" /* port: reset render seeds after a load */
 #include "game_sound.h"
 #include "sound_manager.h"
 #include "observer.h"
@@ -125,6 +127,9 @@ symbols in this file:
 #include "lruv_cache.h"
 #include "memory_pool.h"
 #include "cluster_partitions.h"
+#include "mcc_cache.h"
+#include "mcc_checkpoint.h"
+#include "third_person.h" /* port: port/linux/game/third_person.c */
 /* port: object_bounds_cache.c's */
 void object_bounds_cache_invalidate(void);
 
@@ -192,6 +197,7 @@ static game_state_before_save_proc before_save_procs[] =
 
 static game_state_before_load_proc before_load_procs[] =
 {
+	dualsense_game_reset, /* port: cancel feedback before restoring object identities */
 	game_sound_clear,
 	/* port: where the cluster lists' references are, which the game state
 	being loaded does not hold */
@@ -205,10 +211,16 @@ static game_state_before_load_proc before_load_procs[] =
 
 static game_state_after_load_proc after_load_procs[] =
 {
+	/* port: restored lightning slots and times must not reuse discarded seeds. */
+	lightnings_reset_render_state,
 	scenario_reload_structure_bsp_if_necessary,
+	/* port: the session roster is not part of a gameplay checkpoint. */
+	network_coop_restore_players,
 	sound_stop_all,
 	game_sound_restore,
 	observer_initialize_for_new_map,
+	/* port: camera smoothing and free look are not stored in checkpoints. */
+	third_person_reset,
 	update_queues_reset_and_fill_with_lies,
 	rasterizer_decals_update_function_pointers,
 	recorded_animations_clear_debug_storage,
@@ -340,6 +352,13 @@ void game_state_save(
 	void)
 {
 	game_state_call_before_save_procs();
+	/* port: MCC extra slots occupy only proven-unused CPU bytes in this image. */
+	if (mcc_cache_tags_loaded() && !mcc_checkpoint_capture(game_state_globals.base_address,
+		GAME_STATE_SIZE, game_state_globals.cpu_allocation_size, GAME_STATE_CPU_SIZE))
+	{
+		game_state_globals.saved_game_valid = FALSE;
+		return;
+	}
 
 	main_stop_time();
 	game_state_globals.saved_game_valid = (game_state_write_to_file()!=FALSE);
@@ -446,6 +465,9 @@ boolean game_state_test_persistent_storage(
 void game_state_save_core(
 	const char *name)
 {
+	if (mcc_cache_tags_loaded() && !mcc_checkpoint_capture(game_state_globals.base_address,
+		GAME_STATE_SIZE, game_state_globals.cpu_allocation_size, GAME_STATE_CPU_SIZE))
+		return;
 	/* the whole of the native builds' larger game state */
 	if (game_state_write_core(name, game_state_globals.base_address, GAME_STATE_SIZE))
 	{
@@ -564,6 +586,14 @@ static void game_state_set_revert_time(
 	game_time_set_paused(FALSE);
 
 	return;
+}
+
+/* port: read-only arena bounds for MCC-owned state; no allocator changes. */
+void *game_state_port_cpu_region(unsigned long *used, unsigned long *capacity)
+{
+	*used=game_state_globals.cpu_allocation_size;
+	*capacity=GAME_STATE_CPU_SIZE;
+	return game_state_globals.base_address;
 }
 
 void *game_state_malloc(
@@ -870,7 +900,13 @@ boolean game_state_image_accept(
 		if (!valid)
 			return FALSE;
 	}
+	if (mcc_cache_tags_loaded() && !mcc_checkpoint_validate(image, size,
+		game_state_globals.cpu_allocation_size, GAME_STATE_CPU_SIZE, game_state_globals.base_address))
+		return FALSE;
 	csmemcpy(game_state_globals.base_address, image, size);
+	if (mcc_cache_tags_loaded() && !mcc_checkpoint_restore(game_state_globals.base_address, size,
+		game_state_globals.cpu_allocation_size, GAME_STATE_CPU_SIZE))
+		return FALSE;
 	error(_error_silent, "the saved game is taken");
 
 	return TRUE;

@@ -42,6 +42,10 @@ menu gets FRIENDLY FIRE too.
 #include "rasterizer/xbox/rasterizer_xbox_hardware_bitmaps.h"
 
 #include "halo_menus.h"
+#include "frontend_menu.h"
+#include "mcc_ui.h"
+#include "mcc_cache.h"
+#include "mcc_menu_preview.h"
 #include "custom_edition_cache.h"
 #include "stock_tags.h"
 
@@ -367,6 +371,11 @@ static char const *const port_function_names[] =
 	"port setup edit",
 	"port setup options init", "port setup options save",
 	"port map list back",
+	"port mcc solo folder back",
+	"port mcc host folder back",
+	"port mcc xbox init", "port mcc xbox open", "port mcc xbox choose", "port mcc xbox back",
+	"port mcc xbox left", "port mcc xbox right", "port mcc xbox card",
+	"port mcc xbox profile",
 	"port pause end game", "port coop friendly fire",
 	"port coop begin", "port coop player 2 list initialize", "port coop player 2",
 	"port lobby open", "port lobby add player", "port lobby join", "port lobby leave",
@@ -406,10 +415,18 @@ static char const *const port_function_names[] =
 	/* (MUTATOR OPTIONS' SETTINGS: the mutators' options) */
 	"port mutator settings init", "port mutator settings left", "port mutator settings right",
 	"port mutator settings save",
-	"port controller init", "port controller close", "port controller defaults", "port controller save", "port controller bind", "port controller left", "port controller right",
-	/* (a dedicated server's map vote: menu_functions.c) */
-	"port map vote open", "port map vote choose",
+	"port changelog init", "port changelog up", "port changelog down",
+	"port gulch build label",
+	"port changelog corner focus", "port changelog main focus",
+	"port controller init", "port controller close", "port controller defaults",
+	"port controller save", "port controller bind", "port controller left", "port controller right",
 	"port controller clear", "port controller cancel",
+	"port bots init", "port bots command", "port bots host entry", "port bots settings save",
+	"port frontend apply", "port frontend cancel",
+	"port frontend init", "port frontend defaults",
+	"port frontend back", "port frontend page", "port frontend next tab", "port frontend editor",
+	"port frontend navigation init",
+	"port map vote open", "port map vote choose",
 };
 
 /* the PC version's game data functions that the Xbox's have not, from
@@ -422,7 +439,7 @@ static char const *const port_game_data_input_names[] =
 	"server settings update", "audio menu update", "mp prof vehicles update", "solo map list update",
 	"mp map list update", "gt select list update", "gt edit list update", "load game list update",
 	"direct ip connect update", "network settings update",
-	"port settings help", "color picker update", "3wide player profile list update", "port lobby update",
+	"port frontend update", "port frontend navigation update", "port frontend multiplayer update", "port settings help", "color picker update", "3wide player profile list update", "port lobby update",
 	"port lobby preview update", "port join4 update",
 	/* (the gametype editor's: the Xbox's stops the game on the buttons'
 	row; the Xbox's read only player_ui's gametype, not Server Setup's) */
@@ -431,8 +448,10 @@ static char const *const port_game_data_input_names[] =
 	/* (the profile settings' picture: the Xbox's of the button settings,
 	on Gamepad Setup's row) */
 	"port gamepad layout preview",
+	"port controller update",
 	/* (the main menu's Mods) */
 	"port mods update",
+	"port changelog focus update",
 	/* (network co-op's pause menu's FRIENDLY FIRE: its text, ON or OFF) */
 	"port coop friendly fire text",
 	/* (the gametype editor's description, with OPENCE OPTIONS' row) */
@@ -2035,6 +2054,9 @@ static void pause_patch(struct cache_file_tag_instance *instances)
 	short grow = 0, box_height = 0;
 	boolean box_redrawn = FALSE, rebuilt;
 
+	/* MCC supplies its own Settings and game-options buttons. */
+	if (mcc_cache_tags_loaded())
+		return;
 	if (collection == NONE || quit_function == NONE)
 		return;
 	screens = tag_get('Soul', collection);
@@ -2503,16 +2525,32 @@ void menu_tags_loaded(
 	boolean game_map = strcmp(map_name, "ui") != 0;
 	boolean campaign = game_map && full_screen_campaign_map();
 	boolean coop = game_map && network_coop_campaign_map();
+	boolean frontend;
 
+	frontend_menu_map_loaded(map_name, mcc_cache_tags_loaded());
+	frontend = frontend_menu_requested();
+
+	/* MCC owns its pause menus and uses these native Settings screens.
+	Do not patch embedded MCC campaign widgets. */
+	if (mcc_cache_tags_loaded())
+	{
+		if (mcc_ui_settings_needed(map_name))
+		{
+			campaign = FALSE;
+			goto mcc_settings;
+		}
+		return;
+	}
 	/* (ui.map, and a multiplayer map: its pause menu's SETTINGS; a
 	campaign's too, single player's or network co-op's, which also gets
 	FRIENDLY FIRE) */
 	if ((game_map && tag_loaded('Soul', MULTIPLAYER_COLLECTION) == NONE && !campaign) ||
-		!menus_pc_chosen())
+		(!menus_pc_chosen() && !frontend))
 	{
 		return;
 	}
-	menus = halo_menus_load();
+mcc_settings:
+	menus = frontend ? frontend_menu_files_load() : halo_menus_load();
 	if (!menus)
 		return;
 	memset(&build, 0, sizeof(build));
@@ -2521,6 +2559,9 @@ void menu_tags_loaded(
 	/* Settings must not pause the simulation in a network campaign. */
 	build.campaign = campaign && game_connection() == _game_connection_local &&
 		!network_game_is_active() && !game_is_cooperative();
+	/* MCC owns this decision; only its local campaign Settings pause time. */
+	if (mcc_cache_tags_loaded())
+		build.campaign = mcc_ui_settings_pause_game();
 	build.coop = coop;
 	widget_count = menus->widget_count;
 	build.widget_tags = malloc((widget_count + 1) * sizeof(long));
@@ -2618,6 +2659,10 @@ void menu_tags_loaded(
 		pause_patch(instances);
 		if (campaign)
 			pause_campaign_patch(instances);
+		/* MCC owns the pause layout; reuse only upstream's in-game Settings
+		filter and profile-save behavior, without patching map widgets. */
+		if (mcc_cache_tags_loaded())
+			pause_settings_patch();
 		pause_network_patch();
 		if (build.failed)
 			goto failed;
@@ -2660,6 +2705,8 @@ void menu_tags_unloaded(
 {
 	/* (the stock tags added after these go first: stock_tags.c) */
 	stock_tags_menus_unloading();
+	mcc_menu_preview_clear();
+	frontend_menu_unloaded();
 	if (menu_tags.loaded || menu_tags.block_count)
 		menu_tags_release();
 }
@@ -2711,6 +2758,11 @@ char const *pc_menus_root_name(
 boolean pc_menu_tag(
 	long tag_index)
 {
+	/* MCC's independently generated pause widgets use stock widget behavior. */
+	{
+		extern boolean mcc_pause_owns(long);
+		if (mcc_pause_owns(tag_index)) return FALSE;
+	}
 	return menu_tags.loaded && tag_index != NONE &&
 		DATUM_INDEX_TO_ABSOLUTE_INDEX(tag_index) >= menu_tags.original_count;
 }

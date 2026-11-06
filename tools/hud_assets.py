@@ -336,6 +336,13 @@ def hek_bitmap_group(path: Path) -> dict:
 
 
 def render_svg(svg: Path, zoom: float = 1) -> np.ndarray:
+    if not shutil.which("rsvg-convert"):
+        # Windows asset builds can use the same standalone SVG renderer
+        # without installing GTK. Both paths rasterize authored SVG only.
+        import io
+        import resvg_py
+        return np.asarray(Image.open(io.BytesIO(resvg_py.svg_to_bytes(
+            svg_path=str(svg), zoom=zoom))).convert("RGBA")).copy()
     with tempfile.TemporaryDirectory() as directory:
         output = Path(directory) / "render.png"
         subprocess.run(["rsvg-convert", "-z", str(zoom), "-o", str(output), str(svg)], check=True)
@@ -884,9 +891,9 @@ def build(arguments) -> None:
     names = {f"{entry['name']}.png" for entry in description["assets"]}
     # Other map families own their layouts and generated pictures. A native
     # rebuild must not treat their independently generated atlases as stale.
-    ce_layout = ASSETS / "ce_layout.json"
-    if ce_layout.is_file():
-        names.update(f"{entry['name']}.png" for entry in json.loads(ce_layout.read_text())["assets"])
+    for listing in ("ce_layout.json", "mcc_layout.json"):
+        if (ASSETS / listing).is_file():
+            names.update(f"{entry['name']}.png" for entry in json.loads((ASSETS / listing).read_text())["assets"])
     for stale in ASSETS.glob("*.png"):
         if stale.name not in names:
             stale.unlink()

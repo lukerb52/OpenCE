@@ -135,6 +135,12 @@ def main() -> int:
     for output in outputs:
         shutil.copy2(ROOT / output, dist)
         print(f"{output} -> {dist.relative_to(ROOT)}", flush=True)
+    if args.platform == "android":
+        diagnostics = dist / "diagnostics"
+        shutil.copytree(ROOT / "port/android/diagnostics", diagnostics,
+                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+        (diagnostics / "build-revision.txt").write_text(revision + "\n", encoding="utf-8")
     if args.platform == "windows":
         # the symbols of halo.exe and SDL3.dll, apart (players do not need
         # them): the workflow uploads them to Sentry, which turns the crash
@@ -150,6 +156,13 @@ def main() -> int:
             print(f"{pdb.relative_to(ROOT)} -> {symbols.relative_to(ROOT)}", flush=True)
     # OpenCE's own licence, the AGPL, which asks each copy to carry its text
     shutil.copy2(ROOT / "LICENSE", dist / "LICENSE.txt")
+    # DualSense effect packing and SDL's PS5 output format/palette.
+    for name in ("TriggerEffectGenerator", "SDL"):
+        shutil.copy2(ROOT / f"port/third_party/dualsense/{name}-LICENSE.txt",
+                     dist / f"dualsense-{name}-LICENSE.txt")
+    # Enhanced bot tactics retain the Vita author's GPL 3.0 licence.
+    shutil.copy2(ROOT / "LICENSES/GPL-3.0-only.txt", dist / "bots-GPL-3.0.txt")
+    shutil.copy2(ROOT / "docs/reading/bots_and_android_features.md", dist / "bots-and-android-credits.md")
     if args.platform != "web":
         # internet play's DTLS with browsers, and the Linux self-updater's TLS
         # (port/third_party/mbedtls), whose Apache license asks the same
@@ -163,6 +176,8 @@ def main() -> int:
     # the menus' XML parser (port/third_party/expat), in every build, whose
     # MIT license asks copies to carry its notice
     shutil.copy2(ROOT / "port/third_party/expat/COPYING", dist / "expat-COPYING.txt")
+    # MCC's texture decoder is distributed under bcdec's MIT option.
+    shutil.copy2(ROOT / "port/third_party/bcdec/LICENSE", dist / "bcdec-LICENSE.txt")
     # voice chat's codec (port/third_party/opus), in every build, whose BSD
     # license asks binaries to carry its notice
     shutil.copy2(ROOT / "port/third_party/opus/COPYING", dist / "opus-COPYING.txt")

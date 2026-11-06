@@ -201,6 +201,7 @@ symbols in this file:
 /* ---------- headers */
 
 #include "cseries.h"
+#include "third_person.h" /* port: port/linux/game/third_person_weapon.c */
 #include "weapons.h"
 
 #include "equipment.h"
@@ -218,6 +219,9 @@ symbols in this file:
 #include "effects/effect_definitions.h"
 #include "effects/effects.h"
 #include "game/cheats.h"
+#include "mcc_script_effects.h" /* port: MCC host-approved ammunition prediction */
+#include "muzzle_lighting.h" /* port: port/linux/game/muzzle_lighting.c */
+#include "mcc_campaign.h" /* port: MCC host-approved reserve/battery prediction */
 #include "game/game.h"
 #include "game/game_engine.h"
 #include "infection.h" /* port: port/linux/game/infection.c */
@@ -361,14 +365,7 @@ struct animation_graph_first_person_weapon_animations
 };
 
 /* TU-local: weapon_trigger_definition.firing_effects element; no shared header declares it yet. */
-struct trigger_firing_effect
-{
-	short shots_lower_bound;
-	short shots_upper_bound;
-	long unused[8];
-	struct tag_reference effects[NUMBER_OF_TRIGGER_FIRING_EFFECTS];
-	struct tag_reference damage_effects[NUMBER_OF_TRIGGER_FIRING_EFFECTS];
-};
+/* port: firing-effect layout is shared in weapon_definitions.h. */
 
 /* ---------- prototypes */
 
@@ -915,6 +912,8 @@ void weapon_set_total_rounds(
 void weapon_delete(
 	long weapon_index)
 {
+	/* port: release MCC first-person references before the object disappears. */
+	mcc_first_person_weapon_deleted(weapon_index);
 	/* (port: but a flag or ball a client of the distributed netcode deletes,
 	on the host's word or as one the host has not told it of: objects.c's
 	object_delete_initial_recursive) */
@@ -1555,7 +1554,8 @@ static void weapon_magazine_finish_reload(
 	if (rounds_loaded>magazine_definition->rounds_loaded_maximum)
 		rounds_loaded = magazine_definition->rounds_loaded_maximum;
 
-	if (!cheat.infinite_ammo && TEST_FLAG(weapon->item.flags, 1))
+	/* port: MCC clients mirror the host's reserve ammunition rule. */
+	if (!(cheat.infinite_ammo || mcc_campaign_unlimited_ammo()) && TEST_FLAG(weapon->item.flags, 1))
 		magazine->rounds_total = magazine->rounds_total-rounds_loaded+magazine->rounds_loaded;
 
 	magazine->rounds_loaded = rounds_loaded;
@@ -2469,6 +2469,7 @@ static void trigger_create_projectiles(
 		long target_object_index= NONE;
 		long projectile_definition_index;
 		short projectile_count;
+		boolean muzzle_origin = FALSE; /* port: exclude shooter from BSP repair */
 
 		if (!TEST_FLAG(trigger_definition->flags, _weapon_trigger_projectiles_cannot_be_aimed_bit) &&
 			unit &&
@@ -2542,6 +2543,12 @@ static void trigger_create_projectiles(
 		{
 			origin= markers[marker_index].matrix.position;
 		}
+
+		/* port: shoulder shots leave the world muzzle. Custom
+		   triggers that explicitly choose an origin or forbid aiming keep it. */
+		if (!TEST_FLAG(trigger_definition->flags, _weapon_trigger_uses_weapon_origin_bit) &&
+			!TEST_FLAG(trigger_definition->flags, _weapon_trigger_projectiles_cannot_be_aimed_bit))
+			muzzle_origin = third_person_muzzle_shot(weapon_index, owner_object_index, trigger_index, &origin, &forward);
 
 		if (trigger_index==0 && weapon->weapon.alternate_shots_loaded>0)
 		{
@@ -2627,7 +2634,9 @@ static void trigger_create_projectiles(
 						real_point3d camera_position;
 
 						unit_get_camera_position(owner_object_index, &camera_position);
-						object_force_inside_bsp(projectile_object_index, &camera_position);
+						/* port: do not pull a validated muzzle shot back onto its owner. */
+						object_force_inside_bsp_ignoring(projectile_object_index, &camera_position,
+							muzzle_origin ? owner_object_index : NONE);
 					}
 					if (target_object_index!=NONE)
 					{
@@ -2690,7 +2699,8 @@ static void weapon_trigger_fire(
 				!(TEST_FLAG(weapon_definition->weapon.flags, _weapon_cannot_fire_at_maximum_age_bit) && weapon->weapon.age>=1.0f) &&
 				(magazine->rounds_loaded>=trigger_definition->minimum_rounds_loaded_per_shot || !TEST_FLAG(trigger->flags, _weapon_trigger_released_since_last_shot_bit)))
 			{
-				if (!cheat.bottomless_clip && (magazine->rounds_loaded-= trigger_definition->rounds_per_shot)<=0)
+				/* port: keep MCC predicted ammunition consistent with the host. */
+				if (!(cheat.bottomless_clip || mcc_script_effect_enabled(MCC_EFFECT_BOTTOMLESS_CLIP)) && (magazine->rounds_loaded-= trigger_definition->rounds_per_shot)<=0)
 				{
 					magazine->rounds_loaded= 0;
 				}
@@ -2709,14 +2719,15 @@ static void weapon_trigger_fire(
 		fired= TRUE;
 	}
 
-	if (cheat.bottomless_clip)
+	/* port: MCC host-approved prediction, without enabling native client cheats. */
+	if (cheat.bottomless_clip || mcc_script_effect_enabled(MCC_EFFECT_BOTTOMLESS_CLIP))
 	{
 		fired= TRUE;
 	}
 
 	if (trigger_definition->firing_effects.count>0)
 	{
-		struct trigger_firing_effect *firing_effect;
+		struct weapon_firing_effect_definition *firing_effect;
 		short effect_type;
 
 		if (trigger->firing_effect_shots_remaining<=0)
@@ -2735,7 +2746,7 @@ static void weapon_trigger_fire(
 
 			do
 			{
-				struct trigger_firing_effect *next_firing_effect;
+				struct weapon_firing_effect_definition *next_firing_effect;
 
 				if (trigger->firing_effects_used_flags==FLAG(trigger_definition->firing_effects.count)-1)
 				{
@@ -2752,7 +2763,7 @@ static void weapon_trigger_fire(
 				}
 				while (TEST_FLAG(trigger->firing_effects_used_flags, firing_effect_index));
 
-				next_firing_effect= TAG_BLOCK_GET_ELEMENT(&trigger_definition->firing_effects, firing_effect_index, struct trigger_firing_effect);
+				next_firing_effect= TAG_BLOCK_GET_ELEMENT(&trigger_definition->firing_effects, firing_effect_index, struct weapon_firing_effect_definition);
 				trigger->firing_effect_index= firing_effect_index;
 				SET_FLAG(trigger->firing_effects_used_flags, firing_effect_index, TRUE);
 				trigger->firing_effect_shots_remaining= random_range(next_firing_effect->shots_lower_bound, next_firing_effect->shots_upper_bound);
@@ -2761,7 +2772,7 @@ static void weapon_trigger_fire(
 		}
 
 		trigger->firing_effect_shots_remaining--;
-		firing_effect= TAG_BLOCK_GET_ELEMENT(&trigger_definition->firing_effects, trigger->firing_effect_index, struct trigger_firing_effect);
+		firing_effect= TAG_BLOCK_GET_ELEMENT(&trigger_definition->firing_effects, trigger->firing_effect_index, struct weapon_firing_effect_definition);
 
 		if (weapon_definition->weapon.age_misfire_start>0.0f &&
 			weapon_definition->weapon.age_misfire_start<1.0f &&
@@ -2833,7 +2844,8 @@ static void weapon_trigger_fire(
 			trigger->illumination= 1.0f;
 		}
 
-		if (!cheat.bottomless_clip)
+		/* port: MCC's replicated bottomless clip leaves heat unchanged too. */
+		if (!(cheat.bottomless_clip || mcc_script_effect_enabled(MCC_EFFECT_BOTTOMLESS_CLIP)))
 		{
 			weapon->weapon.heat+= trigger_definition->heat_generated_per_round;
 		}
@@ -2847,7 +2859,8 @@ static void weapon_trigger_fire(
 			weapon->weapon.heat= 1.0f;
 		}
 
-		if (TEST_FLAG(weapon->item.flags, _item_belongs_to_player_bit) && !cheat.infinite_ammo)
+		/* port: MCC clients mirror the host's battery consumption rule. */
+		if (TEST_FLAG(weapon->item.flags, _item_belongs_to_player_bit) && !(cheat.infinite_ammo || mcc_campaign_unlimited_ammo()))
 		{
 			weapon->weapon.age+= trigger_definition->age_generated_per_round;
 			if (weapon->weapon.age>1.0f)
@@ -2867,6 +2880,7 @@ static void weapon_trigger_fire(
 			else
 			{
 				trigger_create_projectiles(weapon_index, trigger_index);
+				muzzle_lighting_shot(weapon_index, trigger_index); /* port: successful shot only */
 				ai_handle_unit_effect(owner_object_index, _ai_unit_effect_shooting, trigger_definition->firing_noise);
 			}
 		}

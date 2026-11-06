@@ -83,6 +83,7 @@ symbols in this file:
 /* ---------- headers */
 
 #include "cseries/cseries.h"
+#include "third_person.h" /* port: port/linux/game/third_person.c */
 #include "passenger_camera.h" /* port: port/linux/game/passenger_camera.c */
 #include "cseries/errors.h"
 #include "math/real_math.h"
@@ -91,6 +92,8 @@ symbols in this file:
 #include "bitmaps/bitmaps_inlines.h"
 #include "bitmaps/bitmap_utilities.h"
 #include "cache/texture_cache.h"
+#include "mcc_cache.h"
+#include "mcc_hud_draw.h"
 #include "effects/particles.h"
 #include "game/game.h"
 #include "game/players.h"
@@ -108,6 +111,7 @@ symbols in this file:
 #include "cache_file_formats.h" /* port: port/linux/game/cache_file_formats.c */
 #include "custom_edition_cache.h"
 #include "addons.h" /* port: port/linux/game/addons.c */
+#include "custom_edition_hud_draw.h" /* port: port/linux/game/custom_edition_hud_draw.c */
 #include "view_fov.h" /* port: port/linux/game/view_fov.c */
 
 /* ---------- constants */
@@ -735,6 +739,12 @@ static void hud_draw_multitexture_overlay(
 			}
 
 			parameters.map_offset[map_index] = &texture_offset[map_index];
+			if (mcc_cache_tags_loaded())
+			{
+				boolean mcc_linear = TEST_FLAG(parameters.map[map_index]->flags, _bitmap_linear_bit);
+				parameters.map_texture_scale[map_index].i = mcc_linear ? (real)parameters.map[map_index]->width : 1.0f;
+				parameters.map_texture_scale[map_index].j = mcc_linear ? (real)parameters.map[map_index]->height : 1.0f;
+			}
 			parameters.map_scale[map_index].i = scale_x;
 			parameters.map_scale[map_index].j = scale_y;
 			parameters.map_wrapped[map_index] = (boolean)overlay->map_clamp[map_index];
@@ -788,6 +798,8 @@ static void hud_draw_multitexture_overlay(
 	reticle added its whole square), and an add-on's overlay (addons.c) */
 	parameters.alpha_weighted = addons_bitmap_is_halo_pc(parameters.map[0]) &&
 		parameters.framebuffer_blend_function == _shader_framebuffer_blend_function_add;
+	if (mcc_cache_tags_loaded())
+		parameters.alpha_weighted = parameters.framebuffer_blend_function == _shader_framebuffer_blend_function_add;
 
 	for (function_index = 0;
 		function_index < overlay->functions.count;
@@ -1042,6 +1054,11 @@ void hud_calculate_point(
 		"c:\\halo\\SOURCE\\interface\\hud_draw.c",
 		127,
 		placement);
+
+	/* port: MCC edge-center anchors use the current player's viewport. */
+	if (mcc_hud_anchor_point(absolute_placement->corner, placement, bitmap_data,
+		scale, &render.camera.window_bounds, &render.camera.viewport_bounds, result))
+		return;
 
 	corner = absolute_placement->corner;
 	if (corner < _hud_anchor_center)
@@ -1690,6 +1707,10 @@ static void hud_draw_bitmap_with_meter(
 			_hud_dont_scale_offset_bit),
 		0.0f,
 		&point);
+	/* port: move every reticle piece to the stock aim point in the shoulder view. */
+	if (is_crosshair_bitmap && absolute_placement->corner == _hud_anchor_center &&
+		!third_person_reticle(&point, render_fov_reticle_scale(render.local_player_index)))
+		return;
 	/* port: the crosshairs_draw scope moves only the weapon's reticle */
 	if (is_crosshair_bitmap)
 		passenger_camera_reticle_offset(&point);
@@ -1773,6 +1794,10 @@ static void hud_calculate_bitmap_bounds(
 
 	width = (clip->x1-clip->x0)*(is_interface_bitmap ? 1 : bitmap->width);
 	height = (clip->y1-clip->y0)*(is_interface_bitmap ? 1 : bitmap->height);
+
+	/* port: MCC-only bounds for its additional HUD anchors. */
+	if (mcc_hud_anchor_bounds(placement_type, width, height, bounds))
+		return;
 
 	switch (placement_type)
 	{
@@ -2103,6 +2128,14 @@ void hud_draw_numbers(
 			digit_scale = TEST_FLAG(numbers->placement.multiplayer_scaling_flags, _hud_use_high_resolution_scale_bit) ||
 				TEST_FLAG(bitmap_group->flags, _bitmap_group_half_hud_scale_bit) ?
 				scale*0.5f : scale;
+			/* port: CE bitmap flags compose without changing digit spacing.
+			Xbox/mod and MCC number handling keep the existing rule above. */
+			if (custom_edition_cache_tags_loaded())
+				digit_scale = scale * custom_edition_hud_number_scale(hud_number->number_bitmap.index,
+					numbers->placement.multiplayer_scaling_flags);
+
+			if (mcc_cache_tags_loaded())
+				digit_scale *= mcc_hud_canvas_scale();
 
 			if (TEST_FLAG(numbers->number_flags, _hud_number_show_trailing_m_bit))
 			{
@@ -2124,6 +2157,10 @@ void hud_draw_numbers(
 				0.0f,
 				&origin);
 
+			/* port: MCC edge-center number alignment; native anchors keep their cases. */
+			if (!mcc_hud_anchor_number(absolute_placement->corner,
+				((digit_count-1.0f)*hud_number->screen_width+decimal_point_width)*scale,
+				origin.x, &cursor.x))
 			switch (absolute_placement->corner)
 			{
 			case _hud_anchor_top_left:

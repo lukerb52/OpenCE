@@ -13,6 +13,9 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 
 # what each notice is for, and its file
 NOTICES = [
+    ("DualSense trigger effect packing (John Nielk1 Klein)", "port/third_party/dualsense/TriggerEffectGenerator-LICENSE.txt"),
+    ("Enhanced bot tactics: BirchWoodGod, adapted by thelinkin3000 and GulchCE", "LICENSES/GPL-3.0-only.txt"),
+    ("Bot and Android feature provenance", "docs/reading/bots_and_android_features.md"),
     ("Expat (the menus' XML)", "port/third_party/expat/COPYING"),
     ("Opus (voice chat's codec)", "port/third_party/opus/COPYING"),
     ("zlib", "port/third_party/zlib/LICENSE"),
@@ -20,6 +23,7 @@ NOTICES = [
     ("Monocypher (internet play's signatures)", "port/third_party/monocypher/LICENCE.md"),
     ("tomlc17 (config.toml, mod.toml, load_order.toml)", "port/third_party/tomlc17/LICENSE"),
     ("musl (the maths functions)", "port/third_party/musl-math/COPYRIGHT"),
+    ("bcdec (MCC texture decoding)", "port/third_party/bcdec/LICENSE"),
     ("stb_vorbis (Custom Edition maps' and mods' sounds)", "port/third_party/stb_vorbis/LICENSE"),
     ("jsmn (the server browser's lists of servers)", "port/third_party/jsmn/LICENSE"),
     ("Overpass (the menus' text and the page's)", "port/assets/fonts/Overpass-OFL.txt"),

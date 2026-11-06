@@ -84,6 +84,7 @@ def test_pending_menu_filter_visibility_and_focus(tmp_path):
 #define NUMBEROF(a) (sizeof(a)/sizeof(*(a)))
 #define usnprintf swprintf
 #define FALSE 0
+#define TRUE 1
 typedef int boolean;
 struct widget_instance {
  char const *name;short vertical_offset;int visible,definition_tag_index;
@@ -97,7 +98,8 @@ static struct pc_menu_setting settings[]={
  {4,{"classic","gems","menu_gems","xbox_modern"}},
  {4,{"ps_classic","ps_gems","ps_dark_gems","ps_modern"}},
  {3,{"switch_classic","switch_gems","switch_modern"}}};
-static struct widget_instance automatic,labels[4],styles[4];static int family;
+static struct widget_instance automatic,labels[4],styles[4];static int family,keyboard;
+static int keyboard_prompt_active(short port){assert(port==1);return keyboard;}
 static struct pc_menu_setting *pc_menu_setting_get(int id){return &settings[id];}
 static struct widget_instance *named(struct widget_instance *list,char const *name,int n){
  struct widget_instance *p;int i;
@@ -114,11 +116,12 @@ static void text_set(struct widget_instance *w,wchar_t const *s){assert(!wcscmp(
 void controller_device_get(short port,struct controller_device *device){assert(port==1);device->family=family;}
 ''' + (ROOT / 'port/linux/game/controller_button_menu.inl').read_text() + r'''
 int main(void){
- struct widget_instance list={0},a={0},r[4]={{0}},bumper={0},bar={0};int i,j,k,repeat;
+ struct widget_instance list={0},a={0},r[4]={{0}},detected={0},bumper={0},bar={0};int i,j,k,repeat;
  char const *names[]={"op_hud_button_style","op_hud_button_style_xbox","op_hud_button_style_ps","op_hud_button_style_switch"};
  list.child=&a;a.next=&r[0];a.name="op_auto_button_detection";
  a.visible=1;automatic.parent=&a;
- for(i=0;i<4;i++){r[i].name=names[i];r[i].next=i<3?&r[i+1]:&bumper;r[i].visible=1;r[i].child=&labels[i];r[i].vertical_offset=103;styles[i].definition_tag_index=i+1;}
+ for(i=0;i<4;i++){r[i].name=names[i];r[i].next=i<3?&r[i+1]:&detected;r[i].visible=1;r[i].child=&labels[i];r[i].vertical_offset=103;styles[i].definition_tag_index=i+1;}
+ detected.name="op_detected_button_style";detected.next=&bumper;
  bumper.name="op_hud_bumper_style";bumper.next=&bar;bumper.vertical_offset=133;
  bar.name="button_bar";bar.vertical_offset=414;
  for(repeat=0;repeat<40;repeat++)for(k=0;k<4;k++)for(j=0;j<settings[k+1].value_count;j++){
@@ -139,6 +142,11 @@ int main(void){
  styles[0].parameters.list.selected_index=-1;controller_button_rows_show(&list);assert(!bumper.visible);
  styles[0].parameters.list.selected_index=11;controller_button_rows_show(&list);assert(!bumper.visible);
  automatic.parameters.list.selected_index=0;family=99;controller_button_rows_show(&list);assert(r[0].visible);
+ keyboard=1;list.focused_child=&r[0];controller_button_rows_show(&list);
+ assert(detected.visible&&!bumper.visible&&list.focused_child==&detected);
+ for(i=0;i<4;i++)assert(!r[i].visible);
+ automatic.parameters.list.selected_index=1;controller_button_rows_show(&list);
+ assert(!detected.visible&&r[0].visible&&list.focused_child==&r[0]);
  return 0;
 }
 '''
@@ -172,10 +180,12 @@ def test_menu_generated_and_default_on():
     menu = ET.parse(ROOT / f'port/assets/menus/ce/{prefix}.controller_appearance.xml')
     labels = [w for w in menu.getroot().findall('widget')
               if '/hud_button_style' in w.get('name', '') and w.get('name', '').endswith('_label')]
+    assert not any(w.get('setting') in ('display.keyboard_glyphs', 'display.detected_button_style') for w in menu.getroot().findall('widget'))
     assert len(labels) == 4
     assert all('string_list' not in w.attrib and 'string_index' in w.attrib for w in labels)
     rows = port_settings.SCREENS['controller_appearance']['rows']
-    assert len(next(r[2] for r in rows if r[1] == 'display.hud_button_style')) == 11
+    assert len(next(r[2] for r in rows if r[1] == 'display.hud_button_style')) == 12
+    assert next(r[2] for r in rows if r[1] == 'display.hud_button_style')[-1] == ('KEYBOARD', 'keyboard')
     assert next(r[2] for r in rows if r[1] == 'display.hud_bumper_style') == [('ORIGINAL XBOX', 'original'), ('MODERN XBOX', 'modern')]
     parent = ET.parse(ROOT / f'port/assets/menus/ce/{prefix}.gamepad_setup.xml')
     assert any('controller_appearance_screen' in e.get('open', '') for e in parent.iter('on'))
@@ -217,7 +227,7 @@ static short observed_port;
 static int controller_button_style_for_port(short p){observed_port=p;return 4;}
 static char const *bumper_style="original";
 static char const *config_string(char const *s){assert(!strcmp(s,"display.hud_bumper_style"));return bumper_style;}
-static int players=1,allocations,live,draws,fail;static long ticks,last_asset;
+static int players=1,allocations,live,draws,unbound,fail;static long ticks,last_asset;
 static struct dynamic_screen_vertex drawn[4];
 static long game_time_get(void){return ticks;}
 static int local_player_count(void){return players;}
@@ -228,6 +238,7 @@ static struct bitmap_data *bitmap_2d_new(int w,int h,int m,int f){
 }
 static int rasterizer_bitmap_new(struct bitmap_data *b){b->hardware_format=(unsigned long*)b;return fail!=2;}
 static void bitmap_delete(struct bitmap_data *b){free(b);live--;}
+static void unbind(unsigned long const *p){assert(p);unbound++;}
 static void rasterizer_psuedo_dynamic_screen_quad_draw(struct rasterizer_dynamic_screen_geometry_parameters *p,
  struct dynamic_screen_vertex *v){assert(p->framebuffer_blend_function==0);memcpy(drawn,v,sizeof(drawn));draws++;}
 '''
@@ -244,8 +255,8 @@ int main(void){
  bumper_style="modern";
  for(players=1;players<=2;players++)for(style=0;style<11;style++)for(index=0;index<18;index++)for(frame=0;frame<3;frame++){
   cursor.x0=100;cursor.y0=50;cursor.x1=500;cursor.y1=150;ticks=frame*10;
-  if((style<3 && index!=4 && index!=5) || (index>=8 && index<14)){before=draws;assert(!controller_glyph_draw(style,index,&icon,&cursor,0x7fffffff));assert(draws==before&&cursor.x0==100);continue;}
-  assert(controller_glyph_draw(style,index,&icon,&cursor,0x7fffffff));assert(drawn[0].color==0x7fffffff);
+  if((style<3 && index!=4 && index!=5) || (index>=8 && index<14)){before=draws;assert(!controller_glyph_draw(style,index,&icon,&cursor,0x7fffffff,unbind));assert(draws==before&&cursor.x0==100);continue;}
+  assert(controller_glyph_draw(style,index,&icon,&cursor,0x7fffffff,unbind));assert(drawn[0].color==0x7fffffff);
   scale=players==1?1:.75f;
   bounds=controller_glyph_assets[controller_glyph_asset_index(style,index<6?index:hud_button_control_slot(index,frame))].bounds;
   w=drawn[2].position.x-drawn[0].position.x;h=drawn[2].position.y-drawn[0].position.y;
@@ -256,25 +267,37 @@ int main(void){
   assert((bounds[2]-bounds[0])*w/512<=cellw+.001f && (bounds[3]-bounds[1])*h/512<=cellh+.001f);
   assert(cursor.x0==100+(short)((index<4?22:index<6?20:index<8?45:33)*scale));
   before=allocations;icon.flags=2;icon.color=0x40123456;
-  assert(controller_glyph_draw(style,index,&icon,&cursor,0xffffffff));assert(drawn[0].color==0x40ffffff&&before==allocations);icon.flags=0;
+  assert(controller_glyph_draw(style,index,&icon,&cursor,0xffffffff,unbind));assert(drawn[0].color==0x40ffffff&&before==allocations);icon.flags=0;
  }
- assert(live==62 && allocations==62);controller_glyphs_dispose();assert(!live);
- controller_glyphs_dispose();assert(!live);
+ /* Menu layout uses the same assets but a smaller footer cell, independent
+  * of split-screen HUD scale, with at least six units before its caption. */
+ for(players=1;players<=2;players++)for(style=3;style<11;style++)for(index=0;index<18;index++){
+  if(index>3&&index!=16)continue;
+  cursor.x0=100;assert(controller_glyph_draw_menu(style,index,&cursor,0x7fffffff));
+  bounds=controller_glyph_assets[controller_glyph_asset_index(style,index==16?8:index)].bounds;
+  w=drawn[2].position.x-drawn[0].position.x;h=drawn[2].position.y-drawn[0].position.y;
+  x=drawn[0].position.x+bounds[2]*w/512;
+  y=drawn[0].position.y+(bounds[1]+bounds[3])*h/1024;
+  near(y,100);assert(cursor.x0-x>=5.99f);
+  assert((bounds[3]-bounds[1])*h/512<=22.001f);
+ }
+ assert(live==62 && allocations==62);controller_glyphs_dispose();assert(!live && unbound==62);
+ controller_glyphs_dispose();assert(unbound==62);
  /* Only black/RB and white/LB change. All three styles share the modern
   * artwork cache, including after preference changes and map teardown. */
  for(i=0;i<10;i++)for(style=0;style<3;style++)for(index=0;index<18;index++){
-  bumper_style="original";assert(!controller_glyph_draw(style,index,&icon,&cursor,0));
+  bumper_style="original";assert(!controller_glyph_draw(style,index,&icon,&cursor,0,unbind));
   bumper_style="modern";before=draws;
-  assert(controller_glyph_draw(style,index,&icon,&cursor,0)==(index==4||index==5));
+  assert(controller_glyph_draw(style,index,&icon,&cursor,0,unbind)==(index==4||index==5));
   if(index==4||index==5){assert(draws==before+1);assert(controller_glyph_asset_index(style,index)==32+index-4);}
  }
  assert(live==2);controller_glyphs_dispose();assert(!live);
- bumper_style="invalid";assert(!controller_glyph_draw(0,4,&icon,&cursor,0));
+ bumper_style="invalid";assert(!controller_glyph_draw(0,4,&icon,&cursor,0,unbind));
  bumper_style="original";
- for(i=1;i<=2;i++){fail=i;assert(!controller_glyph_draw(4,0,&icon,&cursor,0));assert(!live);controller_glyphs_dispose();}
- fail=0;assert(controller_glyph_draw(4,0,&icon,&cursor,0));assert(drawn[0].color==0xffffff);
- for(style=-1;style<3;style++)assert(!controller_glyph_draw(style,0,&icon,&cursor,0));
- assert(!controller_glyph_draw(11,0,&icon,&cursor,0));controller_glyphs_dispose();assert(!live);
+ for(i=1;i<=2;i++){fail=i;assert(!controller_glyph_draw(4,0,&icon,&cursor,0,unbind));assert(!live);controller_glyphs_dispose();}
+ fail=0;assert(controller_glyph_draw(4,0,&icon,&cursor,0,unbind));assert(drawn[0].color==0xffffff);
+ for(style=-1;style<3;style++)assert(!controller_glyph_draw(style,0,&icon,&cursor,0,unbind));
+ assert(!controller_glyph_draw(11,0,&icon,&cursor,0,unbind));controller_glyphs_dispose();assert(!live);
  return 0;
 }
 '''

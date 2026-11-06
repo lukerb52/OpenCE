@@ -65,11 +65,11 @@ fight's counts.
 
 The simulation: a bot decides from the game state at the tick and its own
 random numbers (seeded per bot and game), and its path searches run in the
-tick, so the bots do the same in two runs of the same input. Nothing of a
-bot is in the game state: multiplayer games are never saved. Bots are in
-local games only, which no other machine sees: no message of the network
-protocol changes, and bots_update_actions does nothing unless a local game
-runs. halo.log has the map's preparation and each minute of play's bots
+tick, so the bots do the same in two runs of the same input. Only the
+selected controller runs; enhanced mode owns its state separately. No bot
+state is saved. Network admission and publication use bots_network.c; the
+host decides and clients replay ordinary player actions. halo.log has the
+map's preparation and each minute of play's bots
 line: the searches and how many failed, the times a bot stood stuck, shots
 and each bot's kills and deaths; debug.bot_trace logs each bot's state.
 */
@@ -99,6 +99,7 @@ and each bot's kills and deaths; debug.bot_trace logs each bot's state.
 #include "tag_files/tag_files.h"
 
 #include "bots.h"
+#include "enhanced_bots_controller.h"
 #include "bots_combat.h"
 
 #include <math.h>
@@ -109,7 +110,22 @@ and each bot's kills and deaths; debug.bot_trace logs each bot's state.
 /* port/linux/src/port_config.c */
 const char *config_string(char const *name);
 long config_integer(char const *name);
+int config_boolean(char const *name);
 void platform_log(char const *format, ...);
+
+static int bots_enhanced_running;
+
+int bots_gametype_active(long engine)
+{
+	return engine == game_engine_slayer || (bots_enhanced_running &&
+		(engine == game_engine_ctf || engine == game_engine_king));
+}
+
+int bots_gametype_allowed(long engine)
+{
+	return engine == game_engine_slayer || (config_boolean("bots.enhanced") &&
+		(engine == game_engine_ctf || engine == game_engine_king));
+}
 
 /* ---------- constants */
 
@@ -418,18 +434,25 @@ int bots_machine_is_bot(long machine_index)
 
 void bots_network_player(long bot_index, struct network_player *player)
 {
-	/* (the Marines of Halo's campaign; eleven characters at most) */
-	static char const *const names[BOTS_MAXIMUM] =
+	/* The Marines of Halo's campaign, identified as bots in player displays. */
+	static char const *const names[] =
 	{
 		"Johnson", "Jenkins", "Mendoza", "Bisenti", "Stacker", "Polaski", "Chips", "Kojo",
 		"Rawley", "Riley", "Wellsley", "Hall", "Fitzgerald", "Locklear", "Mitchell",
 	};
-	char const *name = names[bot_index % BOTS_MAXIMUM];
+	char const *name = names[bot_index % NUMBEROF(names)];
+	char display_name[NUMBEROF(player->name)];
 	long index;
 
+	/* The wire name has eleven visible characters: four for the prefix,
+	seven for a name, or five and a unique two-digit suffix for additional bots. */
+	if (bot_index >= (long)NUMBEROF(names))
+		snprintf(display_name, sizeof(display_name), "BOT %.5s%02ld", name, bot_index + 1);
+	else
+		snprintf(display_name, sizeof(display_name), "BOT %.7s", name);
 	csmemset(player, 0, sizeof(*player));
-	for (index = 0; index < (long)NUMBEROF(player->name) - 1 && name[index]; index++)
-		player->name[index] = (wchar_t)name[index];
+	for (index = 0; index < (long)NUMBEROF(player->name) - 1 && display_name[index]; index++)
+		player->name[index] = (wchar_t)display_name[index];
 	player->name[index] = 0;
 	player->primary_color_index = NONE;
 	player->icon_index = 0;
@@ -1297,6 +1320,14 @@ void bots_initialize_for_new_map(void)
 {
 	long index;
 
+	bots_management_reset();
+	bots_enhanced_running = config_boolean("bots.enhanced");
+	if (bots_enhanced_running)
+	{
+		enhanced_controller_initialize();
+		return;
+	}
+
 	csmemset(bots_globals.bots, 0, sizeof(bots_globals.bots));
 	for (index = 0; index < BOTS_MAXIMUM; index++)
 		bots_globals.bots[index].player_index = NONE;
@@ -1320,6 +1351,13 @@ void bots_initialize_for_new_map(void)
 
 void bots_dispose_from_old_map(void)
 {
+	bots_management_reset();
+	if (bots_enhanced_running)
+	{
+		enhanced_controller_dispose();
+		bots_enhanced_running = FALSE;
+		return;
+	}
 	bots_paths_release();
 	bots_globals.map_ready = FALSE;
 }
@@ -3005,8 +3043,14 @@ void bots_update_actions(struct player_action *actions)
 	struct player_datum *player;
 	long count = 0;
 
-	/* (local games alone: no other machine sees a bot) */
-	if (!game_engine_running() || !network_game_is_splitscreen_local())
+	if (bots_enhanced_running)
+	{
+		enhanced_controller_update(actions);
+		return;
+	}
+
+	/* Common admission and authority; stock decisions stay here. */
+	if (!game_engine_running() || !bots_session_allowed())
 		return;
 	data_iterator_new(&iterator, player_data);
 	while ((player = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
@@ -3015,7 +3059,7 @@ void bots_update_actions(struct player_action *actions)
 		long absolute_index = DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.datum_index);
 		struct bots_bot *bot;
 
-		if (player->local_player_index != NONE || !bots_machine_is_bot(player->network_player_data.machine_index))
+		if (player->local_player_index != NONE || !bots_player_owned(player->network_player_data.machine_index))
 			continue;
 		/* (the roaming places and the walkable surfaces once a game has
 		bots; the skill once a tick) */
@@ -3040,4 +3084,5 @@ void bots_update_actions(struct player_action *actions)
 		bots_globals.ticks++;
 		bots_report();
 	}
+	bots_network_record_actions(actions);
 }

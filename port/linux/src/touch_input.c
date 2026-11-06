@@ -10,8 +10,10 @@ finger down (host_gesture_insets).
 */
 
 #include "touch_input.h"
+#include "touch_gyro.h"
 #include "touch_menu.h"
 #include "port_config.h"
+#include "keyboard_prompts.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -25,6 +27,7 @@ void host_touch_read(int *state);
 void host_touch_look_read(float *delta);
 void host_touch_rumble(unsigned int low, unsigned int high);
 void host_touch_scene(int scene);
+void host_touch_gyro_mode(int mode);
 void host_touch_bindings(const int *controls);
 #endif
 #ifdef HALO_ANDROID
@@ -36,6 +39,8 @@ int touch_game_cinematic_skippable(void);
 int touch_game_cinematic_playing(void);
 int touch_game_playing(void);
 void touch_game_button_controls(int *controls);
+/* port/linux/game/android_cheats.c, called on the game thread. */
+void android_cheats_update(void);
 
 /* the gamepad's buttons (input.h), which the touch controls are named by */
 #define TOUCH_BUTTONS 16
@@ -122,10 +127,12 @@ void touch_input_event(unsigned int type, const SDL_TouchFingerEvent *finger)
 	switch (type)
 	{
 	case SDL_EVENT_FINGER_DOWN:
+		keyboard_prompt_touch();
 		refresh_zones(width, height);
 		touch_menu_down(&menu, finger->fingerID, x, y);
 		break;
 	case SDL_EVENT_FINGER_MOTION:
+		keyboard_prompt_touch();
 		touch_menu_move(&menu, finger->fingerID, x, y);
 		break;
 	case SDL_EVENT_FINGER_UP:
@@ -322,6 +329,10 @@ void touch_input_controls(XINPUT_GAMEPAD *pad, int menus)
 	/* (the controls show only in a game: not while it starts, at the main
 	menu, in a menu or during a cinematic; nor while the text chat's
 	on-screen keyboard is up, whose keys the fingers then tap) */
+#ifdef HALO_ANDROID
+	host_touch_gyro_mode(touch_gyro_mode());
+	android_cheats_update();
+#endif
 	host_touch_scene(_touch_scene_known | touch_controls_setting() |
 		(menus || !touch_game_playing() || touch_game_cinematic_playing() || (network_chat_controller() == 0) ?
 			_touch_scene_menus : 0));
@@ -334,6 +345,9 @@ void touch_input_controls(XINPUT_GAMEPAD *pad, int menus)
 		host_touch_bindings(bindings);
 	}
 	host_touch_read(state);
+	/* Touch controls keep the native HUD prompts, even with automatic detection. */
+	for (index = 0; index < 7; index++)
+		if (state[index]) { keyboard_prompt_touch(); break; }
 	/* the stick moves the player through the game's input state, whatever
 	the profile's sticks do (touch_input_move), not as the left stick */
 	move_x = state[0] / 32767.0f;
@@ -392,6 +406,7 @@ void touch_input_look(float scale, float *yaw, float *pitch, float *gyro_yaw, fl
 	float delta[4];
 
 	host_touch_look_read(delta);
+	if (delta[0] || delta[1]) keyboard_prompt_touch();
 	*yaw -= delta[0] * scale;
 	*pitch -= delta[1] * scale;
 	*gyro_yaw -= delta[2] * scale;

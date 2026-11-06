@@ -191,6 +191,7 @@ symbols in this file:
 #include "scenario/scenario_definitions.h"
 #include "rasterizer/rasterizer.h"
 #include "custom_edition_cache.h" /* port: port/linux/game/custom_edition_cache.c */
+#include "mcc_cache.h" /* independent MCC reads and namespace */
 
 #include <xtl.h>
 
@@ -582,6 +583,8 @@ boolean cache_files_precache_is_copying_map(
 boolean cache_files_precache_map_loaded(
 	const char *map_name)
 {
+	if (mcc_level_name(map_name))
+		return mcc_cache_available(map_name);
 	/* port: a Halo Custom Edition map (custom_maps\<name>) is read in place
 	and never copied to the cache partition; it is never the game's own map
 	of that file name (port/linux/game/custom_edition_cache.c) */
@@ -599,6 +602,9 @@ boolean cache_files_precache_map_begin(
 {
 	const char *cache_map_name = tag_name_strip_path(map_name);
 
+	if (mcc_level_name(map_name))
+		return mcc_cache_require(map_name, 0);
+
 	/* port: a Halo Custom Edition map (custom_maps\<name>) this machine has
 	not is missing, as a map not on the DVD is: never the game's own map of
 	its file name (port/linux/game/custom_edition_cache.c) */
@@ -607,7 +613,8 @@ boolean cache_files_precache_map_begin(
 		error(_error_silent, "couldn't find the Custom Edition map '%s' in custom_maps", map_name);
 		if (copy_map)
 		{
-			display_error_damaged_media();
+			/* port: same fatal screen, with the CE refusal explained. */
+			custom_edition_cache_display_error(map_name);
 		}
 
 		return FALSE;
@@ -871,6 +878,11 @@ short cache_file_read(
 	}
 	/* port: the reads of a Halo Custom Edition map are served in place, at
 	once; the request stays free (port/linux/game/custom_edition_cache.c) */
+	if (mcc_cache_tags_loaded())
+	{
+		*completion_flag_reference = mcc_cache_read(tag_index, offset, size, buffer) ? TRUE : (boolean)-1;
+		return request_index;
+	}
 	if (custom_edition_cache_tags_loaded())
 	{
 		custom_edition_cache_read(tag_index, offset, size, buffer);

@@ -1,5 +1,9 @@
 package com.halo.decomp;
 
+/* Layout/editor additions adapted from thelinkin3000/halo-ce-universal
+ * 18a94774a73ca275e9c0ab4f281e492ad8bb656e (AGPL-3.0-or-later),
+ * built on MrBruh's OpenCE touch controls. See the provenance guide. */
+
 import java.io.IOException;
 import java.io.StringReader;
 import java.io.StringWriter;
@@ -11,7 +15,7 @@ import java.util.Properties;
  * size and whether it shows, with the settings that go with them, in the
  * overlay's logical units. Places are kept for the display the layout is
  * on and saved on a 960 x 540 grid, so a layout moves between displays of
- * other shapes. A layout file is Java properties text (version 3; 1 and 2
+ * other shapes. A layout file is Java properties text (version 4; versions 1 through 3
  * are still read).
  */
 final class TouchLayout {
@@ -26,6 +30,8 @@ final class TouchLayout {
     static final float MAX_OPACITY = 1f;
     static final float MIN_SENSITIVITY = 0.25f;
     static final float MAX_SENSITIVITY = 4f;
+    static final int MIN_MENU_FINGERS = 3;
+    static final int MAX_MENU_FINGERS = 4;
     /** the Options button's radius, before a finger's width (minimumRadius) */
     static final float OPTIONS_RADIUS = 34;
     /**
@@ -87,6 +93,8 @@ final class TouchLayout {
     float opacity = 1f;
     /** the move stick goes where the thumb lands in the lower left, not at its place */
     boolean floatingStick = false;
+    /** the fingers that tap together to open the overlay menu, MIN_MENU_FINGERS..MAX_MENU_FINGERS */
+    int menuFingers = 3;
     /** a finger that holds a button also aims when it swipes */
     boolean buttonsAim = true;
     /** where the Options button is, in logical units; NaN until it is dragged (TouchControls then places it) */
@@ -273,6 +281,7 @@ final class TouchLayout {
         values.setProperty("gyroscope", Boolean.toString(gyroscopeEnabled));
         values.setProperty("opacity", Float.toString(opacity));
         values.setProperty("floating-stick", Boolean.toString(floatingStick));
+        values.setProperty("menu-fingers", Integer.toString(menuFingers));
         values.setProperty("buttons-aim", Boolean.toString(buttonsAim));
         if (optionsMoved()) {
             values.setProperty("options.x", Float.toString(optionsX * GRID_WIDTH / width));
@@ -323,6 +332,11 @@ final class TouchLayout {
                 layout.floatingStick = readBoolean(values, "floating-stick");
             }
             if (version >= 4) {
+                // OpenCE version 4 layouts have no GulchCE cheat-menu gesture field.
+                int fingers = Integer.parseInt(values.getProperty("menu-fingers", "3"));
+                if (fingers < MIN_MENU_FINGERS || fingers > MAX_MENU_FINGERS)
+                    throw new IllegalArgumentException("Invalid menu fingers");
+                layout.menuFingers = fingers;
                 layout.buttonsAim = readBoolean(values, "buttons-aim");
                 // (no place: Options where it always was)
                 String x = values.getProperty("options.x");

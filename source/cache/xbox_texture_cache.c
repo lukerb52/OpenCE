@@ -121,6 +121,8 @@ symbols in this file:
 #include "text/draw_string.h"
 #include <xtl.h>
 #include "custom_edition_cache.h" /* port: port/linux/game/custom_edition_cache.c */
+#include "mcc_cache.h"
+#include "mcc_texture_cache.h"
 
 #ifdef HALO_ANDROID
 #include "android_ce_texture_cache.h" /* port: port/linux/game/android_ce_texture_cache.c */
@@ -651,6 +653,31 @@ static void texture_cache_initialize_hardware_format(
 			((bitmap->height - 1) << D3DSIZE_HEIGHT_SHIFT) |
 			(bitmap->width - 1);
 	}
+	/* port: only CE-owned raw DXT uses this extension to the Xbox header.
+	MCC resources retain their independent descriptor and uploader. */
+	else if (!mcc_cache_tags_loaded() &&
+		custom_edition_cache_contains(bitmap, sizeof(*bitmap)) &&
+		custom_edition_bitmap_raw_2d(bitmap))
+	{
+		/* port: a compressed 2D bitmap of sides only Halo PC draws (a HUD
+		icon, 200 by 112) can't be described by power-of-two sizes, which
+		would make it 128 by 64; its true sides go in the Size word, as a
+		linear texture's. Admission requires exactly one level. */
+		long block_bytes = bitmap->format == _bitmap_format_dxt1 ? 8 : 16;
+		long row_bytes = ((bitmap->width + 3) / 4) * block_bytes;
+
+		texture->Format =
+			(bitmap_format_to_d3d_format(bitmap->format, bitmap->flags) << D3DFORMAT_FORMAT_SHIFT) |
+			(1 << D3DFORMAT_MIPMAP_SHIFT) |
+			(2 << D3DFORMAT_DIMENSION_SHIFT) |
+			D3DFORMAT_BORDERSOURCE_COLOR |
+			D3DFORMAT_DMACHANNEL_A;
+		texture->Size =
+			(((unsigned long)(row_bytes + D3DTEXTURE_PITCH_ALIGNMENT - 1) / D3DTEXTURE_PITCH_ALIGNMENT - 1)
+				<< D3DSIZE_PITCH_SHIFT) |
+			((bitmap->height - 1) << D3DSIZE_HEIGHT_SHIFT) |
+			(bitmap->width - 1);
+	}
 	else
 	{
 		texture->Format =
@@ -668,6 +695,15 @@ static void texture_cache_initialize_hardware_format(
 	IDirect3DBaseTexture8_Register(texture, bitmap->base_address);
 
 	return;
+}
+
+/* port: loading-only preparation reuses the native descriptor contract without
+ * fetching pixels. MCC descriptors remain owned by mcc_texture_cache_get. */
+int texture_cache_prepare_descriptor(struct bitmap_data *bitmap, void *header)
+{
+	if (!texture_cache_bitmap_valid(bitmap)) return FALSE;
+	texture_cache_initialize_hardware_format(bitmap, (D3DBaseTexture *)header);
+	return TRUE;
 }
 
 static void render_inverse_transform_screen_point(
@@ -778,6 +814,11 @@ static boolean texture_cache_bitmap_valid(
 		bitmap->mipmap_count>=0 &&
 		bitmap->mipmap_count<=floor_log2(MAX(bitmap->width, MAX(bitmap->height, bitmap->depth))) &&
 		bitmap->pixels_size>=0;
+
+	/* Only MCC-owned normalized resources take this admission path. Their
+	linear rows have already been padded by the MCC bitmap adapter. */
+	if (mcc_cache_tags_loaded() && mcc_cache_bitmap_valid(bitmap))
+		return TRUE;
 
 	if (valid)
 	{
@@ -1050,14 +1091,24 @@ void *_texture_cache_bitmap_get_hardware_format(
 {
 	void *hardware_format = NULL;
 
+	/* MCC owns immutable pixels and independent hardware headers. */
+	if (mcc_cache_tags_loaded())
+	{
+		hardware_format = mcc_texture_cache_get(bitmap, load);
+		if (hardware_format || mcc_cache_bitmap_valid(bitmap))
+			return hardware_format;
+	}
+
 	match_assert(
 		"c:\\halo\\SOURCE\\cache\\xbox_texture_cache.c",
 		210,
 		load || !block);
+	/* port: metadata only during the optional loading pass, never gameplay. */
+	if (material_prepare_bitmap(bitmap, &hardware_format)) return hardware_format;
 #ifdef HALO_ANDROID
 	/* port: CE's frame working set is not bounded by the Xbox texture arena.
-	 * Keep dynamic textures and Xbox maps on their own paths. */
-	if (android_texture_fixes && custom_edition_cache_tags_loaded() &&
+	 * Keep dynamic textures and both other map families on their own paths. */
+	if (android_texture_fixes && custom_edition_cache_tags_loaded() && !mcc_cache_tags_loaded() &&
 		TEST_FLAG(bitmap->flags, _bitmap_cached_bit))
 	{
 		if (texture_cache_bitmap_valid(bitmap))

@@ -33,8 +33,8 @@ When the texture cannot be drawn, the sprites are drawn from their bitmap.
 #include "rasterizer/rasterizer.h"
 #include "text/draw_string.h"
 #include "hud_button_layout.h"
-#include "hud_hires_crosshairs.h"
 #include "controller_glyphs.h"
+#include "hud_hires_crosshairs.h"
 #include "scenario/scenario_definitions.h"
 #include "cache/texture_cache.h"
 #ifdef HALO_ANDROID
@@ -529,7 +529,7 @@ boolean hud_hires_button_draw(struct icon_hud_element_definition const *icon,
 	if (!config_boolean("display.high_res_hud"))
 		return ce_hud_button_draw(icon, cursor, color);
 	style = controller_glyph_style();
-	if (controller_glyph_draw(style, (short)index, icon, cursor, color)) return TRUE;
+	if (controller_glyph_draw(style, (short)index, icon, cursor, color, NULL)) return TRUE;
 	slot = index < 6 ? (short)index : hud_button_control_slot((short)index,
 		icon->frame_rate > 0 ? game_time_get() / icon->frame_rate : 0);
 	if (slot < 0) return FALSE;

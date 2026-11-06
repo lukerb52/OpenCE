@@ -397,12 +397,13 @@ class Map:
                  font_style_reference=NONE, pitch_ranges=1, bsp_sizes=(0x1000,), sound_compression=1,
                  model=None, bsp_material=None, shaders=(), animation_overlay=None,
                  weapon_hud=None, hud_bitmap_flags=None, in_map_bitmap=None, strings_name="test\\strings",
-                 strings=("hello", "world!"), name=b"test", tags_checksum=0):
+                 strings=("hello", "world!"), name=b"test", tags_checksum=0, hud_digits=None):
         self.bsp_sizes = bsp_sizes
         # the header's name and the tag data's checksum, by which Chimera's
         # map list knows a map
         self.name = name
         self.tags_checksum = tags_checksum
+        self.hud_digits = hud_digits
         self.sound_compression = sound_compression
         # opt-in tags and content, so the defaults above keep their counts
         self.model = model
@@ -467,6 +468,8 @@ class Map:
             tags.append(("antr", "test\\animations", False))
         if self.weapon_hud is not None:
             tags.append(("wphi", "test\\weapon hud", False))
+        if self.hud_digits is not None:
+            tags += [("matg", "test\\globals", False), ("hud#", "test\\digits", False)]
         # further structure BSPs go last, so the indices above never move
         bsp_tag_indices = [1] + [len(tags) + extra for extra in range(len(self.bsp_sizes) - 1)]
         tags += [("sbsp", f"test\\bsp {extra + 2}", False) for extra in range(len(self.bsp_sizes) - 1)]
@@ -546,6 +549,17 @@ class Map:
         tag_data.u32(sound + 0x98, self.pitch_ranges)
         address_of["test\\sound"] = sound
         address_of["test\\weapon"] = tag_data.add(bytes(0x100))
+        if self.hud_digits is not None:
+            globals_address = tag_data.reserve(0x1AC)
+            interface = tag_data.reserve(0x130)
+            digits = tag_data.reserve(0x64)
+            digits_index = [name for _, name, _ in tags].index("test\\digits")
+            tag_data.block(globals_address + 0x140, 1, interface)
+            tag_data.u32(interface + 0xB0 + 12, ((salt + digits_index) << 16) | digits_index)
+            tag_data.u32(digits + 12, ((salt + 2) << 16) | 2)
+            tag_data.put(digits + 16, struct.pack("6b", *self.hud_digits))
+            address_of["test\\globals"] = globals_address
+            address_of["test\\digits"] = digits
         for group_name, name, external in self.extra_tags:
             address_of[name] = tag_data.add(bytes(0x40))
         if self.model is not None:
@@ -1054,6 +1068,25 @@ def test_hud_elements_drawing_a_halo_pc_half_scale_bitmap_are_halved(report_tool
     assert (f32_at(tags, items + 4), f32_at(tags, items + 8)) == (1.0, 1.0)
 
 
+@pytest.mark.parametrize("placement_flag,bitmap_flags,static_scale,item_scale", [
+    (0, 0, 1.0, 1.0), (4, 0, 0.5, 1.0),
+    (0, 0x10, 0.5, 0.5), (0, 0x80, 0.5, 0.5),
+    (4, 0x80, 0.5, 0.5), (4, 0x10, 0.25, 0.5),
+    (0, 0x90, 0.25, 0.25), (4, 0x90, 0.25, 0.25),
+])
+def test_hud_scale_flags_compose_without_scaling_crosshair_placement_flags(
+        report_tool, tmp_path, placement_flag, bitmap_flags, static_scale, item_scale):
+    cache = Map(weapon_hud=[((1.0, 1.0), placement_flag), ((1.0, 1.0), 0),
+                            ((1.0, 1.0), placement_flag)], hud_bitmap_flags=bitmap_flags)
+    returncode, _, tags = converted(report_tool, cache, tmp_path)
+    assert returncode == 0
+    hud = cache.addresses["test\\weapon hud"]
+    statics = u32_at(tags, hud + 0x64)
+    items = u32_at(tags, u32_at(tags, hud + 0x88) + 0x38)
+    assert f32_at(tags, statics + 0x28) == static_scale
+    assert f32_at(tags, items + 4) == item_scale
+
+
 @pytest.mark.parametrize("name, tags_checksum, listed", [
     (b"rev_snowcast_cavebeta", 1683840640, True),
     (b"Rev_Snowcast_CaveBeta", 1683840640, True),
@@ -1071,6 +1104,24 @@ def test_maps_chimera_lists_get_halo_pc_behaviours(report_tool, tmp_path, name, 
     assert report["halo_pc_behaviours"] == (
         "gearbox_chicago_multiply gearbox_meters hud_number_scale disable_bitmap_hud_scale_flags" if listed else "none")
     assert report["hud_placements_rescaled"] == ("0" if listed else "2")
+
+
+@pytest.mark.parametrize("name, checksum, matched", [
+    (b"bigass_open_v1.1", 0xD2BC19F7, True),
+    (b"Bigass_Open_V1.1", 0xD2BC19F7, True),
+    (b"bigass_open_v1.1", 0xD2BC19F6, False),
+    (b"another_map", 0xD2BC19F7, False),
+])
+def test_bigass_open_digit_metrics_and_meter_identity(report_tool, tmp_path, name, checksum, matched):
+    cache = Map(name=name, tags_checksum=checksum, hud_digits=(16, 14, 0, 0, 6, 7))
+    returncode, report, tags = converted(report_tool, cache, tmp_path)
+    assert returncode == 0
+    assert report["halo_pc_behaviours"] == (
+        "hud_number_scale xbox_ammo_meter_channels" if matched else "none")
+    metrics = struct.unpack_from("6b", tags, cache.addresses["test\\digits"] - BASE + 16)
+    assert metrics == ((8, 7, 0, 0, 3, 4) if matched else (16, 14, 0, 0, 6, 7))
+    flags = u16_at(tags, cache.addresses["test\\in map bitmap"] + 6)
+    assert bool(flags & (1 << 4)) == matched
 
 
 SCORE_HINT = 'Hold "%s" for score'
@@ -1201,11 +1252,10 @@ MALFORMED_CACHES = {
                              "the model vertex and index data do not fit in the file"),
     "handle": (instance_case(3, 0x0C, "<I", 0xE1770009), "load",
                "a tag handle does not match its position in the index"),
-    "name outside": (instance_case(2, 0x10, "<I", 0x3FFFFFFF), "load",
+    "resource name outside": (instance_case(4, 0x10, "<I", 0x3FFFFFFF), "load",
                      "a tag name lies outside the tag data or is not terminated"),
     "tag address outside": (instance_case(8, 0x14, "<I", BASE + 0x1000000), "load",
                             "a tag's address lies outside the tag data"),
-    "null tag address": (instance_case(8, 0x14, "<I", 0), "load", "a tag's address lies outside the tag data"),
     "external weapon": (instance_case(8, 0x18, "<I", 1), "load",
                         "a tag of a group that resource maps never hold is marked as held by one"),
     "external sound header outside": (instance_case(4, 0x14, "<I", BASE - 0x100), "load",
@@ -1487,3 +1537,24 @@ def test_real_maps_convert_as_recorded(report_tool, real_maps):
         name = Path(block["file"]).name
         assert block["convert"] == "ok", name
         assert {key: block[key] for key in recorded[name]} == recorded[name], name
+
+
+@pytest.mark.parametrize("case", ["name outside", "null tag address"])
+def test_protected_ce_tag_metadata_is_tolerated_by_loader(report_tool, tmp_path, case):
+    """OpenCE protected-map loading sanitizes names and defers null references
+    to tag validation; external resource names still must pass bounds checks."""
+    cache = Map()
+    path = cache.write(tmp_path)
+    index, field, value = (2, 0x10, 0x3FFFFFFF) if case == "name outside" else (8, 0x14, 0)
+    instance_case(index, field, "<I", value)(cache, path)
+    dump = tmp_path / "protected_tags.bin"
+    returncode, report = report_one(report_tool, path, "--dump-tags", dump)
+    assert returncode == 0, report
+    tags = dump.read_bytes()
+    instance = cache.where["instances"] - cache.where["tag_data"] + index * 0x20
+    address = struct.unpack_from("<I", tags, instance + field)[0]
+    if case == "name outside":
+        assert address == BASE + instance + 0x1C
+        assert tags[address - BASE] == 0
+    else:
+        assert address == 0

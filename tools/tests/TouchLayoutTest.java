@@ -133,8 +133,12 @@ public final class TouchLayoutTest {
         reject(movedOptions.replaceAll("(?m)^options\\.x=.*", "options.x=5000"));
         sized.layout.resetDefaults();
         check(!sized.layout.optionsMoved(), "Reset puts Options back in its place");
-        String version3 = buttonsStill.replace("version=4", "version=3").replaceAll("(?m)^buttons-aim=.*\\R", "");
-        check(TouchLayout.importConfiguration(version3).layout.buttonsAim, "Version 3 layouts' held buttons aim");
+        String oldButtons = buttonsStill.replace("version=4", "version=3").replaceAll("(?m)^buttons-aim=.*\\R", "");
+        check(TouchLayout.importConfiguration(oldButtons).layout.buttonsAim, "Version 3 layouts' held buttons aim");
+        String upstreamLayout = movedOptions.replaceAll("(?m)^menu-fingers=.*\\R", "");
+        TouchLayout upstream = TouchLayout.importConfiguration(upstreamLayout).layout;
+        check(upstream.menuFingers == 3 && upstream.optionsMoved() && upstream.buttonsAim,
+              "OpenCE version 4 layouts retain their controls and default to the three-finger gesture");
         try {
             sized.layout.setOpacity(1.5f);
             throw new AssertionError("Out-of-range opacity was accepted");
@@ -161,7 +165,34 @@ public final class TouchLayoutTest {
         }
         fingers.setMinimumRadius(Float.NaN);
         check(fingers.radius(12) == 25, "An invalid minimum radius is none");
+        check(!wide.optionsMoved() && wide.buttonsAim && wide.menuFingers == 3,
+              "New layouts preserve the toolbar position and held-button aiming");
+        wide.moveOptions(600, 270);
+        wide.buttonsAim = false;
+        wide.menuFingers = 4;
+        String editorText = wide.exportConfiguration(2.25f);
+        TouchLayout editor = TouchLayout.importConfiguration(editorText).layout;
+        editor.bounds(1200, 540);
+        check(editor.optionsX() == 600 && editor.optionsY() == 270 && !editor.buttonsAim && editor.menuFingers == 4,
+              "Options placement and gesture settings must survive export/import across aspect ratios");
+        editor.moveOptions(Float.NaN, 0);
+        check(editor.optionsX() == 600, "Invalid Options drag must leave the last position intact");
+        editor.moveOptions(9999, -10);
+        check(editor.optionsX() == 1200 - editor.optionsRadius() && editor.optionsY() == editor.optionsRadius(),
+              "The full Options button must stay reachable at screen edges");
+        reject(editorText.replace("menu-fingers=4", "menu-fingers=5"));
+        reject(editorText.replace("buttons-aim=false", "buttons-aim=maybe"));
+        reject(editorText.replace("options.x=480.0", "options.x=NaN"));
+        reject(editorText.replaceAll("(?m)^options.y=.*\\R", ""));
+        String version3 = editorText.replace("version=4", "version=3")
+            .replaceAll("(?m)^(options\\.[xy]|menu-fingers|buttons-aim)=.*\\R", "");
+        TouchLayout migrated = TouchLayout.importConfiguration(version3).layout;
+        check(!migrated.optionsMoved() && migrated.buttonsAim && migrated.menuFingers == 3
+              && migrated.gyroscopeEnabled && !migrated.rumbleEnabled,
+              "Version 3 migration must preserve gyro/rumble and use the original toolbar/aim defaults");
         wide.resetDefaults();
+        check(!wide.optionsMoved() && !wide.buttonsAim && wide.menuFingers == 4,
+              "Reset restores the Options position without discarding General preferences");
         check(wide.size() == 18 && wide.shown(4) && wide.x(4) == 915*1200f/960,
               "Reset restores defaults on the current display and removes all copies");
         check(wide.sizeScale(4) == 1f && !wide.rumbleEnabled && wide.gyroscopeEnabled,

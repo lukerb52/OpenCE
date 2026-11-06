@@ -183,6 +183,7 @@ struct game_options;
 #include "units/units.h"
 #include "units/vehicles.h"
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
+#include "mcc_loading.h" /* port: port/linux/game/mcc_loading.c */
 #ifdef HALO_PROFILE
 #include "profile_console.h" /* port: port/linux/game/profile_console.c */
 #endif
@@ -633,12 +634,17 @@ boolean game_load(
 		game_options_verify(options));
 
 	random_seed_debug_log(TRUE);
+	render_prepare_end(); /* port: clear recipes even when the next load fails */
+	mcc_loading_begin(options->map_name); /* port: no-op for Xbox/CE loads */
 	csmemcpy(&game_globals->options, options, sizeof(*options));
 	if (scenario_load(options->map_name))
 	{
 		game_globals->map_loaded = TRUE;
+		render_prepare_map(options->map_name); /* port: optional map-scoped shader preparation */
+		texture_prepare_map(); /* port: optional bounded Xbox/CE texture preparation */
 	}
 
+	mcc_loading_end(game_globals->map_loaded); /* port: includes failed MCC loads */
 	return game_globals->map_loaded;
 }
 
@@ -713,6 +719,7 @@ void game_initialize_for_new_map(
 	from now on go elsewhere, port/linux/game/network_objects.c) */
 	network_objects_placed();
 	ui_widgets_safe_to_load(TRUE);
+	material_prepare_map(); /* port: select optional material shaders before gameplay */
 
 	return;
 }
@@ -739,6 +746,7 @@ boolean game_map_loading_in_progress(
 void game_unload(
 	void)
 {
+	render_prepare_end(); /* port: save observed recipes and release unused prepared programs */
 	if (cache_files_precache_in_progress())
 	{
 		long map_status;
@@ -773,6 +781,7 @@ void game_unload(
 void game_dispose(
 	void)
 {
+	render_prepare_end(); /* port: release optional preparation before renderer shutdown */
 	recorded_animations_dispose();
 	cinematic_dispose();
 	hs_dispose();

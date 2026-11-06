@@ -105,6 +105,8 @@ symbols in this file:
 /* ---------- headers */
 
 #include "cseries/cseries.h"
+#include "mcc_grenades.h"
+#include "mcc_player.h"
 #include "cseries/cseries_windows.h"
 #include "cseries/errors.h"
 #include "game/game.h"
@@ -631,7 +633,8 @@ void update_client_queue(
 		*saved = *action;
 		*pending |= action->control_flags;
 		*pending_primary_trigger = MAX(*pending_primary_trigger, action->primary_trigger);
-		saved->control_flags = *pending;
+		/* port: only buttons accumulate; camera state belongs to the latest input. */
+		saved->control_flags = (*pending & 0xFFFFUL) | (action->control_flags & 0x10000UL);
 		saved->primary_trigger = *pending_primary_trigger;
 	}
 	++update_client_globals.current_local_player;
@@ -776,6 +779,7 @@ boolean update_client_dequeue(
 				"c:\\halo\\SOURCE\\game\\player_queues_new.c",
 				0x1C9,
 				(NONE == queue->desired_weapon_index) || (queue->desired_weapon_index>=0 && queue->desired_weapon_index<MAXIMUM_WEAPONS_PER_UNIT));
+			if (!mcc_player_choice_supported(queue->desired_grenade_index))
 			match_assert(
 				"c:\\halo\\SOURCE\\game\\player_queues_new.c",
 				0x1CA,
@@ -802,6 +806,7 @@ boolean update_client_dequeue(
 			"c:\\halo\\SOURCE\\game\\player_queues_new.c",
 			0x1E6,
 			(NONE == actions[queue_index].desired_weapon_index) || (actions[queue_index].desired_weapon_index>=0 && actions[queue_index].desired_weapon_index<MAXIMUM_WEAPONS_PER_UNIT));
+		if (!mcc_player_choice_supported(actions[queue_index].desired_grenade_index))
 		match_assert(
 			"c:\\halo\\SOURCE\\game\\player_queues_new.c",
 			0x1E7,
@@ -898,7 +903,7 @@ void update_server_handle_client_update(
 			}
 			queue->current_action = actions[action_index];
 			update_server_pending_control_flags[DATUM_INDEX_TO_ABSOLUTE_INDEX(player_list[player_index])] |=
-				queue->current_action.control_flags;
+				queue->current_action.control_flags & 0xFFFFUL; /* port: only latch buttons */
 			match_assert_valid_real(
 				"c:\\halo\\SOURCE\\game\\player_queues_new.c",
 				0x238,
@@ -1082,6 +1087,8 @@ static void update_server_take_local_actions(
 static boolean distributed_action_valid(
 	struct player_action const *action)
 {
+	if (mcc_grenades_active())
+		return mcc_player_action_valid(action);
 	return valid_real(action->desired_facing.yaw) && valid_real(action->desired_facing.pitch) &&
 		valid_real(action->throttle.i) && valid_real(action->throttle.j) && valid_real(action->primary_trigger) &&
 		(action->desired_weapon_index == NONE ||
@@ -1142,6 +1149,18 @@ void update_server_handle_distributed_input(
 	update_server_distributed_inputs[absolute_index].received_time =
 		game_time_initialized() ? game_time_get() : 0;
 	queue->current_action = *action;
+}
+
+/* port: the host's bot input replaces the queued idle action in the same
+update its tick executed. Clients receive the existing player-action message.
+Adapted from halo-ce-universal ed6cdaeda8871b7bee781c76bff3a4da2836c1bf. */
+void update_server_note_bot_action(short player_index, struct player_action const *action)
+{
+	long number = update_server_ticked_update_number();
+	struct update *update = number != NONE ? update_server_get_update(number) : NULL;
+	if (update && update->update_number == number && player_index >= 0 &&
+		player_index < (short)update->update.action_count)
+		update->update.actions[player_index] = *action;
 }
 
 long update_server_ticked_update_number(

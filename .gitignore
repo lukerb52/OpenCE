@@ -44,3 +44,6 @@ build-web.sh
 # add-ons built from maps (tools/addon_build.c): rebuilt, never committed
 addons/**/*.cevehicle
 addons/**/*.ceweapon
+
+# User-supplied Halo 1 MCC maps and resources
+mcc_maps/

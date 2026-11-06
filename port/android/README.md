@@ -16,6 +16,80 @@ Physical mice use the same control bindings. During play, F12 toggles mouse
 capture; captured mode hides Android's pointer and uses relative movement for
 continuous aiming, while releasing capture restores normal pointer behavior.
 
+## Importing MCC packages
+
+Quit the game, then long-press its launcher icon and choose **Import MCC maps**.
+The first-run game-data screen also has an import button. Copy a complete Halo 1
+Workshop package from your computer to a selectable folder (for example Downloads)
+or a ZIP on the phone. Select **Workshop package**, then **Choose folder** or
+**Choose ZIP**. Keep `ModInfo.json`, `CampaignInfo.json`, the mission JSON files
+and maps together. Steam is not needed on Android.
+
+Keep the supplied PNG previews too, including `assets` when present. Folder
+and ZIP imports preserve these images and their relative metadata paths.
+MCC level panels automatically use `Images.Large`, falling back to
+`Images.Thumbnail` or the question-mark picture. The image fits inside the
+existing thumbnail box in each menu style. Supported PNGs are 8-bit RGB/RGBA,
+non-interlaced, at most 2048 by 2048 pixels and 8 MiB per file; other encodings
+keep the placeholder. See [MCC previews](../../docs/reading/mcc_level_previews.md).
+
+The importer defaults to the Workshop ID as its destination folder; an optional
+name can use letters, digits, spaces, underscores and hyphens. It checks package
+paths, metadata, campaign completeness and MCC cache headers before offering
+installation. It copies the package's maps into `mcc_maps/<package>`, retaining
+metadata subfolders and writing `workshop_id.txt`. Folder and ZIP inputs share
+the same importer. Android document URIs are read as streams through the system
+picker, with no broad storage permission.
+
+Use the shared-resource modes separately: singleplayer requires `bitmaps.map`;
+multiplayer requires `bitmaps.map` and `sounds.map`. Select one resource set at a
+time. These are installed under `mcc_maps/_shared/singleplayer` or `multiplayer`.
+The engine performs its normal full map/resource validation when loading; an
+importer's header check does not establish full gameplay compatibility.
+
+An existing destination requires explicit replacement confirmation. New files
+are staged outside `mcc_maps`; a failed publish restores the old package. An
+interrupted replacement is recovered at the next import. Cancellation removes
+staged files, and installed Xbox/CE maps and game saves are preserved. Imports
+are serialized and the activity refuses to import while the game process runs.
+Limits are 4,096 files, 16 GiB total, less than 2 GiB per map, 256 KiB per JSON
+file and 64 declared campaign missions. Hub/flashback mission kinds are refused.
+
+Start the game after importing. Enable **CAMPAIGN MISSIONS** in Modern Settings >
+Online > Map Sharing > MCC Packages (Network Setup > Map Sharing > MCC Packages
+in the Stock, Classic PC and Xbox styles) for mission ordering and progression;
+it is off by default. **COLLECTION FOLDERS** can group identified imported
+packages without Steam. See [MCC packages](../../docs/mcc_maps.md) for desktop
+discovery, resource rules and compatibility limits.
+
+`tools/test_mcc_android_importer.py` compiles and runs the actual Java core with
+JDK 17+, including failure rollback, cancellation, malformed metadata, path
+traversal and legacy/save preservation. These checks do not exercise an Android
+document provider or establish on-device rendering compatibility.
+
+## Lighting availability
+
+The optional Dynamic Lighting renderer is excluded from Android builds after
+reports of missing or dark models across multiple device families. Video Setup
+does not show its submenu. Saved projectile, muzzle, emitter, AR/Needler glow,
+Shield Glow and occlusion settings cannot activate it; their values may remain
+in an older `config.toml`, but are ignored. New Android configs omit these keys.
+The stock game's lights, muzzle flashes, explosions and shield surfaces remain.
+
+The build replaces the feature modules with
+[`dynamic_lighting_disabled.c`](guest/dynamic_lighting_disabled.c), which leaves
+stock radii, colours and materials unchanged and retains the overshield map
+reset. Android's model shaders omit the added uniforms and volume samplers,
+including when Per-Pixel Lighting is enabled. Disabling settings alone would
+not remove shader code emitted regardless of their values.
+
+Network host policy and messages are unchanged. Android can still host or join
+games with other lighting settings; it cannot render Shield Glow even when
+requested by the host. Animated Overshield surfaces remain available and obey
+the existing host policy. This is an Android compatibility fallback, not a
+diagnosis or repair of every device rendering issue. Device playtests are still
+needed to confirm recovery on the affected devices.
+
 ## Requirements
 
 You do not need the Xbox SDK. You need the tools of the Linux build (Python,
@@ -81,6 +155,19 @@ the variable needs the APK removed first, for `ninja android_apk` to make it
 again.
 
 ## Game data
+
+MCC maps need a fixed 64 MiB virtual address window for their linked tags.
+The Android host attempts to reserve the usual `0x50000000` window at app
+startup, before the guest and renderer allocate memory. This reserves address
+space, not 64 MiB of physical RAM. Unloading an MCC map discards its pages
+but retains the reservation for the next load; exiting the process releases it.
+Xbox and Custom Edition keep their existing memory paths.
+
+If another mapping already occupies the window, the app leaves it untouched
+and MCC loading fails safely. Logcat (`halo`) lists overlapping mappings;
+the load error in `debug.txt` identifies the requested address. This is an
+address-space conflict, not a duplicate map file. Early reservation cannot
+guarantee that every device makes this address available.
 
 The game needs the `maps/` folder from an Xbox disc image (`.xiso` or
 `.iso`) of any version of the game. The app extracts `maps/` from the disc
@@ -225,14 +312,14 @@ The buttons at the top of the screen:
     vibration setting of the game's profile), aiming with the gyroscope
     (off by default), a floating move stick (off by default: the stick goes
     where your thumb lands in the lower left of the screen), the opacity of
-    the controls, "Held buttons don't aim" (off by default: a finger
-    that swipes from a button only holds it),
-    "Hide or add buttons" (hide a button, add a copy of a
-    button) and "Edit buttons size".
-  - "Edit buttons layout": drag the controls, and the "Options" button
-    itself, to new positions, then push "Save" in the middle of the
-    screen. "Export" and "Import", beside it, write and read a layout
-    file with the file picker of the system.
+    the controls, whether held-button swipes also aim (on by default), and
+    a three- or four-finger cheat-menu gesture (three by default). The panel
+    scrolls on short displays. It also contains "Hide or add buttons" (hide
+    a button, add a copy of a button) and "Edit buttons size".
+  - "Edit buttons layout": drag the controls to new positions, then push
+    "Save". "Export" and "Import" write and read a layout file with the
+    file picker of the system. Export, Import and Save stay centered;
+    Options can be dragged with the controls.
   - "Look sensitivity".
 
 "Hide" and "Options" act when the finger lifts on them: a swipe that
@@ -240,6 +327,48 @@ starts on them turns the view instead.
 
 The app keeps the layout in its own preferences, not in `config.toml`.
 Removing the app's data or the app removes the layout.
+Layout files now use version 4 and still accept versions 1–3. OpenCE version-4
+files without GulchCE's cheat gesture field use the three-finger default. Imported
+Options positions are bounded and rescaled to the display. Drawn controls
+accept touches in Android's edge-gesture area; empty-space edge swipes
+remain available to Android.
+
+Settings > Gamepad > Android Controls > Gyro Aim adds independent gyro settings. The
+default, **TOUCH SETTINGS** (`input.gyro_aim = "legacy"`), keeps the layout's
+saved gyro switch and look sensitivity, including imported layouts. A new
+layout still has gyro off. **OFF**, **ON** and **ZOOM ONLY** override that
+switch; ON and ZOOM ONLY use their own horizontal/vertical sensitivity and
+inversion, leaving swipe sensitivity and the profile's Invert Look alone.
+Unzoomed samples in ZOOM ONLY are discarded, so entering zoom does not
+apply a turn accumulated earlier. Hiding controls or backgrounding the app
+still stops gyro input.
+
+| Setting | Default | Environment variable |
+| --- | --- | --- |
+| `input.gyro_aim` | `"legacy"` | `HALO_GYRO_AIM` |
+| `input.gyro_sensitivity_horizontal` | `1.0` (0.25–10) | `HALO_GYRO_SENSITIVITY_HORIZONTAL` |
+| `input.gyro_sensitivity_vertical` | `1.0` (0.25–10) | `HALO_GYRO_SENSITIVITY_VERTICAL` |
+| `input.gyro_invert_horizontal` | `false` | `HALO_GYRO_INVERT_HORIZONTAL` |
+| `input.gyro_invert_vertical` | `false` | `HALO_GYRO_INVERT_VERTICAL` |
+
+The **Cheat Menu** setting in **Android Controls** is off by default
+(`android.cheat_menu = false`, `HALO_ANDROID_CHEAT_MENU`). When enabled,
+the **CHEATS** touch button beside **Hide/Touch** opens the menu directly
+during offline gameplay or while hosting co-op or multiplayer. It remains
+visible when the gameplay controls are hidden, and disappears in the layout
+editor, cinematics and when joining another host.
+Touch **Options > Cheats** also exposes invincibility, unlimited ammunition,
+bottomless clip, super jump, omnipotence, no fall damage, Medusa, bump
+possession, Easy Rider (no rider ejection), weapon/powerup/vehicle spawning
+and camouflage. It
+uses the same cheat actions as a desktop host. Only the host controls them
+in a network game; joining clients cannot submit requests.
+While it is enabled, tapping three fingers together (or four, as selected
+in General) within a quarter-second also opens it. The gesture releases
+held controls before opening the dialog; it does nothing when Cheats is off.
+Menu-owned switches restore their prior values when disabled or leaving a
+map; closing the dialog alone keeps them enabled. Spawns are ordinary game
+objects. See [implementation, credits and limits](../../docs/reading/bots_and_android_features.md).
 
 ## Settings
 
@@ -546,7 +675,7 @@ and fixed stream buffers, without registering static-cache entries or
 allocating per-draw pooled buffers. Desktop and web retain their existing
 geometry cache and upload paths. These geometry
 changes preserve shaders, texture caching and CPU write tracking.
-Xbox and Custom Edition maps keep their existing loaders and resource
+Xbox, Custom Edition and MCC maps keep their existing loaders and resource
 paths. `tools/test_android_mirror_uploads.py` checks the bypass with large
 and reused ranges, frame-counter rollover and desktop/web cache controls;
 it does not substitute for device gameplay validation. The chip and policy
@@ -564,7 +693,27 @@ whose storage GL cannot allocate is streamed instead.
 writes a buffer a queued draw reads, and the static ranges' reuse, unload
 and reload, address reuse and allocation failure.
 
+Streamed vertices and indices go into pooled buffers, a buffer for each
+draw that no queued draw reads, written with `glBufferSubData` and reused
+only after the ring's frame fence (`web_chunk_get`, as the web build does):
+unsynchronized writes into the frame's one stream buffer drew some
+geometry as long spikes on Snapdragon. Geometry the game writes once (the
+models and BSPs of Xbox, Custom Edition and mod maps) gets GL buffers of
+its own, filled at its first draw and released when it unloads; a range
+whose storage GL cannot allocate is streamed instead.
+`tools/test_android_static_geometry.py` checks both with fake GL: no upload
+writes a buffer a queued draw reads, and the static ranges' reuse, unload
+and reload, address reuse and allocation failure.
+
 ## Find problems
+
+CI APK packages include a `diagnostics` folder with a bounded, read-only
+[shader-log collector](diagnostics/collect_shader_logs.py) and
+[instructions](diagnostics/README.txt). Run it on a computer with Python 3 and
+Android platform-tools, then relaunch the app and reproduce the problem. It
+records the game's log tag, shader source/errors and device information into
+a ZIP without changing app settings or saves. Device logs remain on the
+computer until the tester chooses to share them.
 
 - Enter `adb logcat -s halo` to see the log of the port and the errors of
   the game. `files/debug.txt` is the log of the game.
@@ -601,6 +750,39 @@ and reload, address reuse and allocation failure.
   point to an integer in a SIMD register (`fcvtzs s0, s1`, an illegal
   instruction there), so `tools/android_asm_convert.py` writes each as the
   vector form, which leaves the register and the exception flags the same.
+
+
+### GulchCE updates
+
+The Android updater checks `chestahh/GulchCE` releases and compares GulchCE
+Build workflow numbers, just like the desktop updater. Release tags stay
+`build-<number>` and asset filenames stay unchanged. Successive Android
+releases must use the same signing key to install over each other.
+
+### GulchCE release signing
+
+The Build workflow requires both repository Actions secrets on `main`:
+
+- `ANDROID_KEYSTORE_BASE64`: the base64-encoded permanent keystore, with
+  private-key alias `halo`.
+- `ANDROID_KEYSTORE_PASSWORD`: the keystore and private-key password (the
+  same password for both).
+
+Missing either secret fails the Android job before compilation and prevents
+release publication. Other branches may use a debug key when both secrets
+are absent; a partial signing configuration fails on every branch. Malformed
+base64 fails during staging; Gradle rejects an invalid keystore or password.
+
+Keep an offline backup of the permanent keystore and its password outside
+the repository. Reuse this key for every release; do not regenerate it when
+moving machines or updating secrets. GitHub cannot return secret values.
+
+Older GulchCE releases used a new runner debug key for each build. Moving
+from one of those APKs to the permanent key requires backing up saved games,
+uninstalling the old app and installing the new one (see the backup commands
+above). Uninstalling deletes the app's data. Later releases signed with the
+permanent key can update in place. Stable signing does not guarantee that
+Google Play Protect immediately removes an unfamiliar-developer warning.
 
 ## Custom Edition texture storage
 

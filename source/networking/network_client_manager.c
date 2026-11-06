@@ -387,10 +387,15 @@ symbols in this file:
 #include "networking/network_connection.h"
 #include "networking/network_game_globals.h"
 #include "networking/network_game_manager.h"
+#include "mcc_protocol.h" /* port: negotiate MCC only with an advertising host */
+#include "third_person_protocol.h" /* port: port/linux/game/third_person_protocol.c */
+void network_game_client_reset_settings_staging(void); /* port: discard partial settings across connections */
+#include "mcc_identity.h" /* port: MCC content admission and local package resolution */
 #include "networking/network_game_protocol.h"
 #include "networking/network_messages.h"
 #include "networking/network_server_manager.h"
 #include "text/unicode.h"
+#include "third_person.h" /* port: port/linux/game/third_person_policy.c */
 #include "map_share.h" /* port: port/linux/game/map_share.c */
 #include "custom_edition_cache.h" /* port: port/linux/game/custom_edition_cache.c */
 
@@ -928,6 +933,10 @@ void network_game_client_dispose(
 {
 	if (client)
 	{
+		network_game_client_reset_settings_staging(); /* port: discard partial old-host settings */
+		mcc_protocol_client_clear(); /* port: no capability survives a connection */
+		third_person_session_client_clear(); /* port: discard camera permission too */
+		mcc_identity_disconnect(); /* port: discard the MCC session's local binding */
 		if (client->connection)
 			network_connection_delete(client->connection);
 
@@ -1299,6 +1308,8 @@ boolean network_game_client_game_settings_updated(
 		added (network_game_add_player) */
 		message_packet->maximum_players > 0 &&
 		message_packet->maximum_players <= MAXIMUM_NUMBER_OF_PLAYERS &&
+		/* port: reject unknown flags and the reserved camera policy. */
+		third_person_match_flags_valid(message_packet->cooperative_flags) &&
 		network_game_client_map_name_is_valid(message_packet->map.name, sizeof(message_packet->map.name)) &&
 		VALID_INDEX(message_packet->difficulty, NUMBER_OF_GAME_DIFFICULTY_LEVELS))
 	{
@@ -1313,9 +1324,14 @@ boolean network_game_client_game_settings_updated(
 			return FALSE;
 		}
 		if (csstrcmp(message_packet->map.name, client->game.map.name) ||
-			message_packet->map.version != client->game.map.version)
+			message_packet->map.version != client->game.map.version ||
+			/* port: the host's MCC content may change without changing its stored checksum */
+			memcmp(message_packet->mcc_content_sha256, client->game.mcc_content_sha256, 32))
 		{
 			char build[0x20];
+
+			/* port: resolve MCC locally before native presence checks, retaining the host's wire name */
+			if (!mcc_identity_accept(message_packet)) return FALSE;
 
 			/* port: a map this machine has not (a Custom Edition map not in
 			its custom_maps folder, or another version of it than the host's,
@@ -2092,6 +2108,26 @@ boolean network_game_client_initiate_join_game(
 		0x157,
 		client && (client->state == _network_game_client_state_searching) && game && join_parameters && client->connection && !network_connection_connected(client->connection) && (game->platform == network_game_get_local_platform()));
 
+	/* port: bind the capability to the selected advertisement, not a prior host. */
+	network_game_client_reset_settings_staging(); /* port: a new host starts a new record */
+	{
+		unsigned int mcc_flags = 0, camera_version = 0;
+		long advertised_index;
+		/* port: the host joins its own loopback server using a temporary
+		 * advertisement, which is not an entry in available_games. */
+		if (global_network_game_server_get() &&
+			address->address.long_words[0] == IPV4_LOOPBACK_ADDRESS)
+			mcc_flags = MCC_PROTOCOL_ADVERTISED_FLAG;
+		else for (advertised_index = 0; advertised_index < MAXIMUM_NETWORK_ADVERTISED_GAMES; advertised_index++)
+			if (game == &client->available_games[advertised_index])
+			{
+				mcc_flags = network_game_client_advertised_versions[advertised_index].flags;
+				camera_version = network_game_client_advertised_versions[advertised_index].version;
+				break;
+			}
+		mcc_protocol_client_begin(mcc_flags);
+		third_person_session_client_begin(camera_version); /* port: host state owns loopback mode */
+	}
 	client->join_in_progress = TRUE;
 	client->connect_process = 0;
 	client->connection_attempt_time = system_milliseconds();
@@ -2119,6 +2155,7 @@ boolean network_game_client_initiate_join_game(
 	else
 	{
 		client->join_in_progress = FALSE;
+		third_person_session_client_clear(); /* port: failed connection grants no camera permission */
 		display_error_when_main_menu_loaded(7);
 		network_event(
 			"failed attempt to initiate a connection to game @ %s",
@@ -2256,6 +2293,7 @@ void network_game_client_reset(
 		0x4EE,
 		client);
 
+	third_person_session_client_clear(); /* port: a reset ends the selected camera session */
 	network_game_invalidate(&client->game);
 
 	client->machine_index = NONE;
@@ -2340,6 +2378,7 @@ void network_game_client_rejected_by_game(
 	word rejection_code)
 {
 	const char *reason = "<unknown>";
+	boolean camera_retry = third_person_session_active(); /* port: retain only for the same-host pass retry */
 
 	match_assert(
 		"c:\\halo\\SOURCE\\networking\\network_client_manager.c",
@@ -2434,6 +2473,8 @@ void network_game_client_rejected_by_game(
 		network_game_client_joining_with_link = FALSE;
 		if (joining)
 		{
+			/* port: the temporary advertisement has no camera metadata; this is the same host. */
+			third_person_session_client_begin(camera_retry ? THIRD_PERSON_PROTOCOL_VERSION : 0);
 			network_event("joining again with a Discord account's pass");
 			network_game_client_joined_again_with_link = TRUE;
 			return;
@@ -2621,6 +2662,10 @@ static boolean add_advertised_game(
 				(advertisement->__unknown5A[HALO_PORT_ADVERTISED_VERSION_OFFSET + 1] << 8));
 			network_game_client_advertised_versions[game_index].flags =
 				advertisement->__unknown5A[HALO_PORT_ADVERTISED_FLAGS_OFFSET];
+			/* port: another MCC revision can still use the ordinary OpenCE join. */
+			if (advertisement->__unknown5A[MCC_PROTOCOL_ADVERTISED_VERSION_OFFSET] != (MCC_PROTOCOL_VERSION & 255) ||
+				advertisement->__unknown5A[MCC_PROTOCOL_ADVERTISED_VERSION_OFFSET + 1] != (MCC_PROTOCOL_VERSION >> 8))
+				network_game_client_advertised_versions[game_index].flags &= ~MCC_PROTOCOL_ADVERTISED_FLAG;
 			network_game_client_advertised_versions[game_index].kind =
 				advertisement->__unknown5A[HALO_PORT_ADVERTISED_KIND_OFFSET];
 		}
@@ -2933,6 +2978,8 @@ static boolean network_game_client_idle_joining(
 			{
 				struct message_client_join_game_request join_game_request;
 				message_header *message;
+				word mcc_join[MCC_PROTOCOL_JOIN_MAX / sizeof(word)]; /* port: bounded optional envelope */
+				word camera_join[THIRD_PERSON_PROTOCOL_JOIN_MAX / sizeof(word)]; /* port: required camera admission */
 
 				csmemset(&join_game_request, 0, sizeof(join_game_request));
 				network_game_generate_local_machine_name(join_game_request.machine_name);
@@ -2968,6 +3015,10 @@ static boolean network_game_client_idle_joining(
 					_message_client_join_game_request,
 					&join_game_request,
 					sizeof(join_game_request));
+				if (message)
+					message = (message_header *)mcc_protocol_join(message, GET_MESSAGE_SIZE(*message), mcc_join); /* port */
+				if (message && third_person_session_active()) /* port: only negotiated camera sessions */
+					message = (message_header *)third_person_protocol_join(message, GET_MESSAGE_SIZE(*message), camera_join);
 				if (message)
 				{
 					if (network_game_client_write(
@@ -3262,15 +3313,25 @@ boolean network_game_client_advertised_game_compatible(
 
 	if (game_index < 0 || game_index >= MAXIMUM_NETWORK_ADVERTISED_GAMES)
 		return FALSE;
+	ours = mcc_protocol_version(game->map.name); /* port: distinct MCC protocol */
 	theirs = network_game_client_advertised_versions[game_index].version;
 	distributed = (network_game_client_advertised_versions[game_index].flags &
 		HALO_PORT_ADVERTISED_DISTRIBUTED_FLAG) != 0;
-	if (theirs == ours && distributed)
+	if (third_person_session_compatible(game->map.name, theirs,
+		network_game_client_advertised_versions[game_index].flags)) /* port: exact base or camera agreement */
 	{
 		network_event("joining a host of network version %u", theirs);
 		return TRUE;
 	}
-	if (tell)
+	/* port: preserve MCC-specific admission diagnostics before the shared browser helper. */
+	if (tell && ours == MCC_PROTOCOL_VERSION)
+	{
+		char message[400];
+		csprintf(message, "This MCC game requires GulchCE with MCC network version %u.\n\n"
+			"Use a matching GulchCE MCC build. Camera sessions additionally require third-person support.", MCC_PROTOCOL_VERSION); /* port: experimental branch */
+		platform_show_message("Halo: cannot join this game", message);
+	}
+	else if (tell)
 		network_game_client_tell_version(theirs, distributed);
 	return FALSE;
 }
@@ -3282,7 +3343,7 @@ void network_game_client_tell_version(
 	boolean distributed)
 {
 	unsigned int ours = HALO_PORT_NETWORK_VERSION;
-	char message[400];
+	char message[600]; /* port: room for the experimental branch's compatibility notice */
 
 	if (theirs == ours)
 	{
@@ -3306,6 +3367,9 @@ void network_game_client_tell_version(
 			"Ask the host to update the game.",
 			ours, theirs);
 	}
+	/* port: numeric ordering alone cannot explain this branch's reserved versions. */
+	csstrcat(message, "\n\nGulchCE Third Person sessions require a matching camera build. "
+		"OpenCE Crossplay sessions require the supported OpenCE protocol.");
 	network_event("not joining a host of network version %u%s (this machine's is %u)", theirs,
 		distributed ? "" : " with the lockstep netcode", ours);
 	platform_show_message("Halo: cannot join this game", message);

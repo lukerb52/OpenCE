@@ -13,6 +13,7 @@ import io
 import json
 import re
 import shutil
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -40,7 +41,8 @@ def graph(release=False, emcc="/opt/emsdk/upstream/emscripten/emcc"):
     sln = SimpleNamespace(build_dir=Path("build"), web_emcc=emcc, port_release=release, port_profile=False,
                           compiler_launcher=None)
     web_build.generate_web_build(ninja_syntax.Writer(out), sln)
-    return re.sub(r" \$\n +", " ", out.getvalue())
+    # Path emits native separators; these graph assertions use portable paths.
+    return re.sub(r" \$\n +", " ", out.getvalue()).replace("\\", "/")
 
 
 def compile_flags(text, source):
@@ -53,6 +55,19 @@ def compile_flags(text, source):
 
 def link_flags(text):
     return re.search(r"^build build/web/site/halo\.js.*?\n  ldflags = ([^\n]*)", text, re.M | re.S).group(1)
+
+
+def test_link_response_paths_survive_emscripten_parsing():
+    out = io.StringIO()
+    sln = SimpleNamespace(build_dir=Path("build directory"), web_emcc="emcc",
+                          port_release=True, port_profile=False, compiler_launcher=None)
+    web_build.generate_web_build(ninja_syntax.Writer(out), sln)
+    text = re.sub(r" \$\n +", " ", out.getvalue())
+    response = re.search(r"^  rspfile_content = (.*)$", text, re.M).group(1)
+    paths = shlex.split(response)
+    assert len(paths) > 100
+    assert all(path.startswith("build directory/web/obj/") and "\\" not in path for path in paths)
+    assert "build directory/web/obj/source/ai/action_alert.o" in paths
 
 
 def test_without_emscripten_the_graph_says_so():
@@ -181,6 +196,7 @@ def test_licenses_txt_has_every_notice():
 
 
 @pytest.mark.skipif(not (shutil.which("cc") or shutil.which("clang")), reason="no C compiler")
+@pytest.mark.skipif(sys.platform == "win32", reason="native socket harness requires POSIX pthreads")
 def test_the_sockets_inside_the_page(tmp_path):
     compiler = shutil.which("cc") or shutil.which("clang")
     program = tmp_path / "web_net_test"

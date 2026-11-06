@@ -252,6 +252,7 @@ symbols in this file:
 #include "network_chat.h" /* port: port/linux/game/network_chat.c */
 #include "bungie_net/common/message_header.h"
 #include "bungie_net/network/transport.h"
+#include "bungie_net/network/transport_address_constants.h" /* port: distinguish the host's loopback admission */
 #include "bungie_net/network/transport_endpoint_winsock.h"
 #include "game/game.h"
 #include "game/game_engine.h"
@@ -259,6 +260,10 @@ symbols in this file:
 #include "networking/network_connection.h"
 #include "networking/network_game_globals.h"
 #include "networking/network_game_manager.h"
+#include "mcc_protocol.h" /* port: MCC-only admission and settings envelope */
+#include "third_person_protocol.h" /* port: port/linux/game/third_person_protocol.c */
+#include "mcc_identity.h" /* port: attach MCC content identity to host settings */
+#include "bots.h" /* port: host-owned population reporting and replaceable capacity */
 #include "networking/network_game_protocol.h"
 #include "networking/network_messages.h"
 #include "networking/network_server_manager_internal.h"
@@ -530,7 +535,8 @@ static boolean network_game_server_handle_message_client_join_game_request(
 	struct network_game_server *server,
 	struct network_game_server_client_machine *client_machine,
 	word *message,
-	short message_size);
+	short message_size,
+	boolean mcc_capable); /* port: optional MCC admission, ordinary auth retained */
 static boolean network_game_server_handle_message_client_add_player_request_pregame(
 	struct network_game_server *server,
 	struct network_game_server_client_machine *client_machine,
@@ -800,7 +806,14 @@ boolean network_game_server_send_game_settings_to_client_machine(
 	long game_size)
 {
 	struct message_server_game_settings_update message;
+	struct network_game mcc_settings; /* port: fingerprint extension, no host record mutation */
 	long offset;
+
+	/* port: no MCC settings reach a peer that has not negotiated them. */
+	if (!mcc_protocol_allows(game, machine)) return FALSE;
+	game = mcc_identity_host_settings(game, game_size, &mcc_settings); /* port: MCC admission */
+	if (!game) return FALSE;
+	game_size = mcc_protocol_settings_size(game); /* port: exact OpenCE prefix for legacy maps */
 
 	for (offset = 0; offset < game_size; offset += sizeof(message.data))
 	{
@@ -1082,8 +1095,15 @@ boolean network_game_server_send_game_settings_to_all_machines(
 	long game_size)
 {
 	struct message_server_game_settings_update message;
+	struct network_game mcc_settings; /* port: fingerprint extension, no host record mutation */
 	long offset;
 	boolean result = TRUE;
+
+	/* port: a map-family change removes incompatible peers before broadcasting. */
+	mcc_protocol_prune(server, game);
+	game = mcc_identity_host_settings(game, game_size, &mcc_settings); /* port: MCC admission */
+	if (!game) return FALSE;
+	game_size = mcc_protocol_settings_size(game); /* port: exact OpenCE prefix for legacy maps */
 
 	match_assert(
 		"c:\\halo\\SOURCE\\networking\\network_server_message_handler.c",
@@ -1173,6 +1193,7 @@ boolean network_game_server_handle_client_message(
 	boolean result = TRUE;
 	word message_type;
 	byte packet_type;
+	word camera_join[THIRD_PERSON_PROTOCOL_JOIN_MAX / sizeof(word)], camera_join_size; /* port */
 
 	/* port: the size comes from the wire, and an assert is no check (an
 	empty message read its packet type from before the buffer): the machine
@@ -1182,6 +1203,20 @@ boolean network_game_server_handle_client_message(
 	{
 		network_event("server received a client message of a bad size (#%d)", message_buffer_size);
 		return FALSE;
+	}
+
+	/* port: camera sessions require compatibility before ordinary or MCC admission.
+	The normal join handler still owns tokens, bans, slots and MCC authorization. */
+	if (third_person_session_active() && !network_game_server_client_machine_is_joined_to_game(server, machine))
+	{
+		if (!third_person_protocol_unwrap(message, message_buffer_size, camera_join, &camera_join_size))
+		{
+			network_event("camera admission rejected: matching online-third-person protocol %u required",
+				THIRD_PERSON_PROTOCOL_VERSION);
+			return FALSE;
+		}
+		message = camera_join;
+		message_buffer_size = (short)camera_join_size;
 	}
 
 	match_assert(
@@ -1210,7 +1245,7 @@ boolean network_game_server_handle_client_message(
 								server,
 								machine,
 								message,
-								message_buffer_size);
+								message_buffer_size, FALSE); /* port: ordinary OpenCE join */
 							if (!result)
 							{
 								network_event("network_game_server_handle_message_client_join_game_request() failed");
@@ -1391,6 +1426,18 @@ boolean network_game_server_handle_client_message(
 				break;
 
 			case _message_type_data:
+				/* port: an MCC capability envelope carries only an ordinary join.
+				 * The existing handler still checks tokens, bans and host admission. */
+				if (((byte *)message)[2] == MCC_PROTOCOL_JOIN_KIND)
+				{
+					word inner[MCC_PROTOCOL_JOIN_MAX / sizeof(word)];
+					word inner_size;
+					if (network_game_server_client_machine_is_joined_to_game(server, machine) ||
+						!mcc_protocol_unwrap(message, message_buffer_size, inner, &inner_size))
+						return FALSE;
+					return network_game_server_handle_message_client_join_game_request(
+						server, machine, inner, inner_size, TRUE);
+				}
 				/* the distributed netcode's messages (port/linux/NETCODE.md) */
 				/* (port: voice chat's from any machine that joined, in the
 				lobby too: network_voice.c) */
@@ -1788,7 +1835,7 @@ static boolean network_game_server_handle_message_client_broadcast_game_search(
 			advertisement.engine_type = (short)game->variant.game_engine_index;
 			csmemcpy(&advertisement.map, &game->map, sizeof(game->map));
 			advertisement.machine_count = game->machine_count;
-			advertisement.player_count = game->player_count;
+			advertisement.player_count = bots_human_count(game); /* port: browser population counts humans */
 			advertisement.maximum_player_count = game->maximum_players;
 			advertisement.variant_setting = (short)game->variant.universal_variant.score_to_win;
 			advertisement.flags = 0;
@@ -1806,10 +1853,13 @@ static boolean network_game_server_handle_message_client_broadcast_game_search(
 			/* the native builds' network version and netcode (a client
 			refuses a host of another version, or of the lockstep netcode
 			older builds had: network_client_manager.c) */
-			advertisement.reserved[HALO_PORT_ADVERTISED_VERSION_OFFSET] = (byte)(HALO_PORT_NETWORK_VERSION & 0xFF);
-			advertisement.reserved[HALO_PORT_ADVERTISED_VERSION_OFFSET + 1] = (byte)(HALO_PORT_NETWORK_VERSION >> 8);
+			advertisement.reserved[HALO_PORT_ADVERTISED_VERSION_OFFSET] = (byte)(third_person_session_version(game->map.name) & 0xFF);
+			advertisement.reserved[HALO_PORT_ADVERTISED_VERSION_OFFSET + 1] = (byte)(third_person_session_version(game->map.name) >> 8);
+			/* port: capability version is separate even in an OpenCE lobby. */
+			advertisement.reserved[MCC_PROTOCOL_ADVERTISED_VERSION_OFFSET] = MCC_PROTOCOL_VERSION & 255;
+			advertisement.reserved[MCC_PROTOCOL_ADVERTISED_VERSION_OFFSET + 1] = MCC_PROTOCOL_VERSION >> 8;
 			advertisement.reserved[HALO_PORT_ADVERTISED_FLAGS_OFFSET] =
-				HALO_PORT_ADVERTISED_DISTRIBUTED_FLAG;
+				HALO_PORT_ADVERTISED_DISTRIBUTED_FLAG | MCC_PROTOCOL_ADVERTISED_FLAG; /* port: optional MCC join */
 			if (network_game_server_get_state(server, NULL) != _network_game_server_state_pregame ||
 				network_game_server_game_is_loading(server))
 			{
@@ -1826,7 +1876,8 @@ static boolean network_game_server_handle_message_client_broadcast_game_search(
 			once it is over, nor in progress when no player can join it) */
 			if (network_game_server_get_state(server, NULL) == _network_game_server_state_ingame
 				? network_game_server_accepts_late_joins(server)
-				: network_game_server_game_is_open(server) && network_game_has_free_player_slot(game))
+				: network_game_server_game_is_open(server) &&
+					(network_game_has_free_player_slot(game) || bots_population_can_join(server))) /* port: replaceable bots */
 			{
 				advertisement.flags |= FLAG(_game_advertisement_open_bit);
 			}
@@ -1953,7 +2004,8 @@ static boolean network_game_server_handle_message_client_join_game_request(
 	struct network_game_server *server,
 	struct network_game_server_client_machine *server_client_machine,
 	word *message,
-	short message_size)
+	short message_size,
+	boolean mcc_capable /* port: optional MCC admission, ordinary auth retained */)
 {
 	boolean result = TRUE;
 	/* (or a distributed game in progress: network_game_server_accepts_late_joins) */
@@ -1984,7 +2036,14 @@ static boolean network_game_server_handle_message_client_join_game_request(
 			fill it) is full: a machine that joined could add none, and held
 			the countdown for ever */
 			boolean full = network_game_server_get_state(server, NULL) == _network_game_server_state_pregame &&
-				!network_game_has_free_player_slot(network_game_server_get_game(server));
+				!network_game_has_free_player_slot(network_game_server_get_game(server)) &&
+				!bots_population_can_join(server); /* port: validated humans can replace lobby bots */
+
+			/* port: bind capability to this connection before the normal admission.
+			 * A failed join is removed through the same lifecycle as any other peer. */
+			if (!mcc_protocol_peer(server_client_machine, mcc_capable) ||
+				!mcc_protocol_allows(network_game_server_get_game(server), server_client_machine))
+				return FALSE;
 
 			/* port: its hardware id, as it tells it: hex only (anything else
 			left out), no more than its field; the host logs it, and refuses
@@ -2043,6 +2102,12 @@ static boolean network_game_server_handle_message_client_join_game_request(
 						struct network_message *reply;
 						struct network_machine *client_machine;
 						long machine_index = NONE;
+
+						/* port: setup opens the socket before the host's loopback client
+						has its index. Only remote admission fixes the camera contract. */
+						if (source_address.address.long_words[0] != IPV4_LOOPBACK_ADDRESS ||
+							network_game_server_get_game(server)->machine_count > 1)
+							third_person_session_lock();
 
 						client_machine = network_game_server_get_client_machine(
 							server,
@@ -2461,6 +2526,11 @@ static boolean network_game_server_handle_message_client_player_settings_request
 	word *message,
 	short message_size)
 {
+	/* MCC's in-game picker admits only an authenticated, team-only change. */
+	{
+		extern boolean mcc_ui_team_request(struct network_game_server *, struct network_game_server_client_machine *, word *, short);
+		if (mcc_ui_team_request(server, client_machine, message, message_size)) return TRUE;
+	}
 	/* (port: not once the game has started: every machine loads it from
 	the settings sent with the start) */
 	if (network_game_server_lobby_is_open(server))

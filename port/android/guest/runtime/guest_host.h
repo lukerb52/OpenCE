@@ -38,6 +38,11 @@ void host_set_tp(unsigned int thread);
 __guest_thread_start(thread); returns 0 or an errno value */
 int host_thread_create(unsigned int thread, unsigned int stack_size);
 
+/* MCC tag address space (host_mcc_memory.c), independent of the guest pools.
+Reserve returns the address or negative errno; release returns zero or negative errno. */
+long long host_mcc_memory_reserve(unsigned int address, unsigned int size);
+int host_mcc_memory_release(unsigned int address, unsigned int size);
+
 /* ---------- memory write tracking (port/linux/src/memory_watch.c) */
 
 void host_memory_watch_initialize(void);
@@ -142,6 +147,11 @@ void host_touch_look_read(float *delta);
 void host_touch_rumble(unsigned int low, unsigned int high);
 /* tells the overlay when to show: touch_input.c's _touch_scene_* */
 void host_touch_scene(int scene);
+/* -1 preserves the touch layout; 0 off, 1 on, 2 zoom only. */
+void host_touch_gyro_mode(int mode);
+/* Typed offline cheat requests; no pointers cross this bridge. */
+void host_android_cheats_state(int state);
+int host_android_cheats_read(void);
 /* the game control on each of the 16 controller buttons (touch_game.c),
 for the overlay's labels */
 void host_touch_bindings(const int *controls);

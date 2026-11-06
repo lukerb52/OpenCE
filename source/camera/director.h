@@ -119,6 +119,9 @@ struct director_globals
 
 /* ---------- prototypes/DIRECTOR.C */
 
+/* port: read-only camera identity for feature-owned camera procedures. */
+boolean director_camera_is(short local_player_index, director_camera_update_proc camera_proc);
+
 void director_initialize(
 	void);
 void director_dispose(
@@ -132,6 +135,9 @@ void director_inhibit_input(
 boolean director_inhibited_facing(
 	short local_player_index);
 boolean director_inhibited_input(
+	short local_player_index);
+/* port: for the sounds' Doppler effect (sound_manager.c) */
+long director_get_followed_unit(
 	short local_player_index);
 director_perspective director_get_perspective(
 	short local_player_index);

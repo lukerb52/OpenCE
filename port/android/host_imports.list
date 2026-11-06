@@ -7,6 +7,8 @@ host_exit
 host_get_tp
 host_set_tp
 host_thread_create
+host_mcc_memory_reserve
+host_mcc_memory_release
 host_memory_watch_initialize
 host_memory_watch_protect
 host_memory_watch_generation
@@ -64,6 +66,9 @@ host_touch_read
 host_touch_look_read
 host_touch_rumble
 host_touch_scene
+host_touch_gyro_mode
+host_android_cheats_state
+host_android_cheats_read
 host_touch_bindings
 host_touch_devices
 host_https_get

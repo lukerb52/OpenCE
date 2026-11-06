@@ -7,6 +7,8 @@ OBJECTS.C
 #include "cseries.h"
 #include "infection.h" /* port: port/linux/game/infection.c */
 #include "objects.h"
+#include "mcc_object_names.h" /* port: port/linux/game/mcc_object_names.c */
+#include "mcc_objects.h" /* port: port/linux/game/mcc_objects.c */
 #include "coop_pickups.h" /* port: the host's extra campaign pickups */
 #include "coop_vehicles.h" /* port: the host's extra campaign vehicles */
 
@@ -63,6 +65,7 @@ void object_bounds_cache_update(long object_index, real_point3d const *center, r
 void first_person_legs_reset(void);
 /* port: port/linux/game/object_pose.c's */
 real object_pose_bounding_radius(long object_index, real bounding_radius);
+#include "third_person.h" /* port: port/linux/game/third_person.c */
 
 /* ---------- constants */
 
@@ -421,6 +424,9 @@ void object_set_object_index_for_name_index(
 	short name_index,
 	long object_index)
 {
+	/* port: expanded MCC names use a separate table. */
+	if (mcc_object_names_active()) { mcc_object_names_set(name_index, object_index); return; }
+
 	/* port: and one the name list holds (a map's count; retail has up to
 	448 names) */
 	if (VALID_INDEX(name_index, MIN(global_scenario_get()->object_names.count, MAXIMUM_OBJECT_NAMES_PER_SCENARIO)))
@@ -1116,6 +1122,8 @@ void objects_initialize_for_new_map(
 	/* port: the last map's waist and mesh forgotten
 	(port/linux/game/first_person_legs.c) */
 	first_person_legs_reset();
+	/* port: reset the shoulder camera across map loads. */
+	third_person_reset();
 	
 	data_make_valid(object_header_data);
 	object_name_list_clear();
@@ -1141,6 +1149,7 @@ void objects_dispose_from_old_map(
 	widgets_dispose_from_old_map();
 	object_types_dispose_from_old_map();
 	lights_dispose_from_old_map();
+	first_person_legs_reset(); /* port: (and on a failed load's way out) */
 
 	if (object_header_data->valid)
 	{
@@ -1482,6 +1491,27 @@ void object_get_velocities(
 	return;
 }
 
+/* port: the velocity of a point on an object: its ultimate parent's motion
+and spin (v + w x r about the parent's position, as physics.c works out its
+mass points' velocities), in world units a tick. For the sounds' Doppler
+effect (game_sound.c, sound_manager.c): a sound on a turning vehicle and the
+ear of whoever rides it move as their points do, and cancel. */
+void object_get_point_velocity(
+	long object_index,
+	real_point3d const *point,
+	real_vector3d *velocity)
+{
+	struct object_datum *ultimate_parent = object_get(object_get_ultimate_parent(object_index));
+	real_vector3d radius;
+	real_vector3d spin;
+
+	vector_from_points3d(&ultimate_parent->object.position, point, &radius);
+	cross_product3d(&ultimate_parent->object.angular_velocity, &radius, &spin);
+	add_vectors3d(&ultimate_parent->object.translational_velocity, &spin, velocity);
+
+	return;
+}
+
 struct location *object_get_location(
 	long object_index,
 	struct location *location)
@@ -1807,6 +1837,9 @@ short objects_in_clusters_by_indices(
 long object_index_from_name_index(
 	short name_index)
 {
+	/* port: expanded MCC names use a separate table. */
+	if (mcc_object_names_active()) return mcc_object_names_get(name_index);
+
 	return name_index>=0 && name_index<MAXIMUM_OBJECT_NAMES_PER_SCENARIO ? object_name_list[name_index] : NONE;
 }
 
@@ -3942,9 +3975,18 @@ void object_attach_to_node(
 	return;
 }
 
+/* port: muzzle shots must exclude their shooter during the safety check. */
 boolean object_force_inside_bsp(
 	long object_index,
 	real_point3d const *known_good_point)
+{
+	return object_force_inside_bsp_ignoring(object_index, known_good_point, NONE);
+}
+
+boolean object_force_inside_bsp_ignoring(
+	long object_index,
+	real_point3d const *known_good_point,
+	long ignore_object_index)
 {
 	struct collision_result collision;
 
@@ -3954,7 +3996,7 @@ boolean object_force_inside_bsp(
 	match_assert("c:\\halo\\SOURCE\\objects\\objects.c", 2365, global_current_collision_user_depth < MAXIMUM_COLLISION_USER_STACK_DEPTH);
 	global_current_collision_users[global_current_collision_user_depth++] = 19;
 	
-	if (collision_test_line(_collision_test_for_projectiles_flags, known_good_point, &object->object.position, NONE, &collision) ||
+	if (collision_test_line(_collision_test_for_projectiles_flags, known_good_point, &object->object.position, ignore_object_index, &collision) ||
 		object->object.location.cluster_index==NONE)
 	{
 		if (collision.location.cluster_index!=NONE)
@@ -4787,6 +4829,9 @@ static void object_name_list_free(
 static void object_name_list_clear(
 	void)
 {
+	/* port: clear MCC state on every new map and restart. */
+	if (mcc_object_names_active()) mcc_object_names_clear();
+
 	memset(object_name_list, NONE, MAXIMUM_OBJECT_NAMES_PER_SCENARIO * sizeof(*object_name_list));
 
 	return;
@@ -4797,6 +4842,9 @@ static void object_name_list_new(
 	short name_index)
 {
 	struct object_datum *object = object_get(object_index);
+
+	/* port: extended indices must not enter the legacy table. */
+	if (mcc_object_names_active()) { mcc_object_names_claim(name_index, object_index); return; }
 
 	match_assert(
 		"c:\\halo\\SOURCE\\objects\\objects.c",
@@ -4842,6 +4890,9 @@ void object_claim_scenario_name(
 	long object_index,
 	short name_index)
 {
+	/* port: expanded MCC names preserve the same first-owner rule. */
+	if (mcc_object_names_active()) { mcc_object_names_claim(name_index, object_index); return; }
+
 	if (object_index == NONE ||
 		!VALID_INDEX(name_index, MIN(global_scenario_get()->object_names.count, MAXIMUM_OBJECT_NAMES_PER_SCENARIO)) ||
 		object_name_list[name_index] != NONE)
@@ -4857,6 +4908,9 @@ static void object_name_list_delete(
 	long object_index)
 {
 	struct object_datum *object = object_get(object_index);
+
+	/* port: MCC also clears aliases outside the legacy name range. */
+	if (mcc_object_names_active()) { mcc_object_names_delete(object_index); return; }
 
 	if (object->object.name_index!=NONE)
 	{
@@ -4881,6 +4935,9 @@ static void object_name_list_delete(
 static long object_name_list_lookup(
 	short name_index)
 {
+	/* port: expanded MCC names use a separate table. */
+	if (mcc_object_names_active()) return mcc_object_names_get(name_index);
+
 	return VALID_INDEX(name_index, MAXIMUM_OBJECT_NAMES_PER_SCENARIO) ? object_name_list[name_index] : NONE;
 }
 
@@ -5539,7 +5596,11 @@ static void object_compute_change_colors(
 				cc_index,
 				struct object_change_color_definition);
 
-			if (change_color->scaled_by)
+			/* port: MCC signed RGB functions are clamped below, after darkening. */
+			if (change_color->scaled_by && !mcc_object_color_extrapolate(
+				&object->object.outgoing_change_colors[cc_index], change_color->scale_flags,
+				&change_color->color_lower_bound, &change_color->color_upper_bound,
+				OBJECT_INCOMING_FUNCTION_GET_VALUE(object, change_color->scaled_by)))
 			{
 				rgb_colors_interpolate(
 					&object->object.outgoing_change_colors[cc_index],

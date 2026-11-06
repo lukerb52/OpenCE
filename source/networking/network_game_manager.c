@@ -93,6 +93,8 @@ symbols in this file:
 #include "objects/objects.h"
 #include "units/units.h"
 #include "text/unicode.h"
+#include "mcc_main.h" /* port: port/linux/game/mcc_main.c */
+#include "custom_edition_cache.h" /* port: port/linux/game/custom_edition_cache.c */
 
 #include <xtl.h>
 
@@ -836,7 +838,17 @@ boolean network_game_create_game_objects(
 	}
 	else
 	{
-		error(0, "game_load() failed.");
+		/* port: MCC refusals unwind through the network session lifecycle. */
+		if (mcc_main_network_load_failed(options.map_name))
+		{
+			game->local_data.game_objects_loaded = FALSE;
+			return FALSE;
+		}
+		/* port: retain the existing error priority and network failure path. */
+		if (custom_edition_level_name(options.map_name))
+			error(0, "%s", custom_edition_cache_load_error(options.map_name));
+		else
+			error(0, "game_load() failed.");
 	}
 
 	return game->local_data.game_objects_loaded;

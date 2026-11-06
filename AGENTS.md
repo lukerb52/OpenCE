@@ -10,6 +10,266 @@ maps, touch controls). The project is published as OpenCE.
 Start with [README.md](README.md). The other documents are listed at the
 end.
 
+## GulchCE instructions for every assignment
+
+Read this file before starting each assignment and explicitly confirm your
+understanding of its requirements. Then review the isolation rules below
+and explicitly confirm your understanding of them before proceeding.
+Read [CODINGSTANDARDS.md](CODINGSTANDARDS.md) for supplementary working and
+review guidance. Those standards do not relax the isolation rules.
+
+### Applying these requirements
+
+- The common project requirements apply to every assignment, including
+  building, testing, networking, licensing, source provenance and Git
+  conventions.
+- Before implementation, identify whether the assignment adds a general
+  feature, implements MCC compatibility, fixes existing behavior, merges
+  upstream changes or combines these activities. Briefly state which
+  isolation requirements apply.
+- General feature work must follow the general feature isolation rules.
+  MCC compatibility work must additionally follow the MCC isolation rules;
+  the general rules do not relax the stricter MCC boundaries.
+- For mixed assignments, apply the relevant rules to each affected part.
+  Classify work by what it changes, not merely by the assignment's title.
+  A general feature request does not authorize unrelated MCC compatibility
+  changes or changes to map-family boundaries.
+- When shared-engine work can affect multiple map families, inspect and
+  validate the affected Xbox, Custom Edition and MCC paths. Incidental use
+  of a shared engine service by MCC does not make all general engine work
+  MCC-specific, but existing MCC guards, ownership and cleanup must remain
+  intact.
+- These rules provide standing permission for necessary integration that
+  meets their conditions within an authorized assignment. Explain the
+  rationale and perform the required validation without requesting separate
+  approval for routine compliant changes. If a specific change conflicts
+  with an isolation rule, stop only the affected part, explain the conflict,
+  and continue independent work that remains within scope. A general
+  request to complete a feature does not itself waive an isolation rule.
+
+### General feature isolation
+
+- Preserve the established Halo 1 Xbox and Custom Edition implementations.
+  Do not replace, rename, remove, obscure or repurpose their code, scripts,
+  variables or loading paths to implement a new feature. The narrowly
+  scoped additive integration described below is allowed.
+- Keep feature logic in dedicated feature modules, extending an existing
+  feature-owned module where appropriate. Use existing engine interfaces
+  where possible. Minimal registration and wiring in build files, settings,
+  menus and declarations are allowed when necessary for the authorized
+  feature and must follow the applicable project rules. This does not
+  authorize moving feature logic into established engine implementations.
+  Keep MCC-specific compatibility logic in MCC-owned modules.
+- Optional features must preserve established behavior when disabled.
+  They must default to off or stock behavior unless the user explicitly
+  authorizes a different default. When enabled, changes must remain limited
+  to the authorized feature; unrelated behavior and map-family boundaries
+  must be preserved. Follow the Settings requirements below for features
+  that depart from the stock game's look or behavior.
+- Existing implementations may be analysed for reference. This does not
+  authorize replacing or repurposing them for new feature compatibility.
+  Follow the third-party licensing, source-provenance and Xbox SDK rules
+  in this file and the coding standards.
+- Minimal additive shared-engine hooks, declarations or extension points
+  are allowed only when strictly necessary for authorized functionality
+  that cannot be implemented through existing interfaces in feature
+  modules. Keep feature logic in feature-owned modules and shared additions
+  as small as possible. Guard feature-specific execution and state with
+  the appropriate activation conditions.
+- Handle initialization and cleanup at the feature's relevant lifecycle
+  boundaries. These may include enabling or disabling the feature, map
+  loading and unloading, failed loads, session changes and shutdown.
+  Feature state must not leak into later sessions or unaffected paths.
+- For each shared addition, explain why a feature-module-only solution is
+  insufficient, identify the affected engine paths, and mark changes to
+  `source/` with `port:` as required below. Verify established behavior
+  with the feature disabled, the intended behavior with it enabled, and
+  relevant lifecycle and map-family transitions.
+- This permission covers necessary integration, not replacing, renaming
+  or refactoring established implementations for convenience or code
+  reduction. Existing hooks are not blanket permission for broader
+  changes. Refactoring, deduplication, cleanup and line-count targets are
+  not exceptions.
+- If a feature cannot fit within these constraints, explain the specific
+  conflict and stop that part of the work. Do not proceed unless the user
+  explicitly changes the applicable constraint.
+- Report the actual validation performed and its limits. Scale checks to
+  the affected behavior without waiving required platform or networking
+  checks. A successful load or green test suite is not proof of full
+  compatibility.
+
+### MCC isolation
+
+- Preserve the established Halo 1 Xbox and Custom Edition implementations
+  and functionality. Do not change, rename, remove, obscure or repurpose
+  their code, scripts, variables or loading paths to implement MCC support.
+  The narrowly scoped shared-engine additions described below are allowed;
+  they must preserve the existing Xbox and Custom Edition logic and behavior.
+- MCC support must remain independently implemented in dedicated MCC
+  modules. Xbox maps use `maps`, Custom Edition maps use `custom_maps`, and
+  MCC maps and their package folders use `mcc_maps`.
+- Existing Xbox and Custom Edition code may be analysed for reference;
+  this does not authorize editing or hijacking it for MCC compatibility.
+  Do not copy proprietary MCC code or prohibited SDK material. Follow the
+  third-party licensing and source-provenance rules below and in the
+  coding standards.
+- Minimal additive shared-engine hooks, declarations or extension points
+  are allowed only when strictly necessary for authorized MCC functionality
+  that cannot be implemented through existing interfaces in MCC modules.
+  Keep MCC compatibility logic in MCC-owned modules and shared additions
+  as small as possible. Guard MCC-specific execution and state so Xbox and
+  Custom Edition retain their existing paths, behavior and limits. Handle
+  MCC discovery before loading and cleanup after unloading explicitly.
+- For each shared addition, explain why an MCC-module-only solution is
+  insufficient, identify the affected engine paths, mark source additions
+  with `port:` as required below, and verify legacy behavior and map-family
+  transitions. This permission covers necessary integration, not replacing,
+  renaming or refactoring established Xbox or Custom Edition implementations
+  for convenience or code reduction. Existing hooks are not blanket
+  permission for broader changes. See `CODINGSTANDARDS.md` for the MCC
+  boundary inventory. If a feature cannot fit within these constraints,
+  explain the specific conflict and stop that part of the work. Do not
+  proceed unless the user explicitly changes the applicable constraint.
+- The general permission below for minimal changes to `source/` does not
+  override these stricter rules for MCC work. Refactoring, deduplication,
+  cleanup and line-count targets are not exceptions.
+- Explicitly requested upstream merges and general engine fixes have their
+  own scope, as described below. They do not authorize unrelated changes
+  to Xbox or Custom Edition support or relax the rules for implementing
+  MCC compatibility.
+- Check preservation of Xbox and Custom Edition behavior as well as MCC
+  compatibility. Report the actual validation performed and its limits;
+  a successful load or green test suite is not proof of full compatibility.
+
+### Existing behavior fixes and upstream merges
+
+- Authorized fixes to existing behavior may modify the responsible
+  implementation directly; they do not require a separate feature module
+  merely because code changes are needed. Keep the fix focused, explain
+  the intended behavior change, and preserve unrelated functionality.
+  Retain the required `port:` markers for changes to `source/`.
+- MCC compatibility fixes remain subject to MCC isolation. Calling work
+  a bug fix or general engine fix does not authorize repurposing Xbox or
+  Custom Edition implementations for MCC.
+- Base the distinction between a general engine defect and an MCC
+  compatibility requirement on evidence about the existing engine contract,
+  accepted inputs and intended behavior. An MCC map exposing a failure does
+  not by itself establish either classification. Document why a proposed
+  shared fix corrects existing engine behavior rather than adapting it to
+  MCC-specific data or semantics. If the distinction remains unresolved and
+  affects whether a change is permitted, explain the uncertainty and stop
+  that part of the work.
+- For explicitly requested upstream merges, retain authoritative OpenCE
+  changes and preserve MCC and other feature integration. Do not use the
+  merge to introduce unrelated changes to Xbox or Custom Edition support.
+  Identify and validate behavior affected by conflict resolution.
+- Apply the required platform, networking and regression checks to the
+  affected paths. Report what was verified and any remaining limits.
+
+### Systemic fixes and content-specific exceptions
+
+- Fix the underlying engine or format behavior for the affected class of
+  inputs. A valid new map using the same semantics should benefit without
+  requiring registration by name, checksum, tag path or asset fingerprint.
+  Do not use content identity as a substitute for diagnosing a defect.
+- Establish whether the problem is an engine defect, a map-family format
+  difference, unsupported or malformed content, or a dependency on historical
+  behavior. State the intended behavior and supporting evidence before
+  choosing the implementation boundary.
+- Systemic does not mean globally identical. Correct general engine defects
+  in the responsible implementation; implement format-specific semantics
+  in the corresponding compatibility modules. Preserve the established
+  Xbox, Custom Edition and MCC boundaries, loading paths and lifecycle.
+  These requirements do not relax the isolation rules.
+- Prefer validated format information, authored flags, tag structure and
+  usage context when selecting behavior. Do not replace a map whitelist
+  with an unexplained texture-name check, dimensional threshold or pixel
+  heuristic. A selector must have a demonstrated connection to the required
+  semantics and checks against false matches.
+- A content-specific compatibility exception is permitted only when evidence
+  explains why the general engine or format rules cannot safely determine
+  the required behavior. Keep it narrowly scoped in the owning compatibility
+  module. Record the affected content, rationale, evidence, activation and
+  cleanup, regression coverage, and what would permit its removal or why it
+  remains necessary. Convenience or one successful map test is insufficient.
+- Existing exception tables are compatibility evidence to investigate, not
+  authority for adding more exceptions or removing them wholesale. Replace
+  an exception only after verifying its intended behavior through the new
+  implementation and checking relevant unaffected cases. Preserve provenance
+  and meaningful regression coverage.
+- Correct interpretation of supported content must not require a player to
+  enable an accessibility or cosmetic option. Keep those optional departures
+  separate, with stock defaults under the Settings requirements.
+- Apply this policy within the authorized assignment. It does not authorize
+  a repository-wide rewrite, changes to original map files, expanded format
+  support or unrelated removal of existing compatibility behavior. Follow
+  CODINGSTANDARDS.md for investigation, regression checks and reporting.
+
+### Implementation reviews and completion
+
+- Review design and maintainability before substantial implementation and
+  during each meaningful implementation phase. Check module boundaries,
+  interfaces, state ownership, lifecycle, testability and complexity before
+  more code depends on them. Resolve identified structural problems within
+  scope as they arise; do not defer known necessary refactoring to the end.
+- At the end of each agreed feature, change, fix or addition, perform a
+  final pass over the combined implementation before running the final
+  required regression checks. Include all code, integration, documentation
+  and tests produced or modified for the assignment, across its commits
+  and phases. Review the resulting state, consulting history where needed,
+  rather than auditing every intermediate version or only the latest diff.
+- Complete necessary simplification, refactoring and justified optimisation
+  within the authorised scope. Remove demonstrably redundant code, obsolete
+  stubs, abandoned approaches, temporary scaffolding and stale documentation
+  or tests. Preserve meaningful regression coverage, required platform stubs,
+  diagnostics, bounds checks, compatibility behavior and supporting evidence.
+  Review is mandatory; changes without a demonstrated benefit are not.
+- Follow the detailed review criteria in [CODINGSTANDARDS.md](CODINGSTANDARDS.md).
+  These reviews do not relax isolation, provenance, networking or platform
+  requirements, authorize unrelated refactoring, or permit combining Xbox,
+  Custom Edition and MCC implementations across their established boundaries.
+- Run final required checks on the resulting implementation. If validation
+  leads to further changes, review those changes and rerun affected checks
+  and required integration checks before completion. Continue testing during
+  development; the final pass is not a reason to delay earlier checks.
+- Briefly report the review outcome, improvements made or why none were
+  needed, actual validation and unresolved limitations. Scale review effort
+  to the change; documentation-only work needs document checks, not game
+  regression runs. Review requirements do not authorize spawning subagents.
+
+### Project preferences
+
+- Work directly as the primary agent. Do not use subagents unless the user
+  explicitly requests them for the assignment.
+- Use descriptive branch names without a `codex/` prefix.
+- Do not write or update PR descriptions unless the user explicitly asks;
+  the user handles them. This does not remove the requirement to record
+  rationale and validation in commit messages.
+- Run at most two game instances concurrently during automated testing.
+  A two-instance co-op test within an authorized task needs no additional
+  permission. Use isolated data/save folders and hidden windows or a
+  virtual display; stop only the processes you started.
+- Keep temporary test maps bounded and clean up only your own verified
+  fixtures after testing. Preserve the user's original maps, saves and
+  useful diagnostic logs.
+- Clean up after each test run and before finishing an assignment, including
+  failed runs once useful diagnostics have been retained. Remove generated
+  game caches (such as `saves/z/cacheNNN.map`), temporary test builds and
+  binaries, duplicate packages, disposable fixtures and any other outputs
+  no longer strictly necessary for ongoing work or delivery. Do not leave
+  repeated test sessions accumulating gigabytes of disposable data.
+- Preserve useful logs and diagnostic evidence, original maps and all saves;
+  `savegame.bin` is a save, not a disposable map cache. Large inactive test
+  saves or captures may be archived losslessly, with original paths recorded
+  and archive contents verified before removing loose copies. Keep active
+  saves usable in place, along with required builds and installed toolchains.
+- Limit routine cleanup to verified outputs of your assignment. Check resolved
+  paths before deletion, do not follow junctions or symlinks into original
+  data, and preserve source, Git worktrees and other ongoing work. A folder
+  being ignored by Git or named `build` does not make all its contents
+  disposable. Check the size of retained test outputs and briefly report
+  cleanup and any large artifacts that still need to remain.
+
 ## Layout
 
 | Path | Contents |
@@ -124,6 +384,34 @@ Running the game without a person at it:
 
 ## Rules of the project
 
+### Documentation for code readers
+
+- The [reader's guide](docs/reading/README.md) connects visible behaviour
+  to the implementation. Update an affected guide in the same change when
+  its described behaviour, named functions or reading route changes.
+- For a substantial feature whose flow or constraints need explanation,
+  add or extend a focused walkthrough under `docs/reading/`. Scale this to
+  the change; small fixes do not require a new walkthrough. Explain the
+  visible behaviour, prerequisites, reading order, one concrete example,
+  important state and lifecycle rules, and relevant checks and limits.
+- Link to source files with relative paths and name the functions to read.
+  Keep copied code short and avoid fragile line-number references. Link
+  to existing technical references rather than duplicating their details.
+- Explain unfamiliar terms at first use; add reusable definitions to the
+  [glossary](docs/reading/glossary.md). Distinguish inherited engine
+  behaviour, OpenCE additions and GulchCE-specific choices where relevant.
+- Separate facts established by the code, documented rationale, inferences
+  and unresolved questions. Distinguish source inspection, automated tests
+  and runtime observations; suggested checks are not completed validation.
+- Keep comments beside non-obvious constraints, ownership, ordering and
+  workarounds. Follow the existing comment style and `port:` rules for
+  `source/`; use the guide for extended teaching rather than narrating
+  every statement. Documentation work does not authorize implementation
+  changes or relax the isolation rules.
+- Before completing documentation changes, review them against the current
+  code and check local links and named symbols. Documentation-only changes
+  require document checks, not artificial tests or game builds.
+
 ### The game's sources
 
 - Change `source/` as little as possible, and mark each change from the
@@ -219,6 +507,13 @@ The decompilation's upstream, punpckhdq/halo, is AGPL 3.0 from 17 October
 
 - Commit subjects are plain sentences saying what changed; the body says
   why and what was checked.
+- For player-visible changes, add a `Player-Note: Short plain-language sentence.`
+  line in the commit body (at most 100 printable ASCII characters after the
+  prefix). An optional `[CATEGORY]` after the prefix assigns a menu section;
+  it is excluded from the note's 100-character limit. See `docs/changelog.md`
+  for category syntax. Multiple lines are allowed; keep them focused on what
+  players notice. Internal-only changes need no note. These lines supply the menu
+  and release changelogs when testing reaches main; see `docs/changelog.md`.
 - A pull request is merged with a merge commit (`Merge pull request #N from
   <owner>/<branch>`), and follow-up changes go in separate commits whose
   subject ends with `(#N)`.
@@ -230,6 +525,8 @@ The decompilation's upstream, punpckhdq/halo, is AGPL 3.0 from 17 October
 | Document | About |
 | --- | --- |
 | [README.md](README.md) | Downloads, game data, building, build options, profiling builds |
+| [docs/reading/README.md](docs/reading/README.md) | GulchCE subsystem walkthroughs, branch-specific rendering notes, testing guidance, glossary and FOV example |
+| [CODINGSTANDARDS.md](CODINGSTANDARDS.md) | Supplementary coding, MCC boundaries, evidence and review standards |
 | [port/linux/README.md](port/linux/README.md) | The Linux build, controls, menus, every setting, updates, frame rate, field of view, system link, internet play, voice chat, the server browser, map sharing, security, map checks, how the port operates, the game source changes |
 | [port/linux/NETCODE.md](port/linux/NETCODE.md) | The distributed netcode, network versions, joining a game in progress, map sharing, transport, testing |
 | [port/windows/README.md](port/windows/README.md) | The Windows build, its headers, inline functions, crash reports |

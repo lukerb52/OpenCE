@@ -66,6 +66,10 @@ enum
 
 /* ---------- prototypes/UI_WIDGET.C */
 
+/* MCC menu actions use level names from their independent catalog. */
+boolean ui_widget_port_mcc_multiplayer_map_choose(char const *level_name);
+boolean ui_widget_port_mcc_cooperative_level_choose(char const *level_name, short difficulty);
+
 boolean event_controller_index_compatible_with_widget(
 	struct event_record const *event,
 	struct widget_instance const *widget);
@@ -226,6 +230,8 @@ void display_error_abort_to_dashboard(
 	boolean optional);
 void display_error_damaged_media(
 	void);
+/* port: explanatory text with the same fatal media-error lifecycle. */
+void display_error_damaged_media_text(wchar_t const *text);
 void display_errors_deferred_until_cinematic_stop(
 	void);
 void display_scenario_help(

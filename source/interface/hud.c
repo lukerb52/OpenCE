@@ -76,6 +76,7 @@ symbols in this file:
 /* ---------- headers */
 
 #include "cseries/cseries.h"
+#include "mcc_grenades.h"
 #include "bitmaps/bitmap_group.h"
 #include "camera/director.h"
 #include "cache/texture_cache.h"
@@ -85,6 +86,7 @@ symbols in this file:
 #include "game/game_globals.h"
 #include "game/players.h"
 #include "interface/hud.h"
+#include "custom_edition_hud_draw.h" /* port: port/linux/game/custom_edition_hud_draw.c */
 #include "interface/hud_definitions.h"
 #include "interface/hud_messaging.h"
 #include "interface/hud_unit.h"
@@ -950,7 +952,8 @@ static void hud_draw_friendly_indicator(
 				bitmap,
 				&position,
 				&clip,
-				1.0f,
+				/* port: the CE teammate marker's authored bitmap scale. */
+				custom_edition_hud_bitmap_scale(interface_get_tag_index(_interface_bitmap_multiplayer_hud)),
 				0.0f,
 				1.0f);
 		}
@@ -1173,7 +1176,9 @@ static void hud_draw_player_name(
 			interface_get_tag_index(_interface_bitmap_multiplayer_hud), 0, 0);
 
 		if (bitmap)
-			y -= bitmap->registration_point.y;
+			/* port: keep the name above a scaled CE teammate marker. */
+			y -= (short)(bitmap->registration_point.y *
+				custom_edition_hud_bitmap_scale(interface_get_tag_index(_interface_bitmap_multiplayer_hud)));
 	}
 	y -= 2;
 	font = font_definition_get(font_index);
@@ -1307,6 +1312,12 @@ static void temporary_hud_draw(
 			&scenario_get_game_globals()->grenades,
 			unit->unit.current_grenade_index,
 			struct game_globals_grenade);
+		/* port: retain MCC inventory counts with bounded tag-name formatting. */
+		if (mcc_grenades_active())
+			snprintf(temporary + csstrlen(temporary), sizeof(temporary) - csstrlen(temporary), "%d %s|n",
+				mcc_grenades_get(player->unit_index, unit->unit.current_grenade_index),
+				tag_name_strip_path(tag_get_name(grenade->projectile.index)));
+		else
 		snprintf(
 			temporary + csstrlen(temporary),
 			sizeof(temporary) - csstrlen(temporary),

@@ -365,6 +365,10 @@ def generate_windows_build(n: Writer, sln: Any) -> None:
         "--target=i686-pc-windows-msvc",
         "-fuse-ld=lld",
         "-g",
+        # Reserve the MCC tag window before SDL's ASLR placement. Keep the
+        # shipped DLL unchanged; the first SDL call loads it after reservation.
+        "-Wl,/DELAYLOAD:SDL3.dll",
+        "-ldelayimp",
         # the Xbox memory window is at 0x80000000, in the upper half of the
         # 32-bit address space
         "-Wl,/LARGEADDRESSAWARE",
@@ -422,7 +426,11 @@ def generate_windows_build(n: Writer, sln: Any) -> None:
                 flags += " " + updater_defines(getattr(sln, "port_release", False))
             add_object(source, flags)
         for source in sorted(Path(linux_config["game_sources"]).glob("*.c")):
-            add_object(source, game_cflags)
+            flags = game_cflags
+            # The main menu labels the executable with its release number.
+            if source.as_posix() == "port/linux/game/menu_functions.c":
+                flags += " " + updater_defines(getattr(sln, "port_release", False))
+            add_object(source, flags)
         add_object(STB_VORBIS_SOURCE, game_cflags)
 
         linux_platform = Path(linux_config["platform_sources"])
@@ -458,7 +466,9 @@ def generate_windows_build(n: Writer, sln: Any) -> None:
         for source in sorted(linux_platform.glob("*.c")):
             if source.name in replaced:
                 continue
-            if source.name == "posix_dtls.c":
+            if source.name == "posix_mcc_preview.c":
+                add_object(source, win32_cflags)
+            elif source.name == "posix_dtls.c":
                 # (Mbed TLS sees the Windows SDK, as the win32_*.c do)
                 add_object(source, f"{win32_cflags} {mbedtls_include}")
             elif source.name in ("updater.c", "server_mode.c"):

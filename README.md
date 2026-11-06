@@ -1,29 +1,198 @@
-# OpenCE - Halo: Combat Evolved for Linux, Windows, Android and the web
-
-<p align="center">
-  <img src="port/assets/icon/opence-icon.png" alt="OpenCE" width="128">
-</p>
+> **`online-third-person` branch:** OpenCE Crossplay is the default host mode and disables the optional shoulder camera. GulchCE Third Person sessions require matching camera builds. MCC maps always require compatible GulchCE clients.
 
 
 <p align="center">
-  <a href="https://github.com/OpenCommunityEdition/OpenCE/releases/latest"><img src="https://img.shields.io/github/v/release/OpenCommunityEdition/OpenCE?label=Download&style=for-the-badge" alt="Download"></a>
-  <a href="https://halocombatevolved.com/"><img src="https://img.shields.io/badge/Play-in_browser-blue?style=for-the-badge" alt="Play in browser"></a>
-  <a href="https://discord.gg/9gqcHyr5km"><img src="https://img.shields.io/badge/Discord-join-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord"></a>
+  <img width="420" height="420" alt="gulchceopencelogo" src="https://github.com/user-attachments/assets/1787aa2f-3305-4353-8dd4-27d08661f6d4" />
 </p>
+
+<h2 align="center">
+  A fork of OpenCE focused on bringing experimental features to OpenCE.
+</h2>
+
+<p align="center">
+  <a href="https://github.com/chestahh/GulchCE/releases">download the latest release</a> ·
+  <a href="https://discord.gg/pRFGPAMZkD">join the discord</a> ·
+  <a href="https://www.youtube.com/channel/UC9Hn6j6BdKwoyu_hGXdfzvw">check out the youtube</a>
+  <br>
+  <br>
+  forever <strong>compatible</strong>, for <strong>everyone</strong>
+</p>
+<hr>
+
+<h3 align="center">
+GulchCE will always be compatible with OpenCE, so everyone can play together.
+</h3>
+<br>
+<p align="center">
+Any fork compatible with OpenCE is also compatible with GulchCE. Crossplay galore!
+</p>
+<br>
+<p align="center">
+  Halo is a trademark of Microsoft. GulchCE is a fan project, not made or endorsed by Microsoft, Bungie, 343 Industries, or Halo Studios, and does not include any game assets or content.
+</p>
+<hr>
+<br>
+
+## What is GulchCE?
+GulchCE is a fork of [OpenCommunityEdition/OpenCE](https://github.com/OpenCommunityEdition/OpenCE) - the Halo: Combat Evolved decompilation project targeting Linux,
+Windows, Android and web browsers.
+
+The decompilation is of the Xbox build 2342. (`cachebeta.exe`, SHA-256
+`4cc87b45f721270392a96f1674ed2b5cd4a7bb4355faeab4531d1cf1884d9520`).
+
+## How do I download a build?
+
+Release & debug builds are available in the Releases section of the repository.
+The release builds are for playing; the debug builds stop at the first failed assertion and log it.
+
+Releases include `SHA256SUMS`, the SHA-256 of each packaged build.
+`sha256sum -c --ignore-missing SHA256SUMS` checks downloaded files. When
+release signing is configured, `SHA256SUMS.sig` carries the Ed25519 signature;
+`tools/release_sign.sh verify SHA256SUMS` (OpenSSL 3) checks it against
+[deploy/release-key.pub](deploy/release-key.pub).
+
+### Arch-based Linux Distributions
+
+The Linux binary release is available on the [AUR](https://aur.archlinux.org/packages/gulchce-bin).
+
+## Will you always stay compatible with OpenCE?
+
+GulchCE and OpenCE players can play together on Xbox and Custom Edition maps
+in **OpenCE Crossplay** sessions. This branch also offers **GulchCE Third
+Person** sessions, which require matching camera builds. MCC maps require
+compatible GulchCE clients in either session mode.
+
+This is due to MCC-specific netcode additions that only function when an
+MCC map is being played online. OpenCE clients wouldn't recognise the
+network messages.
+
+Once MCC map support is fully ironed out on GulchCE, OpenCE will be asked
+if they would like the MCC map support feature on their own, main repo.
+
+## How do I install MCC maps?
+
+GulchCE can discover installed **Halo 1 MCC Workshop maps** on Windows and
+Linux, or import complete packages on Android. Manual installation remains
+available through the separate `mcc_maps` folder, beside `maps` and
+`custom_maps` in your game data folder.
+
+You still need the [Xbox game data](#a-copy-of-halo-combat-evolved-is-required)
+to run GulchCE. Obtain any required MCC resources from your own legally owned,
+installed copy of Halo: Combat Evolved in Halo: The Master Chief Collection.
+
+### Windows and Linux: discover your Workshop maps
+
+1. Subscribe to the Halo 1 maps or campaigns you want in the MCC Steam
+   Workshop, and let Steam finish downloading them.
+2. Open **Settings > Online > Map Sharing > MCC Packages** in the Modern
+   menu style. In Stock, Classic PC and Xbox styles, use
+   **Settings > Network Setup > Map Sharing > MCC Packages**.
+3. Turn **STEAM DISCOVERY** on. For campaigns such as Ruby Rebalanced, also
+   turn **CAMPAIGN MISSIONS** on to use the package's mission order and
+   progression. Both settings are off by default.
+4. Reopen the map list. If a newly downloaded package is missing, restart
+   GulchCE. Install the [shared resources](#shared-mcc-resources) below when
+   required by the map.
+
+GulchCE reads the installed Workshop package directly, including its supplied
+resources, titles and supported level previews. You do not need to copy its
+maps into `mcc_maps` or keep Steam running while playing.
+
+Steam installations and their library folders are detected automatically where
+possible, including registered Windows installations such as `C:\Steam` and
+Linux's standard, Flatpak and Snap locations. If yours is not found, set the
+`steam` entry under `[paths]` in `config.toml` to your Steam installation or
+library folder, for example `steam = 'C:\Steam'`. Leave it empty to use
+automatic discovery.
+
+### Android: import a package without Steam
+
+1. Copy the **complete Workshop package folder or a ZIP of it** from your
+   computer to your phone. The package root is
+   `steamapps/workshop/content/976730/<workshop ID>`. Keep `ModInfo.json`, any
+   campaign/mission JSON files, maps, package resources and the supplied
+   `assets` folder together.
+2. Quit GulchCE, long-press its launcher icon and select **Import MCC maps**.
+3. Select **Workshop package**, then **Choose folder** or **Choose ZIP**.
+   Follow the importer's installation prompts.
+4. Import any required shared resources separately using **Singleplayer
+   shared resources** or **Multiplayer shared resources**. Start the game
+   and enable **CAMPAIGN MISSIONS** for campaign ordering and progression.
+
+Steam is not needed on the phone. The importer installs the package into
+`mcc_maps` and retains its metadata and supported previews. See the
+[Android import guide](port/android/README.md#importing-mcc-packages) for details.
+
+### Manual installation
+
+Create a separate folder for each package, such as `mcc_maps/MercuryRising`,
+and copy its level `.map` files there. Workshop packages commonly keep these
+under `steamapps/workshop/content/976730/<workshop ID>/halo1/maps`.
+
+**Keep any supplied `bitmaps.map` and `sounds.map` beside that package's
+levels.** These belong to the individual package, not `_shared`. Do not mix
+resources from different packages.
+
+For campaign ordering, titles and previews, also retain `ModInfo.json`,
+`CampaignInfo.json` when supplied, and the referenced mission/map metadata
+and PNGs. Preserve their metadata and image subfolders; the level `.map`
+files go directly in your package folder. Enable **CAMPAIGN MISSIONS** in
+MCC Packages to use campaign ordering and progression. Copying only the maps
+loses those metadata features. See the
+[package layout guide](docs/mcc_maps.md#installation-and-menus).
+
+### Shared MCC resources
+
+Some maps rely on MCC's standard resources instead of supplying their own.
+Install these sets once in your game data folder, creating the destination
+folders as needed. **Steam discovery does not install these shared sets.**
+
+| File in your MCC installation | Destination in GulchCE |
+| --- | --- |
+| `halo1/maps/bitmaps.map` | `mcc_maps/_shared/singleplayer/bitmaps.map` |
+| `halo1/maps/custom_edition/bitmaps.map` | `mcc_maps/_shared/multiplayer/bitmaps.map` |
+| `halo1/maps/custom_edition/sounds.map` | `mcc_maps/_shared/multiplayer/sounds.map` |
+
+Use the files from **MCC**, including its `custom_edition` subfolder, rather
+than a standalone Halo Custom Edition installation. On Android, the shared
+resource import modes create these destination folders for you.
+
+A package's own resources take precedence over the shared sets. Self-contained
+maps need neither set. If a required resource is missing or incompatible,
+GulchCE refuses to load the map and reports what needs attention.
+
+### Choose a map and play
+
+- **Modern, Stock and Classic PC:** choose **MCC SINGLEPLAYER** or
+  **MCC MULTIPLAYER** in the map selector, then open the package folder and
+  select a level.
+- **Xbox style:** with **CAMPAIGN MISSIONS** enabled, choose **MCC CAMPAIGNS**
+  on the main menu, then your profile, campaign, level and difficulty. For
+  multiplayer maps, use the **X — MCC Maps** prompt in the multiplayer map
+  selector.
+
+Supported package images appear automatically in the level cards; missing or
+unsupported images keep the question-mark thumbnail. MCC compatibility is
+still experimental: appearing in the menu does not guarantee that every map
+or campaign works fully. See [MCC map support](docs/mcc_maps.md) for supported
+formats, validation results and remaining limits.
+
+## About upstream OpenCE
 
 **OpenCE** (Open Community Edition) is an open source port of the Halo: Combat Evolved decompilation (Halo CE) based on an early Xbox development build (2342) and forked from
-[bnunu/halo-1](https://github.com/bnunu/halo-1). The project aims to enhance the existing game and adds many features, such as 128-player multiplayer, online campaign co-op, mod packs, field-of-view settings, a server browser, peer-to-peer hosting, automatic map downloads, voice chat, support for Custom Edition maps and much more! 
+[bnunu/halo-1](https://github.com/bnunu/halo-1).
 
-The game runs natively on **Windows, Linux, Android** and in the **web browser** with nothing to install. A macOS port is in progress. Worth noting that it is not an emulator, **the game's own code is compiled for each platform** with a new layer in place of the Xbox's hardware. Runs on OpenGL (Android is on OpenGL ES and WebGL 2 in the browser). Sound, input, gamepads are all handled through SDL3. The game currently draws a frame every refresh of your display with Smooth Motion enabled, while the simulation runs at 30 ticks just like the original Xbox. 
+The project aims to enhance the existing game and adds many features, such as 128-player multiplayer, online campaign co-op, mod packs, field-of-view settings, a server browser, peer-to-peer hosting, automatic map downloads, voice chat, support for Custom Edition maps and much more!
 
-<img width="1284" height="1007" alt="The game running on Windows" src="https://github.com/user-attachments/assets/0a4412e1-f6d3-48ed-8e17-0a374c2122f1" />
-<p align="center"><em>OpenCE running on Windows (release build)</em></p>
+The game runs natively on **Windows, Linux, Android** and in the **web browser** with nothing to install. A macOS port is in progress. OpenCE nor GulchCE are emulators - **the game's own code is compiled for each platform** with a new layer in place of the Xbox's hardware.
+
+The Xbox's native NV2A D3D8 rendering code is translated through OpenGL 4.5 on desktops, OpenGL ES 3 on Android, and WebGL 2 on web browsers. Sound, input, gamepads are all handled through SDL3. The game currently draws a frame every refresh of your display with Smooth Motion enabled, while the simulation runs at 30 ticks just like the original Xbox.
 
 ## A copy of Halo: Combat Evolved is required
 
-OpenCE does not include the game data. You **must provide your own Xbox disc image** (`.xiso` or `.iso`) of Halo: Combat Evolved. Every version of the game works. The maps of the European (PAL) version were made for a slower console - the game changes them to play as the North American (NTSC) maps do, so players of the two versions can play together.
+GulchCE does not include the game data. You **must provide your own Xbox disc image** (`.xiso` or `.iso`) of Halo: Combat Evolved. Every version of the game works. The maps of the European (PAL) version were made for a slower console - the game changes them to play as the North American (NTSC) maps do, so players of the two versions can play together.
 
-1. Start the game (`halo.exe` on Windows and `halo` on Linux). 
+1. Start the game (`halo.exe` on Windows and `halo` on Linux).
 2. At the first start you will get a pop up message asking for the disc image. Select it in the
    file picker. On Linux and Windows, a disc image (`.iso` or `.xiso`) next
    to the executable is used without the file picker. Where no file picker
@@ -41,33 +210,18 @@ data folder. Refer to [port/android/README.md](port/android/README.md). On
 the web, the page copies `maps/` out of the disc image into the browser's
 storage for the site - nothing is uploaded ([port/web/README.md](port/web/README.md)).
 
-## Download
+## Platforms
 
-GitHub Actions builds the game for each commit. 
+Each platform has its own instructions:
 
-Builds for latest release:
+| Platform | Instructions |
+| --- | --- |
+| Linux (32-bit x86 executable, OpenGL 4.5, SDL3) | [port/linux/README.md](port/linux/README.md) |
+| Windows (32-bit x86 executable, OpenGL 4.5, SDL3) | [port/windows/README.md](port/windows/README.md) |
+| Android (arm64 app, OpenGL ES 3, SDL3) | [port/android/README.md](port/android/README.md) |
+| Web (WebAssembly, WebGL 2, SDL3; desktop Chrome, Edge and Firefox) | [port/web/README.md](port/web/README.md) |
 
-| Platform | Release | Debug | Guide |
-| --- | --- | --- | --- |
-| Linux | [halo-linux-release.zip](https://github.com/OpenCommunityEdition/OpenCE/releases/latest/download/halo-linux-release.zip) | [halo-linux-debug.zip](https://github.com/OpenCommunityEdition/OpenCE/releases/latest/download/halo-linux-debug.zip) | [Linux](port/linux/README.md) |
-| Windows | [halo-windows-release.zip](https://github.com/OpenCommunityEdition/OpenCE/releases/latest/download/halo-windows-release.zip) | [halo-windows-debug.zip](https://github.com/OpenCommunityEdition/OpenCE/releases/latest/download/halo-windows-debug.zip) | [Windows](port/windows/README.md) |
-| Android | [halo-android-release.zip](https://github.com/OpenCommunityEdition/OpenCE/releases/latest/download/halo-android-release.zip) | [halo-android-debug.zip](https://github.com/OpenCommunityEdition/OpenCE/releases/latest/download/halo-android-debug.zip) | [Android](port/android/README.md) |
-| Web | [halocombatevolved.com](https://halocombatevolved.com/) (or [halo-web-release.zip](https://github.com/OpenCommunityEdition/OpenCE/releases/latest/download/halo-web-release.zip) for your own server) | [halo-web-debug.zip](https://github.com/OpenCommunityEdition/OpenCE/releases/latest/download/halo-web-debug.zip) | [Web](port/web/README.md) |
-
-
-Release build is recommended for regular play. 
-
-The debug build stops at the first failed check (assertion) and writes it to the log, so use it when you want to find and report problems.
-
-The game updates itself. At start-up it looks for a newer release, and asks
-if you want to install it. Refer to "Updates" in
-[port/linux/README.md](port/linux/README.md#updates). The web site offers
-each new build when it is out.
-
-Each build of the `main` branch that passes on all four platforms is a new
-release, and the web site then plays it. The [Releases](https://github.com/OpenCommunityEdition/OpenCE/releases)
-page keeps the last five releases. If the latest build has a problem, get
-an older build from that page.
+The Linux README also covers the controls, every setting and the multiplayer features. These are almost the same on all platforms. The settings are in `config.toml` next to the game, and many are in the menus too.
 
 Each release also has `SHA256SUMS`, the SHA-256 of each of its files, and
 `SHA256SUMS.sig`, that file's Ed25519 signature by the project's release
@@ -75,26 +229,24 @@ key, whose public key is [deploy/release-key.pub](deploy/release-key.pub).
 `sha256sum -c --ignore-missing SHA256SUMS` checks the downloads, and
 `tools/release_sign.sh verify SHA256SUMS` (OpenSSL 3) the signature.
 
-The Linux README also covers the controls, every setting and the multiplayer features. These are almost the same on all platforms. The settings are in `config.toml` next to the game, and many are in the menus too.
+## Can I play multiplayer?
 
-The Arch-based distribution release is available on the [AUR](https://aur.archlinux.org/packages/opence-bin).
-
-## Multiplayer 
+Yes! The game can play system link games on a local network and on the internet:
 
 - **Supports up to 128 players** on up to 128 machines and up to 4 players on each device in split screen.
 - **Every platform plays together:** Windows, Linux, Android and the browser all support cross-play! On a local network, the native builds can play LAN. Browser players can play each other in rooms over WebRTC ([port/web/README.md](port/web/README.md)).
 - **Peer-to-peer internet hosting:** join through the server browser or an invite link. A host lists a game as public in the server browser, or keeps it private for players with the invite link. With the Discord integration, the host can also send the invite through Discord.
-- **Online co-op campaign:** with settings for friendly fire, player collisions and the number of enemies as a multiplier based on per player or static. 
+- **Online co-op campaign:** with settings for friendly fire, player collisions and the number of enemies as a multiplier based on per player or static.
 - **New gametypes:** SWAT, Infection, Gun Game and Hardcore (Slayer, CTF, Oddball and King), in Select Gametype's OPENCE bank; Edit Gametypes' OPENCE OPTIONS gives any gametype their rules ([port/linux/README.md](port/linux/README.md), "OpenCE gametypes").
 - **Voice Chat:** push to talk (V) or an open microphone (can be changed in the menu's audio settings)
 - **Map sharing:** a player who does not have the game's Custom Edition map downloads it from the other players.
-- **Moderation:** the host can kick and ban players from the scoreboard menu or the `kick` and `ban` console commands. Players can vote to kick. 
-- **Scrollable Scoreboard:** the mouse wheel or PageUp / PageDown scrolls through list of players in large multiplayer lobbies. 
+- **Moderation:** the host can kick and ban players from the scoreboard menu or the `kick` and `ban` console commands. Players can vote to kick.
+- **Scrollable Scoreboard:** the mouse wheel or PageUp / PageDown scrolls through list of players in large multiplayer lobbies.
 - **A new netcode:** each machine moves its own player at once, and the host makes the decision for the game. Refer to [port/linux/NETCODE.md](port/linux/NETCODE.md).
 
 ## Custom Edition Maps
 
-Halo Custom Edition maps are placed in `custom_maps` folder, not in the `maps` folder itself. It requires `bitmaps.map`, `sounds.map`, and `loc.map` in the `custom_maps` folder, which you must copy over from your existing installed copy of Halo Custom Edition. The maps folder is only for Xbox maps that's extracted from your disc image, not Halo Custom Edition. 
+Halo Custom Edition maps are placed in `custom_maps` folder, not in the `maps` folder itself. It requires `bitmaps.map`, `sounds.map`, and `loc.map` in the `custom_maps` folder, which you must copy over from your existing installed copy of Halo Custom Edition. The maps folder is only for Xbox maps that's extracted from your disc image, not Halo Custom Edition.
 
 Halo PC Gearbox exclusive maps (Ice Fields, Death Island, Danger Canyon, Infinity, Timberland and Gephyrophobia) **are not included by default**. They would need to be copied over from your existing Halo Custom Edition install's `maps` folder into `custom_maps` folder too.
 
@@ -109,10 +261,12 @@ Refer to [docs/custom_edition_caches.md](docs/custom_edition_caches.md).
 
 ## Mods
 
-Mods go in a `mods` folder next to `maps`. Each mod is a folder of Halo PC tag files, as the Halo Editing Kit and Invader make them, with a `mod.toml` describing it. Every mod in the folder is on by default. Mods in the main menu turns them on and off and sets their order. Think of it like a resource pack list, the mod at the top plays over the ones below it. The game also refuses mods that say they cannot be played together. 
+Mods go in a `mods` folder next to `maps`. Each mod is a folder of Halo PC tag files, as the Halo Editing Kit and Invader make them, with a `mod.toml` describing it. Every mod in the folder is on by default. Mods in the main menu turns them on and off and sets their order. Think of it like a resource pack list, the mod at the top plays over the ones below it. The game also refuses mods that say they cannot be played together.
+
+Mods apply to Xbox and Custom Edition maps only. MCC maps always use their
+authored resources; loose-tag mods are bypassed.
 
 Refer to [docs/mods.md](docs/mods.md) to make your own.
-
 
 ## Graphics
 
@@ -151,6 +305,10 @@ The game retains the original look and feel as it did on the Xbox by default. Th
 | SHIELD COLOR | Your own shield in a multiplayer armor color, as your machine draws it | Default |
 | OVERSHIELD | The overshield's own color, rising up the body as it charges | Off |
 | PASSENGER THIRD PERSON | Third-person view for Warthog and Scorpion passengers (Campaign-only) | Off |
+
+Android builds omit the optional Dynamic Lighting renderer, including Shield
+Glow, after reports of rendering failures across devices. Stock lighting and
+effects remain. See [Android lighting availability](port/android/README.md#lighting-availability).
 
 
 ## How to build the game
@@ -199,6 +357,12 @@ of the processor that builds them (`-march=native`). Such a build does not
 always start on a different computer.
 
 ## For developers
+
+Start with the [GulchCE code reader's guide](docs/reading/README.md) for a
+route through startup, input and menus, gameplay objects, rendering,
+networking, map loading, platform support and testing. It includes a
+glossary of engine terms and C conventions, a detailed FOV walkthrough,
+dynamic lighting 1.0, and notes on the Vulkan and third-person branches.
 
 ### Testing
 
@@ -284,6 +448,9 @@ A profiling build plays with normal builds. It does not use
 
 The decompilation is of the Xbox build 2342 (`cachebeta.exe`, SHA-256
 `4cc87b45f721270392a96f1674ed2b5cd4a7bb4355faeab4531d1cf1884d9520`).
+
+GulchCE is a fork of [OpenCE](https://github.com/OpenCommunityEdition/OpenCE) The main contributor is Chester (@chestahh). Everyone else who has contributed is on the [contributors page](https://github.com/chestahh/GulchCE/graphs/contributors).
+
 OpenCE starts from the decompilation of
 [bnunu/halo-1](https://github.com/bnunu/halo-1), which is a fork of
 [punpckhdq/halo](https://github.com/punpckhdq/halo). The artists of the
@@ -292,7 +459,12 @@ high-res redraws are in [AUTHORS.md](AUTHORS.md). The main contributors are Jona
 
 ## Licence
 
-OpenCE is free software: you can give it to others and change it under the
+Optional bot and Android features credit their authors and earlier sources
+in [the provenance guide](docs/reading/bots_and_android_features.md).
+Adapted BirchWoodGod/thelinkin3000 bot tactics retain
+[GPL-3.0-only](LICENSES/GPL-3.0-only.txt), alongside the project's AGPL code.
+
+GulchCE is free software: you can give it to others and change it under the
 terms of the GNU Affero General Public License as published by the Free
 Software Foundation, version 3 of the License or (at your option) any later
 version (`AGPL-3.0-or-later`). It comes with no warranty. The full text is in
@@ -323,5 +495,5 @@ version (`AGPL-3.0-or-later`). It comes with no warranty. The full text is in
 
 
 ## Disclaimer
-OpenCE (Open Community Edition) is an unofficial fan project. It is not endorsed by or affiliated with Microsoft, Xbox Game Studios, Halo Studios, Activision or Bungie. Halo and Halo: Combat Evolved are trademarks of Microsoft Corporation; Halo © Microsoft Corporation.
+GulchCE is an unofficial fan project. It is not endorsed by or affiliated with Microsoft, Xbox Game Studios, Halo Studios, Activision or Bungie. Halo and Halo: Combat Evolved are trademarks of Microsoft Corporation; Halo © Microsoft Corporation.
 No game data is included. You must provide your own copy of the game.

@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""The wire format of HALO_PORT_NETWORK_VERSION (port/linux/network_format.txt).
+"""The combined OpenCE/MCC wire manifest (port/linux/network_format.txt).
+
+OpenCE protocol 41 is pinned separately by test_mcc_protocol.py. The combined
+manifest is versioned with MCC_PROTOCOL_VERSION; changing legacy wire items
+requires a verified upstream update as well, not merely an MCC version bump.
 
 Taken from the sources: the game's message numbers, sizes and fields
 (network_messages.c, .h), the distributed netcode's (network_*.c, .h,
@@ -55,6 +59,12 @@ def items():
         assert name not in result, f"{name} is declared twice"
         result[name] = str(value)
 
+    # Settings travel as the complete network_game record, in fragments.
+    game_header = re.sub(r"/\*.*?\*/|//[^\n]*", " ",
+                         (ROOT / "source/networking/network_game_manager.h").read_text(), flags=re.S)
+    for block in _blocks(game_header, r"^struct network_game\s*\{"):
+        add("struct network_game", _hash(block))
+
     for text in texts:
         for block in _blocks(text, r"^struct distributed_\w+\s*\{"):
             structs[re.match(r"struct (\w+)", block).group(1)] = block
@@ -81,7 +91,7 @@ def items():
     # the constants the structs' arrays are sized by, and the netcode's
     # DISTRIBUTED_ sizes in enums of no name, as their definitions' text, with
     # the names those use in turn
-    bounds = set()
+    bounds = {"HALO_PORT_NETWORK_GAME_SIZE", "HALO_PORT_NETWORK_GAME_LOCAL_DATA_OFFSET"}
     for name in sent:
         for size in re.findall(r"\[([^\]]+)\]", structs[name].split("{", 1)[1]):
             bounds |= set(re.findall(r"\b[A-Z_][A-Z0-9_]*\b", size))
@@ -127,12 +137,23 @@ def items():
         add(f"size {name}", " ".join(size.split()))
     for fields, name in re.findall(r"\t\{\n((?:\t\t.*\n)*?)\t\},\n\tNETWORK_GAME_MESSAGE_DEFINITION\((\w+),", messages):
         add(f"fields {name}", _hash(fields))
+    protocol = (ROOT / "port/linux/game/mcc_protocol.h").read_text()
+    for name, value in re.findall(r"^#define (MCC_PROTOCOL_\w+) ([^\n]+)", protocol, re.M):
+        add(f"define {name}", value)
+    workshop = (ROOT / "port/linux/game/mcc_workshop.h").read_text()
+    for name, value in re.findall(r"^#define (MCC_WORKSHOP_WIRE_\w+) ([^\n]+)", workshop, re.M):
+        add(f"define {name}", value)
+    camera = (ROOT / "port/linux/game/third_person_protocol.h").read_text()
+    for name, value in re.findall(r"^#define (THIRD_PERSON_PROTOCOL_\w+) ([^\n]+)", camera, re.M):
+        add(f"define {name}", value)
+    add("protocol OpenCE", re.search(r"#define HALO_PORT_NETWORK_VERSION (\d+)",
+        (ROOT / "port/linux/include/halo_port_limits.h").read_text()).group(1))
     return result
 
 
 def version():
-    limits = (ROOT / "port/linux/include/halo_port_limits.h").read_text()
-    return int(re.search(r"#define HALO_PORT_NETWORK_VERSION (\d+)", limits).group(1))
+    limits = (ROOT / "port/linux/game/mcc_protocol.h").read_text()
+    return int(re.search(r"#define MCC_PROTOCOL_VERSION (\d+)", limits).group(1))
 
 
 def recorded():
@@ -168,7 +189,7 @@ def record():
     recorded_version, old = recorded()
     breaking = changes(old, new)[0]
     if breaking and recorded_version == version():
-        sys.exit("changed or removed: " + ", ".join(breaking) + "\nraise HALO_PORT_NETWORK_VERSION first")
+        sys.exit("changed or removed: " + ", ".join(breaking) + "\nraise MCC_PROTOCOL_VERSION first (and verify the pinned OpenCE contract)")
     RECORD.write_text(f"version {version()}\n" + "".join(f"{name} {new[name]}\n" for name in sorted(new)))
 
 

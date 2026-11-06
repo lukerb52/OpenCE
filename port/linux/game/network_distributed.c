@@ -54,6 +54,7 @@ machine (their datum identifiers need not be).
 */
 
 #include "cseries.h"
+#include "mcc_cache.h"
 #include "cseries/errors.h"
 #include "cache/cache_files.h"
 #include "devices/devices.h"
@@ -78,6 +79,10 @@ machine (their datum identifiers need not be).
 #include "network_distributed.h"
 #include "network_link.h"
 #include "network_voice.h"
+#include "mcc_network.h"
+#include "mcc_script_effects.h"
+#include "mcc_object_names_network.h"
+#include "mcc_game_speed.h"
 #include "network_chat.h"
 #include "network_aim_assist.h"
 #include "network_shield_effects.h"
@@ -95,6 +100,8 @@ machine (their datum identifiers need not be).
 #include <stdio.h>
 #include <time.h>
 #include <math.h>
+#include "third_person.h"
+#include "third_person_protocol.h"
 
 /* network_game_globals.c's and network_server_message_handler.c's */
 boolean network_distributed_client_send(void *message, word size);
@@ -400,6 +407,7 @@ the tick after (distributed_relayed_action_write) */
 struct distributed_relayed_action
 {
 	byte player_index;
+	byte shoulder;
 	signed char desired_weapon_index;
 	signed char desired_grenade_index;
 	signed char desired_zoom_level;
@@ -2491,6 +2499,10 @@ static void distributed_take_prediction(
 	real_point3d position = state->position;
 	real dx, dy, dz;
 
+	/* MCC movement effects stay host-simulated, rather than widening the
+	 * security bounds on client-supplied positions and velocities. */
+	if (mcc_script_effects_host_movement())
+		return;
 	if (distributed_riding_elevator(unit_index))
 		position.z = object->object.position.z;
 	dx = position.x - object->object.position.x;
@@ -2687,6 +2699,7 @@ static void distributed_handle_unit_state(
 	}
 	if (state->player_index < MAXIMUM_TRACKED_PLAYERS)
 		distributed_deaths[state->player_index].dead_since = NONE;
+	network_objects_expect_live_unit(state->unit_index);
 	/* spawned on the host: the host's unit is the player's here too, once
 	this machine has it (network_objects.c) */
 	if (state->unit_index == NONE || !network_objects_client_has(state->unit_index) ||
@@ -2702,7 +2715,7 @@ static void distributed_handle_unit_state(
 		network_player_attach_unit(player_index, state->unit_index);
 		/* (a unit of a life this machine missed the end of, no player's
 		now: unit_kill_no_statistics is for players' units only) */
-		if (unit_index != NONE && unit_index != state->unit_index)
+		if (unit_index != NONE && unit_index != state->unit_index && !mcc_script_effects_preserve_body())
 			unit_kill(unit_index);
 	}
 	unit_index = state->unit_index;
@@ -2898,6 +2911,10 @@ static void distributed_handle_inputs(
 		/* (only bits: a client that sets them all has held every button) */
 		mutator_scripts_note_buttons(input->player_index, (byte)action.pad);
 		action.pad = 0;
+		/* Only the defined input bits are accepted; forced-off wins. */
+		action.control_flags &= 0x1FFFFUL;
+		if (third_person_policy() == _third_person_forced_off)
+			SET_FLAG(action.control_flags, THIRD_PERSON_INPUT_BIT, FALSE);
 		action.throttle.i = PIN(action.throttle.i, -1.0f, 1.0f);
 		action.throttle.j = PIN(action.throttle.j, -1.0f, 1.0f);
 		action.primary_trigger = PIN(action.primary_trigger, 0.0f, 1.0f);
@@ -2991,6 +3008,7 @@ static boolean distributed_relayed_action_from(
 
 	csmemset(relayed, 0, sizeof(*relayed));
 	relayed->player_index = (byte)player_index;
+	relayed->shoulder = TEST_FLAG(action->control_flags, THIRD_PERSON_INPUT_BIT) != 0;
 	relayed->desired_weapon_index = (signed char)action->desired_weapon_index;
 	relayed->desired_grenade_index = (signed char)action->desired_grenade_index;
 	relayed->desired_zoom_level = (signed char)MIN(action->desired_zoom_level, 127);
@@ -3001,6 +3019,7 @@ static boolean distributed_relayed_action_from(
 
 		relayed->control_flags[history] = past ? (unsigned short)past->control_flags : 0;
 		if (history > 0 && (!past || relayed->control_flags[history] != relayed->control_flags[history - 1] ||
+			TEST_FLAG(past->control_flags ^ action->control_flags, THIRD_PERSON_INPUT_BIT) ||
 			past->desired_weapon_index != action->desired_weapon_index ||
 			past->desired_grenade_index != action->desired_grenade_index ||
 			past->desired_zoom_level != action->desired_zoom_level))
@@ -3042,6 +3061,8 @@ static word distributed_relayed_action_write(
 	byte *cursor = buffer + 2;
 	short history;
 
+	if (third_person_session_active())
+		cursor = distributed_put(cursor, &relayed->shoulder, sizeof(relayed->shoulder));
 	cursor = distributed_put(cursor, &relayed->desired_weapon_index, sizeof(relayed->desired_weapon_index));
 	cursor = distributed_put(cursor, &relayed->desired_grenade_index, sizeof(relayed->desired_grenade_index));
 	cursor = distributed_put(cursor, &relayed->desired_zoom_level, sizeof(relayed->desired_zoom_level));
@@ -3083,6 +3104,8 @@ static word distributed_relayed_action_read(
 	csmemset(relayed, 0, sizeof(*relayed));
 	if (!distributed_take(&cursor, end, &relayed->player_index, sizeof(relayed->player_index)) ||
 		!distributed_take(&cursor, end, &parts, sizeof(parts)) ||
+		(third_person_session_active() && (!distributed_take(&cursor, end, &relayed->shoulder, sizeof(relayed->shoulder)) ||
+			relayed->shoulder > 1)) ||
 		!distributed_take(&cursor, end, &relayed->desired_weapon_index, sizeof(relayed->desired_weapon_index)) ||
 		!distributed_take(&cursor, end, &relayed->desired_grenade_index, sizeof(relayed->desired_grenade_index)) ||
 		!distributed_take(&cursor, end, &relayed->desired_zoom_level, sizeof(relayed->desired_zoom_level)) ||
@@ -3356,7 +3379,7 @@ static void distributed_host_send_players(
 			&distributed_host_update_number, sizeof(distributed_host_update_number));
 		for (player_index = 0; player_index < MAXIMUM_TRACKED_PLAYERS; player_index++)
 		{
-			byte entry[DISTRIBUTED_RELAYED_ACTION_MAXIMUM_SIZE];
+			byte entry[DISTRIBUTED_RELAYED_ACTION_MAXIMUM_SIZE + 1]; /* optional camera byte */
 
 			if (TEST_FLAG(distributed_sends[machine_index][player_index], _distributed_send_action_bit))
 			{
@@ -3404,6 +3427,7 @@ static void distributed_handle_actions(
 		data += size;
 		csmemset(&action, 0, sizeof(action));
 		action.control_flags = relayed.control_flags[0];
+		SET_FLAG(action.control_flags, THIRD_PERSON_INPUT_BIT, relayed.shoulder);
 		action.desired_facing.yaw = distributed_angle_unpack(relayed.yaw, FALSE);
 		action.desired_facing.pitch = distributed_angle_unpack(relayed.pitch, TRUE);
 		action.throttle.i = PIN((real)relayed.throttle_i / 127.0f, -1.0f, 1.0f);
@@ -4074,6 +4098,9 @@ static boolean distributed_message_stale(
 	case _distributed_message_coop_screen_effect:
 	case _distributed_message_coop_device_states:
 	case _distributed_message_votekick_status:
+	case _distributed_message_mcc_grenades:
+	case _distributed_message_mcc_campaign:
+	case _distributed_message_mcc_object_names:
 		break;
 	default:
 		return FALSE;
@@ -4666,6 +4693,8 @@ static void distributed_note_client_clock(
 	unsigned long now = system_milliseconds();
 	unsigned long elapsed;
 
+	/* MCC clocks include only host-approved speed changes. Other maps use wall time. */
+	now = mcc_game_speed_clock(now);
 	if (machine_index < 0 || machine_index >= HALO_PORT_MAXIMUM_NETWORK_MACHINES)
 		return;
 	clock = &distributed_client_clocks[machine_index];
@@ -4828,6 +4857,9 @@ void network_distributed_handle_message(
 	if (size < sizeof(header) || !game_in_progress())
 		return;
 	csmemcpy(&header, message, sizeof(header));
+	/* MCC messages never execute in an ordinary OpenCE session, even in a batch. */
+	if (header.type >= _distributed_message_mcc_grenades && !mcc_cache_tags_loaded())
+		return;
 	/* a tick's messages in one: each as if it came alone */
 	if (header.type == _distributed_message_batch)
 	{
@@ -4866,6 +4898,15 @@ void network_distributed_handle_message(
 	case _distributed_message_unit_states: entry_size = DISTRIBUTED_UNIT_STATE_MINIMUM_SIZE; break;
 	case _distributed_message_player_statistics: entry_size = sizeof(struct distributed_player_statistics); break;
 	case _distributed_message_pings: entry_size = sizeof(struct distributed_player_ping); break;
+	case _distributed_message_mcc_grenades: entry_size = mcc_network_inventory_entry_size(); break;
+	case _distributed_message_mcc_campaign: entry_size = mcc_network_campaign_entry_size(); break;
+	case _distributed_message_mcc_game_speed:
+		/* A clock command is host-only and ordered, never accepted from datagrams. */
+		if (machine_index != NONE || network_connection_last_read_was_unreliable() ||
+			header.count != 1 || size != sizeof(header) + sizeof(real)) return;
+		entry_size = sizeof(real);
+		break;
+	case _distributed_message_mcc_object_names: entry_size = mcc_object_names_entry_size(); break;
 	case _distributed_message_actor_states: entry_size = network_actors_entry_size(); break;
 	case _distributed_message_structure_bsp: entry_size = sizeof(struct distributed_structure_bsp); break;
 	case _distributed_message_coop_presentation: entry_size = network_coop_presentation_entry_size(); break;
@@ -5083,6 +5124,18 @@ void network_distributed_handle_message(
 	}
 	case _distributed_message_inventories:
 		network_objects_handle_inventories(entries, header.count);
+		break;
+	case _distributed_message_mcc_grenades:
+		mcc_network_handle_inventories(entries, header.count);
+		break;
+	case _distributed_message_mcc_campaign:
+		mcc_network_handle_campaign(entries, header.count);
+		break;
+	case _distributed_message_mcc_game_speed:
+		mcc_game_speed_receive(entries, header.count);
+		break;
+	case _distributed_message_mcc_object_names:
+		mcc_object_names_receive(entries, header.count, header.game_time);
 		break;
 	case _distributed_message_object_changes:
 		network_objects_handle_changes(entries, header.count);

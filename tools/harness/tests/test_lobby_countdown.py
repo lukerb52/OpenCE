@@ -18,8 +18,11 @@ CASES = [
     "two-machines-team-game-needs-both-teams", "playerless-machine-keeps-countdown",
     "split-screen-team-game-one-team", "dedicated-one-team-starts", "dedicated-both-teams-waits",
     "dedicated-below-minimum-waits", "dedicated-minimum-clamped", "dedicated-director-refuses",
+    "one-bot-start", "31-bots-start", "63-bots-start", "split-screen-bots-start",
+    "bots-team-rule", "bots-minimum-rule", "bots-paused", "bots-no-machine",
+    "bots-existing-countdown", "bots-second-machine", "bots-ownership-lifecycle",
     "dedicated-start-now-five-seconds",
-    "split-screen-team-game-one-team", "host-start-now-starts", "host-start-now-ends-countdown",
+    "host-start-now-starts", "host-start-now-ends-countdown",
     "split-screen-host-start-now-starts", "client-start-now-five-seconds", "host-start-now-team-game-needs-both-teams",
 ]
 FUNCTIONS = (
@@ -39,6 +42,10 @@ CONSTANTS = (
 
 # a fault in network_server_manager.c, the function it is in, and the case that must catch it
 NEGATIVE_CONTROLS = {
+    "bot-start-hook-missing": (
+        ("bots_lobby_can_start(&server->game)", "FALSE"),
+        "network_game_server_update_countdown", "31-bots-start",
+    ),
     "one-player-only": (
         ("else if ((short)player->machine_index != first_machine_index)", "else"),
         "server_players_on_one_machine", "split-screen-start-now",
@@ -129,7 +136,15 @@ def generated(fault=None, faulty_function=None):
         config += structure(source, name) + "\n"
     config += enum_with(read("port/linux/game/server_director.h"), "_server_state_lobby") + "\n"
     config += "#define MAX(a, b) ((a) > (b) ? (a) : (b))\n"
+    config += f"#define BOTS_MAXIMUM {constant(read('port/linux/game/bots.h'), 'BOTS_MAXIMUM')}\n"
+    config += "#define BOTS_FIRST_MACHINE (MAXIMUM_NETWORK_MACHINE_COUNT - BOTS_MAXIMUM)\n"
     text = ""
+    network_bots = read("port/linux/game/bots_network.c")
+    text += "\n".join(re.findall(r"^static long population_.*;", network_bots, re.M)) + "\n"
+    text += function(read("port/linux/game/bots.c"), "bots_machine_is_bot") + "\n"
+    for name in ("bots_network_session_begin", "bots_network_session_end", "bots_player_ownership",
+                 "bots_player_owned", "bots_session_allowed", "bots_lobby_can_start"):
+        text += function(network_bots, name) + "\n"
     for name in DIRECTOR_FUNCTIONS:
         code = re.sub(r'(?<!")\bserver\.', "director.", function(director, name))
         if fault and name == faulty_function:

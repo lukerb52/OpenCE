@@ -248,7 +248,11 @@ def generate_web_build(n: Writer, sln: Any) -> None:
             cflags += " -Dmain=halo_game_main"
         add_object(source, cflags)
     for source in sorted(Path(config["game_sources"]).glob("*.c")):
-        add_object(source, game_cflags)
+        cflags = game_cflags
+        # The main menu labels the executable with its release number.
+        if source.as_posix() == "port/linux/game/menu_functions.c":
+            cflags += " " + updater_defines(release)
+        add_object(source, cflags)
     add_object(STB_VORBIS_SOURCE, game_cflags)
 
     # ---------- the platform layer and the web runtime
@@ -345,7 +349,10 @@ def generate_web_build(n: Writer, sln: Any) -> None:
         command="$web_emcc $ldflags -o $out @$out.rsp",
         description="WEB LINK $out",
         rspfile="$out.rsp",
-        rspfile_content="$in_newline",
+        # Emscripten parses response files as shell words even on Windows.
+        # Native backslashes are escapes there; quote portable paths so both
+        # separators and source directories containing spaces survive.
+        rspfile_content=" ".join(f'"{obj.as_posix()}"' for obj in objects),
     )
     n.build(outputs=halo_js, implicit_outputs=[halo_wasm], rule="web_link", inputs=objects,
             implicit=[library_js, pre_js, SDL_PORT, sdl_stamp], variables={"ldflags": " ".join(link_flags)})
@@ -368,7 +375,9 @@ def generate_web_build(n: Writer, sln: Any) -> None:
         command=f"$python {PORT_DIR}/licenses.py $out {sdl_license}",
         description="WEB LICENSES $out",
     )
-    n.build(outputs=licenses, rule="web_licenses", implicit=[PORT_DIR / "licenses.py", Path("LICENSE"), sdl_license])
+    n.build(outputs=licenses, rule="web_licenses", implicit=[PORT_DIR / "licenses.py", Path("LICENSE"), sdl_license,
+            Path("port/third_party/dualsense/TriggerEffectGenerator-LICENSE.txt"),
+            Path("LICENSES/GPL-3.0-only.txt"), Path("docs/reading/bots_and_android_features.md")])
     site_files.append(licenses)
     n.rule(
         name="web_version",

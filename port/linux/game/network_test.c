@@ -57,6 +57,7 @@ Called from the main loop every frame (main.c).
 */
 
 #include "cseries.h"
+#include "third_person.h"
 #include "game_modes.h"
 #include "main/main.h"
 #include "bink/bink_playback.h"
@@ -80,6 +81,7 @@ Called from the main loop every frame (main.c).
 #include "scenario/scenario.h"
 #include "tag_files/tag_files.h"
 #include "camera/observer.h"
+#include "mcc_cache.h"
 #include "hs/hs.h"
 
 #include "../src/p2p.h" /* port: port/linux/src/p2p.c, p2p_lobby.c */
@@ -449,6 +451,7 @@ static void network_test_log_players(
 
 		platform_log("network test: tick %ld%s | items %ld (+%ld -%ld !%ld x%ld) | %s to %ld | sent %ld received %ld corrected %ld"
 			" | hits %ld dealt %ld rejected %ld replayed %ld | local %ld camera (%.1f %.1f %.1f) respawn %ld"
+			" | camera-policy %d preference %d effective %d active %d"
 			" | drift %ld %ld %.6f %.6f",
 			game_time_get(), line, ground_items, creates, deletes, failures, removed,
 			game_engine_can_score() ? "playing" : "game over",
@@ -458,6 +461,8 @@ static void network_test_log_players(
 			local_player_index == NONE ? -1L : (long)DATUM_INDEX_TO_ABSOLUTE_INDEX(local_player_index),
 			camera ? camera->position.x : 0.0f, camera ? camera->position.y : 0.0f, camera ? camera->position.z : 0.0f,
 			local_player_index == NONE ? 0L : (long)player_get(local_player_index)->respawn_timer,
+			(int)third_person_policy(), config_boolean("display.third_person"),
+			(int)third_person_enabled(), (int)third_person_active(0),
 			divergence_samples, divergence_apart, divergence_mean, divergence_largest);
 	}
 	/* each vehicle an add-on placed (addons.c): where it is, how fast it
@@ -1526,7 +1531,9 @@ void network_test_update(
 		}
 	}
 
-	if (!main_menu_loaded)
+	/* The real menu waits for profile enumeration before accepting input.
+	Starting a lobby sooner can block its join on the profile mutex. */
+	if (!main_menu_loaded || filesystem_check_thread_is_active())
 		return;
 	/* the intro movie skipped first, as a button press does: the movie
 	holds the texture cache's spare memory, which starting the map
@@ -1655,8 +1662,12 @@ void network_test_update(
 				{
 					/* (the Map screen's co-op: menu_functions.c) */
 					extern boolean ui_widget_port_cooperative_level_choose(char const *map_name, short difficulty);
+					extern boolean ui_widget_port_mcc_cooperative_level_choose(char const *map_name, short difficulty);
 
-					if (!ui_widget_port_cooperative_level_choose(path, _game_difficulty_level_normal))
+					/* Exercise the same independent MCC route as its campaign menu. */
+					if (!(mcc_level_name(path) ?
+						ui_widget_port_mcc_cooperative_level_choose(path, _game_difficulty_level_normal) :
+						ui_widget_port_cooperative_level_choose(path, _game_difficulty_level_normal)))
 						platform_log("network test: %s is not a campaign level, for co-op", path);
 					platform_log("network test: game %d, co-op", network_test.variant_index + 1);
 				}

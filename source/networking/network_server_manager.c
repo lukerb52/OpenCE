@@ -469,12 +469,16 @@ symbols in this file:
 #include "networking/network_server_manager.h"
 #include "networking/network_server_manager_internal.h"
 #include "networking/network_server_message_handler.h"
+#include "mcc_protocol.h" /* port: capability lifetime belongs to the connection */
+#include "mcc_ui_network.h"
 #include "network_link.h" /* port: port/linux/game/network_link.c */
 #include "saved games/player_profile.h"
 #include "text/unicode.h"
 
 #include "cache/cache_files.h"
 #include "interface/player_ui.h"
+#include "third_person.h" /* port: port/linux/game/third_person_policy.c */
+#include "third_person_protocol.h" /* port: session compatibility lifecycle */
 #include "tag_files/tag_files.h"
 #include "map_share.h" /* port: port/linux/game/map_share.c */
 #include "server_director.h" /* port: port/linux/game/server_director.c */
@@ -1323,8 +1327,15 @@ struct network_game_server *network_game_server_create(
 				network_game_server_reject_connection_game_is_full);
 
 			network_game_invalidate(&server->game);
+			/* port: every match path, including quickstart and co-op, starts
+			with the host's camera rule. Subsequent rounds retain it. */
+			third_person_session_host_begin();
+			if (third_person_session_active())
+				server->game.cooperative_flags |= third_person_host_policy() << THIRD_PERSON_POLICY_SHIFT;
 
 			server->game.difficulty = main_get_difficulty();
+			mcc_protocol_reset(); /* port: a fresh server has no negotiated MCC peers */
+			bots_network_session_begin(); /* port: reserve bot IDs only for an opted-in host */
 			server->game.number_of_games_played = -1;
 
 			for (i = 0; i < MAXIMUM_NETWORK_MACHINE_COUNT; i++)
@@ -1371,6 +1382,10 @@ struct network_game_server *network_game_server_create(
 void network_game_server_dispose(
 	struct network_game_server *server)
 {
+	mcc_protocol_reset(); /* port: no stale MCC peer pointers */
+	third_person_session_host_end(); /* port: discard the prior camera contract */
+	bots_network_session_end(); /* port: bot policy belongs to this host alone */
+	mcc_ui_network_server_dispose(server);
 	match_assert(NETWORK_SERVER_MANAGER_FILE, 0x120, server);
 
 	/* port: a won co-op round's next level belongs to this server alone */
@@ -1539,7 +1554,8 @@ static void network_game_server_list(
 	char gametype[NUMBEROF(game->variant.human_readable_game_description) + 1];
 	boolean in_progress = state != _network_game_server_state_pregame || network_game_server_game_is_loading(server);
 	boolean open = state == _network_game_server_state_ingame ? network_game_server_accepts_late_joins(server) :
-		network_game_server_game_is_open(server) && network_game_has_free_player_slot(game);
+		network_game_server_game_is_open(server) &&
+		(network_game_has_free_player_slot(game) || bots_population_can_join(server)); /* port: bots yield to humans */
 
 	listing_text(name, sizeof(name), game->name, NUMBEROF(game->name));
 	listing_text(gametype, sizeof(gametype), game->variant.human_readable_game_description,
@@ -1560,15 +1576,14 @@ static void network_game_server_list(
 }
 
 /* port: the bots (port/linux/game/bots.c, the settings' bots.count and
-bots.teams): in the lobby of a local (split screen) Slayer game, as many bot
+bots.teams): in an allowed lobby (bots_session_allowed), as many bot
 players as the settings ask for, as far as the game has room, each the one
 player of a machine of its own (BOTS_FIRST_MACHINE up, which no real machine
 is). In a team game they even the teams with the players or, for bots.teams
 "against", all take the team the players are not on; the players may change
 teams in the lobby, and the bots follow. They leave when the setting asks
-for fewer, or the game is another gametype. Not once the game has been
-started, nor in a game other machines may join (system link and internet
-games: no bots there, which would need the clients told) */
+for fewer or the gametype is unsupported. Admission ends when the game
+starts. Optional network bots use existing player records and tick actions */
 static void network_game_server_port_bots(
 	struct network_game_server *server)
 {
@@ -1582,8 +1597,9 @@ static void network_game_server_port_bots(
 
 	if (server->state != _network_game_server_state_pregame || server->sent_start_game_message)
 		return;
-	if (network_game_is_splitscreen_local() && server->game.variant.game_engine_index == game_engine_slayer)
-		wanted = PIN(bots_wanted_count(), 0, BOTS_MAXIMUM);
+	/* port: optional bot objectives are selected by the feature module. */
+	if (bots_session_allowed() && bots_gametype_allowed(server->game.variant.game_engine_index))
+		wanted = PIN(bots_population_wanted(&server->game), 0, BOTS_MAXIMUM); /* port: humans replace network bots */
 	for (bot_index = 0; bot_index < BOTS_MAXIMUM; bot_index++)
 		slot_of_bot[bot_index] = NONE;
 	for (slot = 0; slot < MAXIMUM_NETWORK_PLAYER_COUNT; slot++)
@@ -1592,7 +1608,8 @@ static void network_game_server_port_bots(
 
 		if (!network_player_is_valid(player))
 			continue;
-		if (bots_machine_is_bot(player->machine_index))
+		/* port: only players this host actually added as bots, never high-ID clients. */
+		if (bots_player_owned(player->machine_index))
 			slot_of_bot[player->machine_index - BOTS_FIRST_MACHINE] = slot;
 		else if (VALID_INDEX(player->team_index, NUMBER_OF_MULTIPLAYER_TEAMS))
 		{
@@ -1614,6 +1631,7 @@ static void network_game_server_port_bots(
 
 			if (network_game_remove_player(&server->game, &leaving))
 			{
+				bots_player_ownership(leaving.machine_index, FALSE); /* port: release this bot's identity */
 				network_event("bots: bot %ld left the lobby", bot_index + 1);
 				changed = TRUE;
 			}
@@ -1643,6 +1661,7 @@ static void network_game_server_port_bots(
 			joining.player_list_index = NONE;
 			if (!network_game_add_player(&server->game, &joining))
 				break;
+			bots_player_ownership(joining.machine_index, TRUE); /* port: host-owned synthetic player */
 			network_event("bots: bot %ld joined the lobby (team %ld)", bot_index + 1, team_index);
 			changed = TRUE;
 		}
@@ -1656,6 +1675,11 @@ static void network_game_server_port_bots(
 	if (changed && !network_game_server_send_game_data_pregame(server))
 		network_event("network_game_server_port_bots() failed to send updated game settings to clients");
 }
+
+/* port: host bot controls need this module's private player dispatch. */
+#include "bots_management.inl"
+/* port: automatic replacement/restoration owns its state in the bot feature. */
+#include "bots_population.inl"
 
 boolean network_game_server_idle(
 	struct network_game_server *server)
@@ -1673,11 +1697,13 @@ boolean network_game_server_idle(
 		}
 	}
 
+	mcc_ui_network_update_map(server); /* port: apply pending MCC selection after local admission */
 	/* port: the bots of a local game (port/linux/game/bots.c) */
 	network_game_server_port_bots(server);
+	bots_population_update(server); /* port: restore network bots after humans leave */
 	/* (what Discord shows of a game hosted for internet play, and the
 	server browser's listing) */
-	p2p_set_game_player_counts(server->game.player_count, server->game.maximum_players);
+	p2p_set_game_player_counts(bots_human_count(&server->game), server->game.maximum_players); /* port: advertise humans */
 	network_game_server_list(server);
 
 	if (network_game_server_game_is_valid(server))
@@ -1938,6 +1964,10 @@ boolean network_game_server_start_network_game(
 	boolean success = TRUE;
 
 	match_assert(NETWORK_SERVER_MANAGER_FILE, 0x2DE, server);
+	/* port: an MCC check still in progress is a successful idle, not a failed
+	connection. Keep the countdown pending until its validated settings are sent. */
+	if (mcc_ui_network_map_pending(server)) return TRUE;
+	third_person_session_lock(); /* port: non-menu hosts also fix the session contract before starting */
 
 	if (server->sent_start_game_message == FALSE)
 	{
@@ -2661,6 +2691,7 @@ boolean network_game_server_add_player_to_game(
 
 	if (machine->machine_index == player->machine_index)
 	{
+		bots_population_pregame_join(server, player); /* port: a validated human can replace a lobby bot */
 		/* port: the smaller team (the Xbox game took turns with a counter of
 		its own, which a failed add or an earlier game moved on) */
 		{
@@ -2804,6 +2835,7 @@ void network_game_server_update_ticks(
 			}
 			if (server->queued_player_valid)
 			{
+				boolean waiting_for_bot = FALSE; /* port: retain joins while a bot's departure completes */
 				/* (a machine's slot is its index; the handlers queued only a
 				machine's own players) */
 				client_machine_index = server->queued_player.machine_index;
@@ -2823,6 +2855,10 @@ void network_game_server_update_ticks(
 				if (client_machine && map_share_machine_needs_map(client_machine->machine_index))
 				{
 					network_game_server_hold_requested_player(client_machine_index, &server->queued_player);
+				}
+				else if (client_machine && bots_population_wait_for_slot(server, &server->queued_player))
+				{
+					waiting_for_bot = TRUE; /* port: bounded wait, ordinary departure and addition messages */
 				}
 				else if (client_machine &&
 					network_game_server_machine_may_add_player_ingame(server, client_machine_index) &&
@@ -2873,7 +2909,7 @@ void network_game_server_update_ticks(
 					}
 				}
 
-				server->queued_player_valid = FALSE;
+				if (!waiting_for_bot) server->queued_player_valid = FALSE; /* port: retry the reserved human */
 			}
 		}
 		break;
@@ -2905,7 +2941,7 @@ boolean network_game_server_accepts_late_joins(
 	refused, network_game_server_refuse_late_joiner) */
 	return server->state == _network_game_server_state_ingame &&
 		network_game_server_game_is_open(server) &&
-		network_game_has_free_player_slot(&server->game);
+		(network_game_has_free_player_slot(&server->game) || bots_population_can_join(server)); /* port: replaceable bots */
 }
 
 boolean network_game_server_client_machine_is_loaded(
@@ -3803,6 +3839,8 @@ void network_game_server_change_map_name(
 		server && map_name && map_name[0]);
 	match_assert(NETWORK_SERVER_MANAGER_FILE, 0x79C,
 		server->state == _network_game_server_state_pregame);
+	/* port: MCC package work waits for local admission; legacy selections remain immediate. */
+	if (mcc_ui_network_defer_map(server, map_name)) return;
 
 	for (client_machine_index = 0;
 		client_machine_index < MAXIMUM_NETWORK_MACHINE_COUNT;
@@ -3869,6 +3907,7 @@ boolean network_game_server_remove_client_machine_from_game(
 
 	match_assert(NETWORK_SERVER_MANAGER_FILE, 0x22F, server);
 	match_assert(NETWORK_SERVER_MANAGER_FILE, 0x230, client);
+	mcc_protocol_forget(client); /* port: reused slots must renegotiate MCC */
 
 	if (_network_game_server_state_ingame == server->state)
 	{
@@ -4296,7 +4335,9 @@ void network_game_server_update_countdown(
 					if (!halo_server_mode() &&
 						(network_game_should_accept_remote_connections() == FALSE ||
 						network_game_server_get_client_machine_count(server) > 1 ||
-						server_players_on_one_machine(server)))
+						server_players_on_one_machine(server) ||
+						/* port: owned bots have machine IDs but no connections. */
+						bots_lobby_can_start(&server->game)))
 					{
 						unsigned long countdown;
 
@@ -4631,6 +4672,19 @@ void network_game_server_port_set_cooperative_friendly_fire(
 		network_event("network_game_server_port_set_cooperative_friendly_fire() failed to send updated game settings to clients");
 }
 
+/* port: update the authoritative pregame record, including late joiners. */
+void network_game_server_port_set_camera_policy(short policy)
+{
+	struct network_game_server *server = global_network_game_server_get();
+	if (!server || server->state != _network_game_server_state_pregame ||
+		!third_person_session_active() || policy < _third_person_player_choice || policy > _third_person_forced_off)
+		return;
+	server->game.cooperative_flags = (server->game.cooperative_flags & ~THIRD_PERSON_POLICY_MASK) |
+		(policy << THIRD_PERSON_POLICY_SHIFT);
+	if (!network_game_server_send_game_data_pregame(server))
+		network_event("failed to send updated camera policy to clients");
+}
+
 void network_game_server_port_set_cooperative_player_collisions(
 	boolean player_collisions)
 {
@@ -4794,6 +4848,8 @@ static boolean network_game_server_setup_game_from_playlist(
 {
 	boolean success = FALSE;
 
+	if (mcc_ui_network_restart_settings(server)) return TRUE;
+
 	match_assert(NETWORK_SERVER_MANAGER_FILE, 0x961, server);
 
 	network_event("setting up a net game");
@@ -4840,6 +4896,8 @@ static boolean network_game_server_add_new_client(
 {
 	boolean success = FALSE;
 	int i;
+	/* port: optional bot identities are host-owned, never assigned to a client. */
+	long machine_slots = bots_network_reserved() ? BOTS_FIRST_MACHINE : MAXIMUM_NETWORK_MACHINE_COUNT;
 
 	match_assert(NETWORK_SERVER_MANAGER_FILE, 0x7D4, server && new_connection);
 
@@ -4847,7 +4905,7 @@ static boolean network_game_server_add_new_client(
 	load the game is told so, network_game_server_handle_message_client_join_game_request) */
 	if (TEST_FLAG(server->flags, _network_game_server_game_open_bit))
 	{
-		for (i = 0; i < MAXIMUM_NETWORK_MACHINE_COUNT; i++)
+		for (i = 0; i < machine_slots; i++)
 		{
 			if (server->client_machines[i].machine_index == NONE)
 			{
@@ -4931,7 +4989,7 @@ static boolean network_game_server_add_new_client(
 			}
 		}
 
-		if (i == MAXIMUM_NETWORK_MACHINE_COUNT)
+		if (i == machine_slots)
 		{
 			network_event(
 				"failed to find an available machine slot in network_game_server_add_new_client()");
@@ -5311,7 +5369,7 @@ static boolean network_game_server_idle_pregame_tasks(
 				!network_game_server_client_machine_is_local(server, client_machine) &&
 				!network_game_server_machine_has_players(server, client_machine->machine_index) &&
 				!map_share_machine_downloading(client_machine->machine_index) &&
-				(!network_game_has_free_player_slot(&server->game) ||
+				((!network_game_has_free_player_slot(&server->game) && !bots_population_can_join(server)) || /* port: allow bot replacement */
 					system_milliseconds() - network_game_server_client_machine_join_times[client_machine->machine_index] >
 						NETWORK_GAME_SERVER_PLAYERLESS_MACHINE_TIMEOUT))
 			{
@@ -5632,3 +5690,6 @@ boolean network_game_server_reset_to_pregame(
 
 	return success;
 }
+
+/* Independent MCC pause-menu round restart. */
+#include "mcc_ui_network.inl"

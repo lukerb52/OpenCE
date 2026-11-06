@@ -50,6 +50,7 @@ from PIL import Image
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from hud_assets import bleed, render_svg  # noqa: E402
 import port_settings  # noqa: E402
+import changelog_menu  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 MENUS = ROOT / "port/assets/menus"
@@ -612,9 +613,60 @@ def pause_art(art):
     return lines
 
 
+def regenerate_pause_art():
+    """Regenerate port-owned pause art without requiring the PC tag archive."""
+    import re
+    art = Art.__new__(Art)
+    art.pngs = []
+    lines = pause_art(art)
+    path = CE / "bitmaps.xml"
+    text = path.read_text()
+    pattern = r'\t<bitmap name="pause/(?:pausebox|objectives)_[^"]+">.*?</bitmap>\n'
+    matches = list(re.finditer(pattern, text, flags=re.S))
+    position = matches[0].start()
+    text = re.sub(pattern, "", text, flags=re.S)
+    text = text[:position] + "\n".join(lines) + "\n" + text[position:]
+    path.write_text(text)
+    manifest = MENUS / "menus.json"
+    data = json.loads(manifest.read_text())
+    files = set(data["files"]) | set(art.pngs)
+    data["files"] = sorted(name for name in files if name.endswith(".xml")) + sorted(
+        name for name in files if not name.endswith(".xml"))
+    manifest.write_text(json.dumps(data, indent=1) + "\n")
+
+
+def regenerate_child_offsets():
+    """Apply the same child positions to existing XML without the PC tags."""
+    import re
+    for path in CE.glob("*.xml"):
+        original = path.read_text()
+        parent = None
+        lines = []
+        for line in original.splitlines(keepends=True):
+            widget = re.match(r'\t<widget name="([^"]+)"', line)
+            if widget:
+                parent = "ui\\shell\\" + widget[1].replace("/", "\\")
+            child = re.match(r'\t\t<child widget="([^"]+)"', line)
+            if child:
+                tag = "ui\\shell\\" + child[1].replace("/", "\\")
+                position = CHILD_OFFSETS.get((parent, tag))
+                if position is not None:
+                    for axis, value in zip(("x", "y"), position):
+                        attribute = f' {axis}="{value}"'
+                        pattern = rf' {axis}="[^"]*"'
+                        if re.search(pattern, line):
+                            line = re.sub(pattern, attribute, line)
+                        elif value:
+                            line = line.replace("/>", attribute + "/>")
+            lines.append(line)
+        updated = "".join(lines)
+        if updated != original:
+            path.write_text(updated)
+
+
 def regenerate_settings():
     """Write port-owned settings and register any new screens for embedding."""
-    screens = port_settings.settings_files()
+    screens = {**port_settings.settings_files(), **port_settings.multiplayer_files()}
     for name, lines in screens.items():
         (CE / name).write_text("\n".join(lines))
     manifest = MENUS / "menus.json"
@@ -627,16 +679,29 @@ def regenerate_settings():
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--pause-art-only", action="store_true", help="regenerate only the port-owned pause panels")
+    parser.add_argument("--child-offsets-only", action="store_true", help="apply child positions to existing menu XML")
+    parser.add_argument("--changelog-only", action="store_true", help="regenerate only the sample changelog menus")
     parser.add_argument("--settings-only", action="store_true", help="regenerate port-owned settings screens and their manifest")
-    parser.add_argument("--tags", type=Path, required="--settings-only" not in sys.argv)
-    parser.add_argument("--definitions", type=Path, required="--settings-only" not in sys.argv)
-    parser.add_argument("--redraws", type=Path, required="--settings-only" not in sys.argv)
-    parser.add_argument("--placeholder", type=Path, required="--settings-only" not in sys.argv, help="the picture for frames with no redraw")
+    partial_only = any(option in sys.argv for option in ("--pause-art-only", "--child-offsets-only", "--changelog-only", "--settings-only"))
+    parser.add_argument("--tags", type=Path, required=not partial_only)
+    parser.add_argument("--definitions", type=Path, required=not partial_only)
+    parser.add_argument("--redraws", type=Path, required=not partial_only)
+    parser.add_argument("--placeholder", type=Path, required=not partial_only, help="the picture for frames with no redraw")
     parser.add_argument("--pictures", type=Path,
                         help="the PC version's pictures, as PNGs by tag path: only where each is, to place its placeholder")
     arguments = parser.parse_args()
     if arguments.settings_only:
         regenerate_settings()
+        return
+    if arguments.changelog_only:
+        changelog_menu.regenerate()
+        return
+    if arguments.child_offsets_only:
+        regenerate_child_offsets()
+        return
+    if arguments.pause_art_only:
+        regenerate_pause_art()
         return
     tags = Tags(arguments.tags, arguments.definitions)
     # (the names of the Xbox's own as the game has them, which the tags' own
@@ -689,6 +754,9 @@ def main() -> None:
         (CE / f"{folder.replace('/', '.')}.xml").write_text("\n".join(lines) + "\n")
     for name, lines in [*port_settings.settings_files().items(), *port_settings.multiplayer_files().items()]:
         (CE / name).write_text("\n".join(lines))
+    main_menu = CE / "main_menu.xml"
+    main_menu.write_text(changelog_menu.insert_item(main_menu.read_text()))
+    changelog_menu.generate(art)
     # their strings
     (CE / "strings.xml").write_text(strings_xml({
         tag: [text_value(item["string"]) for item in tags.load(tag, "unicode_string_list")["strings"]]
@@ -795,7 +863,9 @@ def main() -> None:
     report += ["", "Wired: " + ", ".join(f"`{name}`" for name in sorted(WIRED)) + ".", ""]
     (MENUS / "UNWIRED.md").write_text("\n".join(report))
     files = sorted(path.relative_to(MENUS).as_posix() for path in MENUS.rglob("*.xml"))
-    files += sorted(art.pngs)
+    # The optional frontend's independent generator owns these redraws.
+    files += sorted(set(art.pngs) | {path.relative_to(MENUS).as_posix()
+                                   for path in (MENUS / "modern").glob("*.png")})
     (MENUS / "menus.json").write_text(json.dumps({
         "comment": "The menus' files the game embeds (tools/ce_menus.py, tools/embed_assets.py).",
         "files": files,

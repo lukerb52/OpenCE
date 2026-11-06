@@ -28,9 +28,9 @@ MODS_ITEM_PLACE = (192, 391)
 QUIT_ITEM_PLACE = (192, 427)
 YES_NO = [("YES", "true"), ("NO", "false")]
 ON_OFF = [("ON", "true"), ("OFF", "false")]
-# the multiplayer armor colors, in the profile's order (player_profile.c)
-SHIELD_COLORS = ["white", "black", "red", "blue", "gray", "yellow", "green", "pink", "purple", "cyan", "cobalt",
-                 "orange", "teal", "sage", "brown", "tan", "maroon", "salmon"]
+MENU_STYLE = ("MENU STYLE:", "display.menu_frontend",
+              [("STOCK", "off"), ("MODERN", "modern"), ("CLASSIC PC", "pc"), ("XBOX", "xbox")],
+              "Choose the menu style. Applies on return to the\nmain menu; pause menus keep their existing style.", None)
 XBOX_BUTTON_STYLES = [("XBOX CLASSIC", "classic"), ("XBOX GEMS", "gems"),
                      ("XBOX DARK GEMS", "menu_gems"), ("XBOX MODERN", "xbox_modern")]
 PS_BUTTON_STYLES = [("PS CLASSIC", "ps_classic"), ("PS GEMS", "ps_gems"),
@@ -59,13 +59,10 @@ SCREENS = {
     "video_settings": {
         "screen": "video_settings_screen",
         "header": ("header_profile_video_settings", f"{PE}/video_settings/header_profile_video_settings"),
-        # a 28px step (the other screens' 30 would take the desktop's ten
-        # rows into the help: Graphics' is 27). each platform packs its own
-        # rows, so a row hidden on this machine does not leave a gap
-        "spacing": 28,
-        # (below the desktop's last row, 353: its two lines clear of the
-        # buttons, 414)
-        "help_top": 358, "help_height": 54,
+        # Desktop rows and categories fit above the help text.
+        # Each platform packs its own rows without gaps for hidden entries.
+        "spacing": 26,
+        "help_top": 364,
         "platform_places": True,
         # (rows in the place of the row before them: Window Size in
         # Resolution's, port/linux/game/menu_functions.c showing the one the
@@ -110,6 +107,8 @@ SCREENS = {
              "Draw the HUD from the high-res redraws; off\ndraws the game's own pictures.", None),
             ("HIGH-RES TEXT:", "display.high_res_text", ON_OFF,
              "Draw text and titles with high-res fonts; off\ndraws the game's own.", None),
+            ("WIDESCREEN LOADING:", "display.widescreen_loading", ON_OFF,
+             "Widen the original loading screen, keeping its\nstock sweep and glow trails. Includes MCC.", None),
             ("ANTI-ALIASING:", "display.anti_aliasing",
              [("OFF", "off"), ("FXAA", "fxaa"), ("SMAA", "smaa"), ("SSAA 2X", "ssaa2x"), ("MSAA 2X", "msaa2x"),
               ("MSAA 4X", "msaa4x"), ("MSAA 8X", "msaa8x")],
@@ -200,7 +199,7 @@ SCREENS = {
     "network_setup": {
         "screen": "network_settings_screen",
         "header": ("header_profile_network_settings", f"{PE}/network_setup/header_profile_network_settings"),
-        "spacing": 30,
+        "spacing": 27,
         # (the router, the clipboard and the updates, which the web build
         # has not: the other rows from the top there)
         "platform_places": True,
@@ -231,6 +230,7 @@ SCREENS = {
         "screen": "gamepad_setup_screen",
         "header": ("header_profile_controller_setting", f"{PE}/controller_edit/header_profile_controller_setting"),
         "spacing": 27,
+        "platform_spacing": {"android": 24},
         "rows": [
             ("LOOK SENSITIVITY:", "profile.look_sensitivity", [(str(step), str(step)) for step in range(1, 11)],
              "How fast the right stick turns the view.", None),
@@ -252,23 +252,60 @@ SCREENS = {
         "categories": [("BUTTON REMAPPING", "controller_remapping",
                         "Custom button layouts for P1-P4.\nUse / Reload stays combined."),
                        ("BUTTON APPEARANCE", "controller_appearance",
-                        "Controller artwork and bumper style.\nRequires High-Res HUD in Graphics.")],
+                        "Controller artwork and bumper style.\nRequires High-Res HUD in Graphics."),
+                       ("ANDROID CONTROLS", "gamepad_setup/android",
+                        "Touch controls, gyro aiming and the\noptional offline cheat menu.", "android")],
+    },
+    "gamepad_setup/android": {
+        "screen": "android_controls_screen", "spacing": 30,
+        "header": ("header_profile_controller_setting", f"{PE}/controller_edit/header_profile_controller_setting"),
+        "rows": [
+            ("TOUCH CONTROLS:", "input.touch_controls", [("AUTO", "auto"), ("ON", "on"), ("OFF", "off")],
+             "Auto shows touch controls without a gamepad.\nOn also shows them with a connected gamepad.", "android"),
+            ("TOUCH AIM ASSIST:", "input.touch_aim_assist", ON_OFF,
+             "Apply controller aim assistance to touch aiming.", "android"),
+            ("CHEAT MENU:", "android.cheat_menu", ON_OFF,
+             "Show a CHEATS touch button and Options entry.\nOffline or game host only. Off by default.", "android"),
+        ],
+        "categories": [("GYRO AIM", "gamepad_setup/gyro",
+                        "Phone gyro mode, sensitivity and inversion.\nTouch settings keeps your saved layout.", "android")],
+    },
+    "gamepad_setup/gyro": {
+        "screen": "gyro_settings_screen", "spacing": 30,
+        "header": ("header_profile_controller_setting", f"{PE}/controller_edit/header_profile_controller_setting"),
+        "rows": [
+            ("GYRO AIM:", "input.gyro_aim",
+             [("TOUCH SETTINGS", "legacy"), ("OFF", "false"), ("ON", "true"), ("ZOOM ONLY", "zoom")],
+             "Touch settings keeps the saved gyro switch and\nsensitivity. On/Zoom use the settings below.", "android"),
+            ("HORIZONTAL SENSITIVITY:", "input.gyro_sensitivity_horizontal",
+             [(f"{step / 4:g}", f"{step / 4:g}") for step in range(1, 41)],
+             "How far the gyro turns the view left and right.\nSeparate from swipe sensitivity.", "android"),
+            ("VERTICAL SENSITIVITY:", "input.gyro_sensitivity_vertical",
+             [(f"{step / 4:g}", f"{step / 4:g}") for step in range(1, 41)],
+             "How far the gyro turns the view up and down.\nSeparate from swipe sensitivity.", "android"),
+            ("INVERT HORIZONTAL:", "input.gyro_invert_horizontal", ON_OFF,
+             "Reverse the gyro's horizontal turn.", "android"),
+            ("INVERT VERTICAL:", "input.gyro_invert_vertical", ON_OFF,
+             "Reverse the gyro's vertical turn.\nIndependent of the profile's Invert Look.", "android"),
+        ],
     },
     "controller_appearance": {
         "screen": "controller_appearance_screen", "spacing": 30,
         "header": ("header_profile_controller_setting", f"{PE}/controller_edit/header_profile_controller_setting"),
-        "same_place": ["hud_button_style_xbox", "hud_button_style_ps", "hud_button_style_switch"],
+        "same_place": ["hud_button_style_xbox", "hud_button_style_ps", "hud_button_style_switch", "detected_button_style"],
         "rows": [
             ("AUTO BUTTON DETECTION:", "input.auto_button_detection", ON_OFF,
-             "Show styles for your controller's family.\nRequires High-Res HUD in Graphics.", None),
-            ("BUTTON STYLE:", "display.hud_button_style", XBOX_BUTTON_STYLES + PS_BUTTON_STYLES + SWITCH_BUTTON_STYLES,
-             "Manual gameplay button artwork, kept when auto\ndetection is on. Requires High-Res HUD.", None),
+             "Follow keyboard/mouse or controller activity.\nControllers use their family's saved artwork.", None),
+            ("BUTTON STYLE:", "display.hud_button_style", XBOX_BUTTON_STYLES + PS_BUTTON_STYLES + SWITCH_BUTTON_STYLES + [("KEYBOARD", "keyboard")],
+             "Manual style when auto detection is off. Keyboard\nuses current bindings; controllers need High-Res HUD.", None),
             ("BUTTON STYLE:", "display.hud_button_style_xbox", XBOX_BUTTON_STYLES,
              "Preferred Xbox artwork for automatic detection.\nRequires High-Res HUD in Graphics.", None),
             ("BUTTON STYLE:", "display.hud_button_style_ps", PS_BUTTON_STYLES,
              "Preferred PlayStation artwork for auto detection.\nRequires High-Res HUD in Graphics.", None),
             ("BUTTON STYLE:", "display.hud_button_style_switch", SWITCH_BUTTON_STYLES,
              "Preferred Switch artwork for automatic detection.\nRequires High-Res HUD in Graphics.", None),
+            ("BUTTON STYLE:", "display.detected_button_style", None,
+             "Keyboard/mouse is active. Prompts use your current\nbindings. Turn detection off to choose a fixed style.", None),
             ("BUMPER STYLE:", "display.hud_bumper_style",
              [("ORIGINAL XBOX", "original"), ("MODERN XBOX", "modern")],
              "Original: black/white buttons. Modern: LB/RB.\nKept when automatic detection is on.", None),
@@ -286,17 +323,18 @@ SCREENS = {
 # pending edits, Defaults, OK and Cancel as the other settings screens.
 _video = SCREENS["video_settings"]
 _graphics = {"display.show_fps", "display.high_res_hud",
-             "display.high_res_text", "display.anti_aliasing",
+             "display.high_res_text", "display.widescreen_loading", "display.anti_aliasing",
              "display.anisotropic_filtering", "display.shadow_resolution", "display.per_pixel_lighting",
              "display.model_detail"}
 # (the visual modifiers: a screen of their own, Extra Effects)
-_extra_effects = {"display.shield_glow", "display.shield_glow_intensity",
-                  "display.overshield_effect", "display.hdr", "display.hdr_output", "display.hdr_tone_mapping", "display.hdr_paper_white",
-                  "display.hdr_peak_brightness"}
+_shield_lighting = {"display.shield_glow", "display.shield_glow_intensity"}
+_shield_rows = [row for row in _video["rows"] if row[1] in _shield_lighting]
+_extra_effects = {"display.overshield_effect", "display.hdr", "display.hdr_output",
+                  "display.hdr_tone_mapping", "display.hdr_paper_white", "display.hdr_peak_brightness"}
 SCREENS["video_settings/graphics"] = {
     "screen": "graphics_settings_screen", "header": _video["header"], "spacing": 27,
     "same_place": ["anti_aliasing_android"],
-    "rows": [row for row in _video["rows"] if row[1] in _graphics],
+    "rows": [MENU_STYLE] + [row for row in _video["rows"] if row[1] in _graphics],
 }
 SCREENS["video_settings/extra_effects"] = {
     "screen": "extra_effects_settings_screen", "header": _video["header"], "spacing": 30,
@@ -322,13 +360,42 @@ SCREENS["video_settings/hdr_calibration"] = {
          "How bright white is (the menus, the HUD, the\ngrey bars), in nits. Choose what looks right.", None),
     ],
 }
-_video["rows"] = [row for row in _video["rows"] if row[1] not in _graphics | _extra_effects]
+_video["rows"] = [row for row in _video["rows"] if row[1] not in _graphics | _extra_effects | _shield_lighting]
 _video["categories"] = [
     ("GRAPHICS:", "video_settings/graphics", "The HUD, text, anti-aliasing, shadows,\nlighting and HDR."),
     ("FOV AND VIEWMODELS:", "video_settings/fov_viewmodels",
      "The field of view and the first-person\nweapon. Their defaults keep the stock view."),
+    ("DYNAMIC LIGHTING:", "video_settings/dynamic_lighting",
+     "Added light from projectiles, weapons and\nenergy shields. Added lights default to off.", "desktop web"),
     ("EXTRA EFFECTS:", "video_settings/extra_effects",
-     "Visual modifiers the stock game does not\nhave, such as the shield glow."),
+     "Visual modifiers the stock game does not\nhave, such as HDR and overshields."),
+]
+SCREENS["video_settings/dynamic_lighting"] = {
+    "screen": "dynamic_lighting_settings_screen", "header": _video["header"], "spacing": 26,
+    "help_top": 370, "help_height": 40,
+    "rows": [
+        ("PROJECTILE LIGHTS:", "display.plasma_lighting", ON_OFF,
+         "Plasma, grenades, rockets and flame streams cast\nsoft light on nearby surfaces and models.", None),
+        ("MUZZLE FLASH LIGHTS:", "display.muzzle_lighting", ON_OFF,
+         "Weapon flashes light nearby surfaces, including\nWarthog and Scorpion guns. Stock effects remain.", None),
+        ("WEAPON GLOW:", "lighting.weapon_glow", ON_OFF,
+         "Swords, plasma charge, fuel rods, Needler and AR\nscreens cast light on nearby surfaces.", None),
+        ("PLASMA PRONG LIGHTING:", "display.plasma_prong_lighting", ON_OFF,
+         "Short, soft spill from plasma-weapon prongs.\nUses the shared eight-light occlusion budget.", None),
+        ("SHIELD EMITTERS:", "lighting.shield_emitters", ON_OFF,
+         "Jackal and stationary shields cast light\non nearby surfaces.", None),
+        ("VEHICLE LIGHTS:", "display.vehicle_lighting", ON_OFF,
+         "Engine glow and directional headlights illuminate\nvehicles and nearby surfaces.", None),
+        ("WORLD EMITTERS:", "display.world_lighting", ON_OFF,
+         "Visible powerups and teleporters cast soft light.\nStock effects and gameplay remain unchanged.", None),
+        ("LIGHT OCCLUSION:", "display.plasma_occlusion", ON_OFF,
+         "Block projectile and emitter light behind walls.\nMuzzle and vehicle lights always use blocking.", None),
+    ] + _shield_rows,
+}
+# Android builds omit this renderer. Keep both the entry and its controls
+# unavailable; existing configuration values cannot activate its inert hooks.
+SCREENS["video_settings/dynamic_lighting"]["rows"] = [
+    (*row[:4], "desktop web") for row in SCREENS["video_settings/dynamic_lighting"]["rows"]
 ]
 SCREENS["video_settings/fov_viewmodels"] = {
     "screen": "fov_viewmodel_settings_screen", "header": _video["header"], "spacing": 30,
@@ -341,15 +408,43 @@ SCREENS["video_settings/fov_viewmodels"] = {
          "Draw first-person weapons, hands and attached\nvisuals. Gameplay and sound continue when off.", None),
         ("PASSENGER THIRD PERSON:", "display.passenger_third_person", ON_OFF,
          "Third-person Warthog and Scorpion passengers in\nthe campaign and co-op. Weapon zoom is disabled.", None),
+        ("SHIELD LOOK:", "display.shield_look", [("DEFAULT", "classic"), ("CLASSIC WITH SPRINKLES", "classic_with_sprinkles"), ("MARK VI", "enhanced"), ("INFINITE HONEYCOMB", "classic_honeycomb2")],
+         "Classic keeps map shields. Other looks keep custom colour.\nSprinkles adds layers, arcs and recharge to the classic surface.", None),
         ("ARM SHIELDS:", "display.viewmodel_shield", ON_OFF,
          "The energy shield's flare on your first-person\narms too, as on your body.", None),
+        ("THIRD PERSON:", "display.third_person", ON_OFF,
+         "Right-shoulder view on foot. Zoom uses first\nperson. The reticle follows your aim point.", None),
         ("LEGS:", "display.first_person_legs", ON_OFF,
          "Your legs in first person, seen looking down,\nmoving as you run. Your body as others see it.", None),
-        ("SHIELD COLOR:", "display.shield_color", [("DEFAULT", "default")] + [(c.upper(), c) for c in SHIELD_COLORS],
-         "Your shield's flare in an armor color, whatever\nyour armor. Only you see it. Default: its own.", None),
     ],
 }
 
+SCREENS["video_settings/fov_viewmodels"]["spacing"] = 26
+SCREENS["video_settings/fov_viewmodels"]["categories"] = [
+    ("SHOULDER CAMERA:", "video_settings/shoulder_camera",
+     "Choose the shoulder and camera position.\nB swaps shoulders while playing."),
+]
+SCREENS["video_settings/fov_viewmodels"]["extra_help"] = [
+    "CONTROLLED BY HOST. Your personal camera\\npreference returns after leaving the match.",
+]
+SCREENS["video_settings/shoulder_camera"] = {
+    "screen": "shoulder_camera_settings_screen", "header": _video["header"], "spacing": 30,
+    "rows": [
+        ("CAMERA MOTION:", "display.third_person_smooth", [("SMOOTH", "true"), ("SHARP", "false")],
+         "Smooth eases recovery and shoulder changes.\nSharp moves immediately; collision stays active.", None),
+        ("LEFT SHOULDER:", "display.third_person_left_shoulder", ON_OFF,
+         "Off uses the right shoulder. B swaps in game.\nRemap it under Controls Setup > Camera.", None),
+        ("DISTANCE:", "display.third_person_distance",
+         [(f"{n / 100:.2f}", f"{n / 100:.2f}") for n in [30, 45, 60, 70, 85, 100, 125, 150, 175, 200]],
+         "Distance behind the eye, in world units.\nAlt + wheel adjusts in game. Default 0.85.", None),
+        ("HEIGHT:", "display.third_person_height",
+         [(f"{n / 100:.2f}", f"{n / 100:.2f}") for n in [-20, -10, 0, 6, 12, 18, 24, 36, 48, 60]],
+         "Shift + wheel adjusts height in game.\nDefault 0.12 world units.", None),
+        ("LATERAL OFFSET:", "display.third_person_offset",
+         [(f"{n / 100:.2f}", f"{n / 100:.2f}") for n in [0, 6, 12, 18, 24, 30, 36, 48, 60]],
+         "Hold Caps Lock + wheel to move left or right.\nDefault 0.24 world units to the right.", None),
+    ],
+}
 # Audio Setup's sound processing (port/linux/src/dsound_sdl.c): the reverb
 # and the resampler, a screen of their own (a category, as Video Setup's);
 # the devices and the volumes stay on Audio Setup
@@ -383,6 +478,7 @@ _hud_settings = ("display.player_names", "display.player_name_scale", "display.s
 _hud_rows = [row for row in _network["rows"] if row[1] in _hud_settings]
 _network["rows"] = [row for row in _network["rows"] if row[1] not in _hud_settings]
 _network["categories"] = [
+    ("BOTS:", "network_setup/bots", "Configure optional bots and manage the host's bots\nduring a multiplayer match."),
     ("MAP SHARING:", "network_setup/map_sharing",
      "Downloading Custom Edition maps you do not have,\nand helping send them to other players.",
      "desktop android"),
@@ -395,8 +491,34 @@ _network["categories"] = [
     ("DISCORD ACCOUNT:", "network_setup/discord_account",
      "Link a Discord account, which lets you join\nservers that block VPNs while you use one."),
 ]
+SCREENS["network_setup/bots"] = {
+    "screen": "bots_screen", "header": _network["header"], "title": "BOTS", "spacing": 30,
+    "save_event": "port bots settings save",
+    "rows": [
+        ("BOT COUNT:", "bots.count", [(str(n), str(n)) for n in range(64)],
+         "Set the lobby's bot count, up to 63.\nBots fill the available player slots.", None),
+        ("NETWORK BOTS:", "bots.network", ON_OFF,
+         "Allow bots in a network lobby.\nPress OK to apply before starting.", None),
+        ("DIFFICULTY:", "bots.skill", [(s.upper(), s) for s in ("recruit", "easy", "normal", "heroic", "veteran", "legendary")],
+         "Set bot aim, reactions and awareness.", None),
+        ("TEAMS:", "bots.teams", [("EVEN", "even"), ("OPPOSE", "against")],
+         "Balance teams, or put bots on the\nother team from the first human.", None),
+        ("ENHANCED BOTS:", "bots.enhanced", ON_OFF,
+         "Add tactics and CTF/King goals.\nTakes effect when loading a map.", None),
+        ("VEHICLES:", "bots.vehicles", ON_OFF,
+         "Enhanced bots can drive vehicles\nand use turrets. Off by default.", None),
+        ("ROUTES:", "bots.routes", [(s.upper(), s) for s in ("direct", "lanes", "mixed")],
+         "Let enhanced bots take other routes.\nDirect keeps the original routes.", None),
+        ("PATH WORKER:", "bots.thread", ON_OFF,
+         "Run path searches in the background.\nOff by default. Applies next map.", None),
+    ],
+    "categories": [("MANAGE CURRENT BOTS", "network_setup/bots/manage",
+                    "Add or remove bots during a match.\nThe saved Bot Count stays the same.")],
+}
 SCREENS["network_setup/map_sharing"] = {
     "screen": "map_sharing_settings_screen", "header": _network["header"], "spacing": 30,
+    "categories": [("MCC PACKAGES:", "network_setup/mcc_packages",
+                    "Installed MCC maps, campaign mission order and\noptional Workshop collection folders.")],
     "rows": [
         ("DOWNLOAD MAPS:", "network.map_download", ON_OFF,
          "Joining a game on a Custom Edition map you do not\nhave: download it from the players (if shared).",
@@ -406,6 +528,18 @@ SCREENS["network_setup/map_sharing"] = {
         ("UPLOAD LIMIT:", "network.map_seed_upload",
          [(f"{kb} KB/S" if kb < 1024 else f"{kb // 1024} MB/S", str(kb)) for kb in SEED_UPLOADS],
          "The most you send of maps to other players, so\nthat the game keeps the rest of your upload.", None),
+    ],
+}
+
+SCREENS["network_setup/mcc_packages"] = {
+    "screen": "mcc_packages_screen", "header": _network["header"], "title": "MCC PACKAGES", "spacing": 30,
+    "rows": [
+        ("STEAM DISCOVERY:", "game.workshop_maps", ON_OFF,
+         "Find installed Halo CE Workshop maps on this PC.\nLocal MCC packages take precedence.", "desktop"),
+        ("CAMPAIGN MISSIONS:", "game.mcc_campaigns", ON_OFF,
+         "Use campaign metadata for mission order and\nprogression. Online, the host chooses the next map.", None),
+        ("COLLECTION FOLDERS:", "game.mcc_collections", ON_OFF,
+         "Group installed MCC packages using the bundled\ncollection list. Works without Steam.", None),
     ],
 }
 
@@ -514,12 +648,12 @@ SCREENS["network_setup/in_game"] = {
 
 # Controls Setup: the keyboard and mouse's actions, in groups (the order of
 # port/linux/game/menu_functions.c's table of them)
-CONTROL_GROUPS = ["MOVEMENT", "WEAPONS", "ACTIONS", "COMMUNICATION"]
+CONTROL_GROUPS = ["MOVEMENT", "WEAPONS", "ACTIONS", "COMMUNICATION", "CAMERA"]
 CONTROL_ROWS = 7
 
 # the settings whose rows have the wider spinner (a device's name)
 WIDE_SETTINGS = {"audio.output_device", "audio.input_device", "streamer.slurs", "streamer.swearing",
-                 "streamer.insults", "network.listings", "network.browser_maps", "network.browser_sort"}
+                 "streamer.insults", "display.shield_look", "network.listings", "network.browser_maps", "network.browser_sort"}
 
 # Teamplay Options' rows of the port's (_teamplay_options_extras): the
 # gametype's FORCE TEAM SPAWNS, then the host's voice chat and vote kicks;
@@ -615,22 +749,35 @@ def _screen(folder: str, spec: dict, rows: list, list_inputs: list, list_handler
     lines = []
     lines += _widget(f"{base}/{spec['screen']}",
                      [("width", 640), ("height", 480), ("flags", "pass_unhandled_to_focused_child pause_game"),
-                      ("bitmap", "bitmaps/gradient")],
+                      ("bitmap", spec.get("background_bitmap", "bitmaps/gradient"))],
                      ['<on event="b" back="true"/>', '<on event="back" back="true"/>',
                       f'<child{attributes([("widget", f"{base}/{header}")])}/>',
                       f'<child{attributes([("widget", f"{base}/options_menu")])}/>'])
-    lines += _widget(f"{base}/{header}", [("controller", 1), ("left", 35), ("top", 11), ("width", 605), ("height", 59),
-                                          ("bitmap", header_bitmap)], [])
-    lines += _widget(f"{base}/help", [("type", "text"), ("controller", 1), ("left", 68),
-                                      ("top", spec.get("help_top", 350)), ("width", 482),
+    header_style = [("bitmap", header_bitmap)] if not spec.get("title") else [
+        ("type", "text"), ("text", spec["title"]), ("font", "ui\\large_ui"), ("color", "#FFFFFFFF"), ("text_y", 18)]
+    lines += _widget(f"{base}/{header}", [("controller", 1), ("left", 35), ("top", spec.get("header_top", 11)), ("width", 605), ("height", 59),
+                                          *header_style], [])
+    lines += _widget(f"{base}/help", [("type", "text"), ("controller", 1), ("left", spec.get("help_left", 68)),
+                                      ("top", spec.get("help_top", 350)), ("width", spec.get("help_width", 482)),
                                       ("height", spec.get("help_height", 60)), ("string_list", None if spec.get("dynamic_help") else f"{base}/help_strings"),
-                                      ("font", "ui\\large_ui"), ("color", "#FFFFFFFF")], [])
+                                      ("font", spec.get("help_font", "ui\\large_ui")), ("color", "#FFFFFFFF")],
+                     [f'<on event="created" run="{spec["help_init"]}"/>'] if spec.get("help_init") else [])
     children = [f'<data input="{name}"/>' for name in list_inputs] + list_handlers
     # (each row: its widget, platform, and the place it is in, else the next)
     for index, (row, platform, *place) in enumerate(rows):
-        y = 73 + (place[0] if place else index) * spec["spacing"]
-        children.append(f'<child{attributes([("widget", row), ("x", 54), ("y", y), ("platform", platform)])}/>')
-    children.append(f'<child{attributes([("widget", f"{base}/button_bar"), ("y", 414)])}/>')
+        position = place[0] if place else index
+        if spec.get("platform_spacing"):
+            # Extra Android controls must not move desktop/web settings.
+            groups = {}
+            for name in platform.split() if platform else ("desktop", "android", "web"):
+                spacing = spec["platform_spacing"].get(name, spec["spacing"])
+                groups.setdefault(spec.get("rows_top", 73) + position * spacing, []).append(name)
+            for y, names in groups.items():
+                children.append(f'<child{attributes([("widget", row), ("x", 54), ("y", y), ("platform", " ".join(names))])}/>')
+        else:
+            y = spec.get("rows_top", 73) + position * spec["spacing"]
+            children.append(f'<child{attributes([("widget", row), ("x", 54), ("y", y), ("platform", platform)])}/>')
+    children.append(f'<child{attributes([("widget", f"{base}/button_bar"), ("y", spec.get("button_top", 414))])}/>')
     lines += _widget(f"{base}/options_menu",
                      [("type", "column_list"), ("width", 640), ("height", 480),
                       ("flags", "pass_unhandled_to_focused_child up_down_tabs_children"),
@@ -694,6 +841,7 @@ def _setting_screen(folder: str, spec: dict) -> list:
                               ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], [])
             extra += _widget(f"{base}/{key}_value",
                              [("type", "text"), ("controller", 1), ("width", value_width), ("height", 22),
+                              ("text", "KEYBOARD" if key == "detected_button_style" else None),
                               ("font", "ui\\small_ui" if wide_value else "ui\\large_ui"), ("color", "#FF2896FF"),
                               ("align", "left" if wide_value else "center"), ("text_y", 5 if wide_value else 1),
                               ("text_flags", "no_focus_test")], [])
@@ -701,6 +849,7 @@ def _setting_screen(folder: str, spec: dict) -> list:
         # (a device's name wants the wider spinner Server Setup's co-op rows
         # have: WIDE_SETTINGS)
         wide = setting in WIDE_SETTINGS
+        shield_look = setting == "display.shield_look"
         bumper_style = setting == "display.hud_bumper_style"
         controller_style = setting.startswith("display.hud_button_style")
         # Dynamic captions retain their help index without a string list that
@@ -708,21 +857,21 @@ def _setting_screen(folder: str, spec: dict) -> list:
         extra += _widget(row, [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
                                ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF"), ("platform", platform)],
                          [f'<child{attributes([("widget", f"{base}/{key}_label")])}/>',
-                          f'<child{attributes([("widget", f"{base}/{key}_spinner"), ("x", 240 if controller_style or bumper_style else 286 if wide else 320), ("y", 1)])}/>'])
+                          f'<child{attributes([("widget", f"{base}/{key}_spinner"), ("x", 240 if shield_look or controller_style or bumper_style else 286 if wide else 320), ("y", 1)])}/>'])
         extra += _widget(f"{base}/{key}_label",
                          [("type", "text"), ("controller", 1), ("width", 300), ("height", 22),
                           ("string_list", None if controller_style else f"{base}/labels"),
                           ("string_index", index), ("font", "ui\\large_ui"),
                           ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], [])
         extra += _widget(f"{base}/{key}_spinner",
-                         [("type", "spinner"), ("left", None if wide else 3), ("top", 2), ("width", 252 if controller_style or bumper_style else 206 if wide else 147),
+                         [("type", "spinner"), ("left", None if wide else 3), ("top", 2), ("width", 252 if shield_look or controller_style or bumper_style else 206 if wide else 147),
                           ("height", 20), ("flags", "pass_unhandled_to_focused_child left_right_tabs_items"),
                           ("strings", "|".join(shown for shown, _ in choices)), ("setting", setting),
                           ("values", "|".join(value for _, value in choices)), ("font", "ui\\large_ui"),
                           ("color", "#FF2896FF"), ("align", "center"), ("text_y", 4 if wide else 1),
                           ("header_bitmap", "bitmaps/arrow_sm_left"), ("footer_bitmap", "bitmaps/arrow_sm_right"),
                           ("header_bounds", "7 -13 19 -7" if wide else "7 -6 19 0"),
-                          ("footer_bounds", "7 254 19 260" if controller_style or bumper_style else "7 208 19 214" if wide else "7 150 19 156")],
+                          ("footer_bounds", "7 254 19 260" if shield_look or controller_style or bumper_style else "7 208 19 214" if wide else "7 150 19 156")],
                          ['<on event="created" run="port setting load"/>'])
     # (each category's row: its label, the screen it opens, its help, and the
     # platforms it is for, as a row's: every one's when it names none)
@@ -749,8 +898,9 @@ def _setting_screen(folder: str, spec: dict) -> list:
                           ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], [])
     extra += _button(f"{base}/button_defaults", 3, ['<on event="a" run="port settings defaults"/>',
                                                     '<on event="start" run="port settings defaults"/>'])
-    extra += _button(f"{base}/button_ok", 1, ['<on event="a" run="port settings save" back="true"/>',
-                                              '<on event="start" run="port settings save" back="true"/>'])
+    save_event = spec.get("save_event", "port settings save")
+    extra += _button(f"{base}/button_ok", 1, [f'<on event="a" run="{save_event}" back="true"/>',
+                                              f'<on event="start" run="{save_event}" back="true"/>'])
     extra += _strings(f"{base}/labels", [label for label, *_ in spec["rows"]] +
                       [label for label, *_ in spec.get("categories", ())])
     if spec.get("words"):
@@ -758,7 +908,7 @@ def _setting_screen(folder: str, spec: dict) -> list:
     # (the help of the row whose label is string n is n + 1: the buttons' is 0)
     extra += _strings(f"{base}/help_strings",
                       [""] + [help_text.replace("\n", "\\n") for _, _, _, help_text, *_ in spec["rows"]] +
-                      [help_text.replace("\n", "\\n") for _, _, help_text, *_ in spec.get("categories", ())])
+                      [help_text.replace("\n", "\\n") for _, _, help_text, *_ in spec.get("categories", ())] + spec.get("extra_help", []))
     return _screen(folder, spec, rows, ["port settings help", *spec.get("inputs", ())], [], extra)
 
 
@@ -866,12 +1016,87 @@ def _controller_screen() -> list:
             for line in lines]
 
 
+def _controller_screen() -> list:
+    folder = "controller_remapping"
+    base = f"{PE}/{folder}"
+    rows, extra = [], []
+    for key, label, choices in [("player", "PLAYER:", "P1|P2|P3|P4"),
+                                ("group", "SHOW:", "MOVEMENT|COMBAT|GENERAL|COMMUNICATION|DEBUG")]:
+        row = f"{base}/op_{key}"
+        rows.append((row, None))
+        extra += _widget(row, [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
+                               ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
+                         [f'<child widget="{base}/{key}_label"/>', f'<child widget="{base}/pad_{key}" x="200" y="1"/>'])
+        extra += _widget(f"{base}/{key}_label", [("type", "text"), ("controller", 1), ("width", 200),
+                         ("height", 22), ("text", label), ("font", "ui\\large_ui"),
+                         ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], [])
+        extra += _widget(f"{base}/pad_{key}", [("type", "spinner"), ("left", 3), ("top", 2),
+                         ("width", 297), ("height", 20), ("strings", choices),
+                         ("flags", "pass_unhandled_to_focused_child left_right_tabs_items"),
+                         ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("align", "center"), ("text_y", 1),
+                         ("header_bitmap", "bitmaps/arrow_sm_left"), ("footer_bitmap", "bitmaps/arrow_sm_right"),
+                         ("header_bounds", "7 -6 19 0"), ("footer_bounds", "7 300 19 306")], [])
+    for index in range(6):
+        row = f"{base}/op_pad_{index + 1}"
+        rows.append((row, None))
+        extra += _widget(row, [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
+                               ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
+                         ['<on event="a start" run="port controller bind"/>',
+                          '<on event="x" run="port controller clear"/>',
+                          '<on event="left_mouse" run="mouse emit accept event"/>',
+                          '<on event="left" run="port controller left"/>',
+                          '<on event="right" run="port controller right"/>',
+                          f'<child widget="{base}/pad_action"/>',
+                          f'<child widget="{base}/pad_binding" x="220"/>'])
+    extra += _widget(f"{base}/pad_action", [("type", "text"), ("controller", 1), ("width", 220),
+                     ("height", 22), ("font", "ui\\small_ui"), ("color", "#FF2896FF"),
+                     ("text_x", 13), ("text_y", 4)], [])
+    extra += _widget(f"{base}/pad_binding", [("type", "text"), ("controller", 1), ("width", 280),
+                     ("height", 22), ("font", "ui\\large_ui"), ("color", "#FF2896FF"),
+                     ("align", "center"), ("text_y", 4), ("text_flags", "no_focus_test")], [])
+    extra += _button(f"{base}/button_defaults", 3, ['<on event="a start" run="port controller defaults"/>'])
+    extra += _button(f"{base}/button_ok", 1, ['<on event="a start" run="port controller save" back="true"/>'])
+    lines = _screen(folder, SCREENS[folder], rows, ["port controller update"],
+                   ['<on event="created" run="port controller init"/>',
+                    '<on event="deleted" run="port controller close"/>'], extra)
+
+    return [line.replace('<on event="b" back="true"/>', '<on event="b" run="port controller cancel" back="true"/>')
+            .replace('<on event="back" back="true"/>', '<on event="back" run="port controller cancel" back="true"/>')
+            for line in lines]
+
+
+SCREENS["network_setup/bots/manage"] = {
+    "screen": "bots_manage_screen", "header": _network["header"], "title": "MANAGE BOTS",
+    "spacing": 36, "dynamic_help": True, "rows": [],
+    "help_top": 300, "help_height": 110,
+    "help_init": "port bots init",
+}
+
+
+def _bots_manage_screen(folder, spec):
+    base = f"{PE}/{folder}"
+    rows, extra = [], []
+    for operation, verb in (("add", "ADD"), ("drop", "REMOVE")):
+        for team, label in (("any", "ANY TEAM"), ("red", "RED TEAM"), ("blue", "BLUE TEAM")):
+            row = f"{base}/op_{operation}_{team}"
+            rows.append((row, None))
+            extra += _widget(row, [("type", "text"), ("width", 512), ("height", 28),
+                ("bitmap", "bitmaps/option_bkds"), ("text", f"{verb} BOT - {label}"),
+                ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)],
+                ['<on event="a" run="port bots command"/>', '<on event="start" run="port bots command"/>',
+                 '<on event="left_mouse" run="mouse emit accept event"/>'])
+    extra += _button(f"{base}/button_ok", 1, ['<on event="a" back="true"/>', '<on event="start" back="true"/>'])
+    lines = _screen(folder, spec, rows, [], [], extra)
+    return [line for line in lines if f'<child widget="{base}/button_defaults"' not in line]
+
+
 def settings_files() -> dict:
     """the files of the port's screens, by their names in ce/"""
     files = {}
     for folder, spec in SCREENS.items():
         files[f"{PE}/{folder}".replace("/", ".") + ".xml"] = (
-            _controller_screen() if folder == "controller_remapping" else _setting_screen(folder, spec))
+            _controller_screen() if folder == "controller_remapping" else
+            _bots_manage_screen(folder, spec) if folder == "network_setup/bots/manage" else _setting_screen(folder, spec))
     files[f"{PE}/controls_setup".replace("/", ".") + ".xml"] = _controls_screen()
     return {name: ['<?xml version="1.0" encoding="UTF-8"?>',
                    "<!-- The port's settings screen, in the PC version's style (tools/port_settings.py) -->",
@@ -1084,11 +1309,6 @@ MAP_KIND_CHOOSER = "main_menu/new_select/list_item_0_map_kind"
 # changes to the PC version's widgets (by our names): attributes set, all
 # their handlers replaced, children added, game data inputs added
 WIDGET_PATCHES = {
-    # The host returns here after a round with no menu history. Back must
-    # reopen the main menu when it closes the last screen, as the lobby does.
-    f"{MT}/connected/connected_map_select_wrapper": {"set": {
-        "flags": "pass_unhandled_to_focused_child pause_game main_menu_if_no_history tag_controller_index force_handle_mouse",
-    }},
     # (the main menu's MODS, before Quit: _mods)
     "main_menu/main_menu_select_list": {"insert_before": {"main_menu/main_menu_item_quit_game": [
         f'<child widget="main_menu/main_menu_item_mods" x="{MODS_ITEM_PLACE[0]}" y="{MODS_ITEM_PLACE[1]}"/>']}},
@@ -1140,16 +1360,44 @@ WIDGET_PATCHES = {
         '<on event="b" run="port map list back"/>',
         '<on event="back" run="port map list back"/>',
     ]},
-    "main_menu/solo_level_select/solo_level_select_list": {"swap": {"main_menu/new_select/list_item_0": MAP_KIND_CHOOSER}},
+    "main_menu/solo_level_select/solo_level_select_list": {"swap": {"main_menu/new_select/list_item_0": MAP_KIND_CHOOSER},
+                                                          "handlers": [
+        '<on event="created" run="initialize sp level list solo"/>',
+        '<on event="deleted" run="dispose sp level list"/>',
+        '<on event="custom_activation" run="solo level set map" open="main_menu/difficulty_select/difficulty_select_list_screen"/>',
+        '<on event="b" run="port mcc solo folder back"/>',
+        '<on event="back" run="port mcc solo folder back"/>',
+    ]},
+    "main_menu/solo_level_select/solo_level_select_screen": {"handlers": [
+        '<on event="b" run="port mcc solo folder back"/>',
+        '<on event="back" run="port mcc solo folder back"/>',
+    ]},
+    f"{MT}/mp_map_select/mp_map_select_screen": {"handlers": [
+        '<on event="created" run="net server defer start"/>',
+        '<on event="b" run="port mcc host folder back"/>',
+        '<on event="back" run="port mcc host folder back"/>',
+    ]},
+    # The host returns here after a round with no menu history. Back must
+    # reopen the main menu when it closes the last screen, as the lobby does.
+    f"{MT}/connected/connected_map_select_wrapper": {"set": {
+        "flags": "pass_unhandled_to_focused_child pause_game main_menu_if_no_history tag_controller_index force_handle_mouse",
+    }, "handlers": [
+        '<on event="b" run="port mcc host folder back"/>',
+        '<on event="back" run="port mcc host folder back"/>',
+    ]},
     # (each description shows the other kind's maps too: a campaign level's
     # picture, name and words on the Map screen, a multiplayer map's on New
     # Game's)
     f"{MT}/mp_map_select/mp_map_right_item": {"children": [
+        '<child widget="main_menu/new_select/mcc_folder_name"/>',
+        '<child widget="main_menu/new_select/mcc_folder_help"/>',
         '<child widget="main_menu/solo_level_select/replay_level_right_name"/>',
         '<child widget="main_menu/solo_level_select/replay_level_right_pic"/>',
         '<child widget="main_menu/solo_level_select/replay_level_right_data"/>',
     ]},
     "main_menu/solo_level_select/replay_level_right_item": {"children": [
+        '<child widget="main_menu/new_select/mcc_folder_name"/>',
+        '<child widget="main_menu/new_select/mcc_folder_help"/>',
         f'<child widget="{MT}/mp_map_select/mp_map_right_name"/>',
         f'<child widget="{MT}/mp_map_select/mp_map_right_pic"/>',
         f'<child widget="{MT}/mp_map_select/mp_map_right_data"/>',
@@ -1472,14 +1720,68 @@ def _password_screen() -> list:
     return lines
 
 
+def _bots_link(base, name, host_only=False):
+    target = f"{PE}/network_setup/bots/bots_screen"
+    return _widget(f"{base}/{name}", [("type", "text"), ("width", 128), ("height", 24),
+        ("bitmap", "bitmaps/text_button_background"), ("text", "BOTS"), ("font", "ui\\small_ui"),
+        ("color", "#FFFFFFFF"), ("align", "center"), ("text_y", 2)],
+        ([ '<on event="created" run="port bots host entry"/>' ] if host_only else []) +
+        [f'<on event="a" open="{target}"/>', f'<on event="start" open="{target}"/>',
+         '<on event="left_mouse" run="mouse emit accept event"/>'])
+
+
+def _session_options(base: str, host: str) -> list:
+    rows, extra = [], []
+    for key, label, values in [
+        ("session_compatibility", "SESSION COMPATIBILITY:", "CROSSPLAY|GULCHCE"),
+        ("camera_policy", "CAMERA POLICY:", "PLAYER CHOICE|FORCED ON|FORCED OFF"),
+    ]:
+        extra += _widget(f"{base}/op_{key}", [("width", 512), ("height", 28),
+            ("flags", "pass_unhandled_to_focused_child"), ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
+            [f'<child widget="{base}/{key}_label"/>', f'<child widget="{base}/{key}_spinner" x="264" y="1"/>'])
+        extra += _widget(f"{base}/{key}_label", [("type", "text"), ("controller", 1), ("width", 260), ("height", 22),
+            ("text", label), ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], [])
+        # Generated spinners draw at their bounds, ignoring text_y. Top 3 +
+        # child y 1 matches the label's text_y 4; arrows centre on the 28px row.
+        extra += _widget(f"{base}/{key}_spinner", [("type", "spinner"), ("top", 3), ("width", 237), ("height", 20),
+            ("flags", "pass_unhandled_to_focused_child left_right_tabs_items"), ("strings", values),
+            ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("align", "center"),
+            ("header_bitmap", "bitmaps/arrow_sm_left"), ("footer_bitmap", "bitmaps/arrow_sm_right"),
+            ("header_bounds", "7 0 19 6"), ("footer_bounds", "7 231 19 237")],
+            ['<on event="left_mouse" run="mouse spinner 1wide click"/>'])
+        rows.append((f"{base}/op_{key}", None))
+    extra += _value_row(base, "invite", 2, "ss copy invite")
+    extra += _strings(f"{base}/labels", ["", "", "INVITE LINK:"])
+    rows.append((f"{base}/op_invite", None))
+    extra += _strings(f"{base}/help_strings", [
+        "OpenCE and GulchCE can join; third person is off.\\nMCC maps still require GulchCE.",
+        "Compatible GulchCE hosts and clients only.\\nEnables GulchCE session features, including third person.",
+        "Compatibility is locked for this session.\\nClose the lobby to choose another mode.",
+        "Each player chooses first or third person.\\nTheir camera toggle remains available.",
+        "Everyone uses third person on foot. Scoping and\\ntight spaces still use first person.",
+        "Third person is disabled for everyone.\\nNormal vehicle and cinematic cameras remain.",
+        "Players join by this invite link. Enter copies it.\\nLAN games use the server browser instead.",
+    ])
+    lines = _screen(base, {"screen": "session_options_screen", "spacing": 30,
+        "header": ("header", f"{host}/header_server_settings")}, rows,
+        ["server settings update"], ['<on event="created" run="server settings init"/>'], extra)
+    return [line for line in lines if f'<child widget="{base}/button_defaults"' not in line
+            and f'<child widget="{base}/button_ok"' not in line]
+
+
 def _server_settings() -> list:
     """Create Game's server settings (in the PC version's place): the game's
     name, the most players (up to the port's 128), its invite link, and
     whether the server browser lists it (PUBLIC or PRIVATE: an internet
     game's)"""
     base = f"{MT}/server_settings"
-    # (thirteen rows: closer together, the help lower)
-    spec = {"screen": "server_settings_screen", "spacing": 22, "help_top": 366,
+    # Thirteen full-height rows (GulchCE's twelve and MUTATOR OPTIONS), 48 to
+    # 412, the selection artwork keeping its room; the help's two lines below
+    # them, and the buttons at the screen's foot (452 to 480).
+    spec = {"screen": "server_settings_screen", "spacing": 28, "help_top": 412, "help_height": 40, "rows_top": 48,
+            "help_left": 67, "help_width": 486,
+            "help_font": "ui\\small_ui", "button_top": 452,
+            "background_bitmap": "bitmaps/gradient_big", "header_top": -10,
             "header": ("header_server_settings", f"{base}/header_server_settings")}
     rows, extra = [], []
     extra += _value_row(base, "server_name", 0, "ss edit server name")
@@ -1501,8 +1803,6 @@ def _server_settings() -> list:
                       ("header_bitmap", "bitmaps/arrow_sm_left"), ("footer_bitmap", "bitmaps/arrow_sm_right"),
                       ("header_bounds", "7 -6 19 0"), ("footer_bounds", "7 150 19 156")], [])
     rows.append((f"{base}/op_max_players", None))
-    extra += _value_row(base, "invite", 2, "ss copy invite")
-    rows.append((f"{base}/op_invite", None))
     # (PUBLIC or PRIVATE: menu_functions.c's server_settings_update)
     extra += _widget(f"{base}/op_listing", [("width", 512), ("height", 28),
                                             ("flags", "pass_unhandled_to_focused_child"),
@@ -1526,6 +1826,20 @@ def _server_settings() -> list:
     # which players from the server browser must type
     extra += _value_row(base, "password", 10 + len(COOP_SETUP_SCREENS), "ss edit server password")
     rows.append((f"{base}/op_password", None))
+    # Session options occupy the former camera row; the established host
+    # layout and all detailed gametype links remain in their original places.
+    session = f"{base}/session_options"
+    extra += _widget(f"{base}/op_session_options", [("width", 512), ("height", 28),
+        ("flags", "pass_unhandled_to_focused_child"), ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
+        [f'<on event="a" open="{session}/session_options_screen"/>',
+         f'<on event="start" open="{session}/session_options_screen"/>',
+         '<on event="left_mouse" run="mouse emit accept event"/>',
+         f'<child widget="{base}/session_options_label"/>'])
+    extra += _widget(f"{base}/session_options_label", [("type", "text"), ("controller", 1),
+        ("width", 480), ("height", 22), ("string_list", f"{base}/labels"), ("string_index", 13),
+        ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], [])
+    rows.append((f"{base}/op_session_options", None))
+    extra += _session_options(session, base)
     # MAP SHARING (map_share.c), a screen of its own as co-op's options are,
     # for any game: SETUP_OPTIONS_PLACE below it
     key, _, _, _ = MAP_SHARE_SETUP
@@ -1538,7 +1852,7 @@ def _server_settings() -> list:
                       f'<child widget="{base}/{key}_label"/>'])
     extra += _widget(f"{base}/{key}_label", [("type", "text"), ("controller", 1), ("width", 300), ("height", 22),
                                              ("string_list", f"{base}/labels"),
-                                             ("string_index", 11 + len(COOP_SETUP_SCREENS)),
+                                             ("string_index", 12 + len(COOP_SETUP_SCREENS)),
                                              ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13),
                                              ("text_y", 4)], [])
     rows.append((f"{base}/op_{key}", None, SETUP_OPTIONS_PLACE - 2))
@@ -1554,7 +1868,7 @@ def _server_settings() -> list:
                       f'<child widget="{base}/mutator_options_label"/>'])
     extra += _widget(f"{base}/mutator_options_label", [("type", "text"), ("controller", 1), ("width", 300),
                                                        ("height", 22), ("string_list", f"{base}/labels"),
-                                                       ("string_index", 12 + len(COOP_SETUP_SCREENS)),
+                                                       ("string_index", 13 + len(COOP_SETUP_SCREENS)),
                                                        ("font", "ui\\large_ui"), ("color", "#FF2896FF"),
                                                        ("text_x", 13), ("text_y", 4)], [])
     rows.append((f"{base}/op_mutator_options", None, SETUP_OPTIONS_PLACE - 1))
@@ -1605,7 +1919,7 @@ def _server_settings() -> list:
     extra += _strings(f"{base}/labels", ["GAME NAME:", "MAXIMUM PLAYERS:", "INVITE LINK:", "GAME TYPE:",
                                          "PLAYER OPTIONS:", "ITEM OPTIONS:", "VEHICLE OPTIONS:", "INDICATOR OPTIONS:",
                                          "TEAMPLAY OPTIONS:", "LISTING:",
-                                         *(f"{title}:" for _, title, _, _ in COOP_SETUP_SCREENS), "PASSWORD:",
+                                         *(f"{title}:" for _, title, _, _ in COOP_SETUP_SCREENS), "PASSWORD:", "SESSION OPTIONS:",
                                          f"{MAP_SHARE_SETUP[1]}:", "MUTATOR OPTIONS:"])
     extra += _strings(f"{base}/help_strings", [
         "",
@@ -1625,6 +1939,9 @@ def _server_settings() -> list:
         *(help_text for _, _, help_text, _ in COOP_SETUP_SCREENS),
         # (PASSWORD's)
         "Players from the Server Browser must type it to\\njoin (an invite link needs none). Enter sets it.",
+        "Session compatibility and the host camera policy.\\nChoose who can join and which views they can use.",
+        "Everyone uses third person on foot. Scoping and\\ntight spaces still use first person.",
+        "Third person is disabled for everyone.\\nNormal vehicle and cinematic cameras remain.",
         # (MAP SHARING's)
         MAP_SHARE_SETUP[2],
         # (LISTING's PUBLIC, on a machine with a publisher key: menu_functions.c's
@@ -1635,6 +1952,10 @@ def _server_settings() -> list:
     ])
     lines = _screen(base, spec, rows, ["server settings update"],
                     ['<on event="created" run="server settings init"/>'], extra)
+    # The footer has an unused middle slot; keep the existing rows in place.
+    lines = [line.replace(f'<child widget="{base}/button_ok"',
+             f'<child widget="{base}/button_bots" x="250" y="1"/><child widget="{base}/button_ok"') for line in lines]
+    lines += _bots_link(base, "button_bots")
     # (co-op's options' screens, and map sharing's)
     for key, title, _, screen_rows in [*COOP_SETUP_SCREENS, MAP_SHARE_SETUP]:
         lines += _setup_option_screen(f"{base}/{key}", key, screen_rows, fit=True)
@@ -1953,10 +2274,13 @@ def _lobby() -> list:
                      # (SWITCH TEAM first: hidden in a game without teams, which
                      # moves the focus to the first shown, START NOW; at the end
                      # it traps none)
-                     [f'<child widget="{base}/lobby_button_team" x="120" y="1"/>',
-                      f'<child widget="{base}/lobby_button_start" x="250" y="1"/>',
-                      f'<child widget="{base}/lobby_button_add" x="380" y="1"/>',
-                      f'<child widget="{base}/lobby_button_leave" x="510" y="1"/>'])
+                     # Five full-width button backgrounds fit the 640-wide bar.
+                     [f'<child widget="{base}/lobby_button_team" x="128" y="1"/>',
+                      f'<child widget="{base}/lobby_button_start" x="256" y="1"/>',
+                      f'<child widget="{base}/lobby_button_add" x="384" y="1"/>',
+                      f'<child widget="{base}/lobby_button_leave" x="512" y="1"/>',
+                      f'<child widget="{base}/lobby_button_bots" y="1"/>'])
+    lines += _bots_link(base, "lobby_button_bots", host_only=True)
     for key, caption, handlers in (
         ("add", "ADD PLAYER", [f'<on event="a" run="port lobby add player" open="{base}/join4_screen"/>',
                                f'<on event="start" run="port lobby add player" open="{base}/join4_screen"/>']),
@@ -2377,7 +2701,12 @@ def _map_kind() -> list:
                       ("header_bounds", "7 -6 19 0"), ("footer_bounds", "7 238 19 244")],
                      ['<on event="left_mouse" run="mouse spinner 1wide click"/>'])
     lines += _strings("main_menu/new_select/var_map_kinds",
-                      ["SINGLEPLAYER", "MULTIPLAYER", "CUSTOM SINGLEPLAYER", "CUSTOM MULTIPLAYER"])
+                      ["SINGLEPLAYER", "MULTIPLAYER", "CUSTOM SINGLEPLAYER", "CUSTOM MULTIPLAYER", "MCC SINGLEPLAYER", "MCC MULTIPLAYER"])
+    for name, top, height in (("name", 204, 54), ("help", 270, 124)):
+        lines += _widget(f"main_menu/new_select/mcc_folder_{name}",
+                         [("type", "text"), ("controller", 1), ("left", 417), ("top", top),
+                          ("width", 146), ("height", height), ("font", "ui\\small_ui"),
+                          ("color", "#FF2896FF")], [])
     return lines
 
 
@@ -2440,10 +2769,11 @@ def redraw_letters(redraws: Path) -> dict:
     return letters
 
 
-def menu_item_frames(text: str, redraws: Path) -> list:
+def menu_item_frames(text: str, redraws: Path, spacing: dict = None) -> list:
     """the frames (svg, width, height) of a main menu item of the port's: its
     text in the redraws' own letters (redraw_letters), spaced, placed and
-    coloured as their items are, dim, then white with their blue glow"""
+    coloured as their items are, dim, then white with their blue glow;
+    feature-owned captions can supply their own letter-pair spacing"""
     from fontTools.pens.boundsPen import BoundsPen
     from fontTools.svgLib.path import parse_path
 
@@ -2453,7 +2783,8 @@ def menu_item_frames(text: str, redraws: Path) -> list:
         pen = BoundsPen(None)
         parse_path(letters[letter], pen)
         widths.append(pen.bounds[2])
-    spaces = [MENU_ITEM_SPACES[first + second] for first, second in zip(text, text[1:])]
+    spacing = MENU_ITEM_SPACES if spacing is None else spacing
+    spaces = [spacing[first + second] for first, second in zip(text, text[1:])]
     x = MENU_ITEM_MIDDLE - (sum(widths) + sum(spaces)) * MENU_ITEM_SCALE / 2
     uses = []
     for index, letter in enumerate(text):

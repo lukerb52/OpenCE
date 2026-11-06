@@ -334,3 +334,10 @@ mods: 4 models from their files (4 new), 0 given back, 1 left out
   web): their files, their sounds' samples, their bitmaps' tags and their
   models' geometry.
 - A Custom Edition map takes mods as an Xbox map does.
+
+## GulchCE MCC maps
+
+Loose-tag mods are bypassed for MCC maps, which retain their authored sounds,
+bitmaps, text and models. Console reload/enable commands cannot override this.
+Your selected mods and load order remain saved and apply again when an Xbox
+or Custom Edition map loads. MCC package and shared resources are unaffected.

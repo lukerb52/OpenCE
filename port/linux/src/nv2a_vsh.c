@@ -18,6 +18,7 @@ clip-space position again.
 */
 
 #include "xgpu.h"
+#include "plasma_model_shader.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -346,6 +347,9 @@ static const char shader_prologue[] =
 	/* a fade above a height on the model (d3d8_gl_set_height_fade): off
 	while w is zero */
 	"uniform vec4 height_fade;\n"
+	/* D3DRS_ZBIAS's depth units with display.reversed_depth, in the
+	depth the vertex program writes (d3d8_gl.c, draw_uniforms) */
+	"uniform float depth_bias;\n"
 	"out vec4 xD0;\n"
 	"out vec4 xD1;\n"
 	"out vec4 xB0;\n"
@@ -355,6 +359,8 @@ static const char shader_prologue[] =
 	"out vec4 xT2;\n"
 	"out vec4 xT3;\n"
 	"out float xFog;\n"
+	/* The shield surface uses the model UVs, without changing the original outputs. */
+	"out vec2 shield_uv;\n"
 	"invariant gl_Position;\n"
 	"vec4 unpack_normpacked3(uint p)\n"
 	"{\n"
@@ -464,12 +470,18 @@ static void reversed_depth_instruction(struct xgpu_text *text, const DWORD *inst
 }
 
 char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instruction_count,
-	unsigned long packed_attribute_mask, const struct nv2a_vertex_lighting *lighting)
+	unsigned long packed_attribute_mask, const struct nv2a_vertex_lighting *lighting, BOOL plasma_model)
 {
 	struct xgpu_text text = { 0 };
 	unsigned long index;
 	struct reversed_depth_rows rows;
 	BOOL position_converted = FALSE, reversed_rows;
+#ifndef HALO_ANDROID
+	struct nv2a_vertex_lighting plasma_lighting;
+	plasma_model = plasma_model && nv2a_vertex_shader_lighting(instructions, instruction_count, &plasma_lighting) && plasma_lighting.lights == 2;
+#else
+	(void)plasma_model;
+#endif
 
 	rows.z_row = rows.w_row = -1;
 	rows.other = FALSE;
@@ -478,6 +490,10 @@ char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instru
 	xgpu_text_append(&text, "#version %s\n", xgpu_capabilities.shading_language);
 #endif
 	xgpu_text_append(&text, "%s", shader_prologue);
+#ifndef HALO_ANDROID
+	if (plasma_model)
+		plasma_model_emit_uniform(&text);
+#endif
 	/* (the pixel shader's model_lighting; the normal's length in w) */
 	if (lighting)
 		xgpu_text_append(&text, "out vec4 xWorldNormal;\n");
@@ -542,6 +558,11 @@ char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instru
 		xgpu_text_append(&text, "\tA = "); operand(&text, instruction, 'A', relative); xgpu_text_append(&text, ";\n");
 		xgpu_text_append(&text, "\tB = "); operand(&text, instruction, 'B', relative); xgpu_text_append(&text, ";\n");
 		xgpu_text_append(&text, "\tC = "); operand(&text, instruction, 'C', relative); xgpu_text_append(&text, ";\n");
+
+#ifndef HALO_ANDROID
+		if (plasma_model)
+			plasma_model_emit_vertex(&text, instruction, index, &plasma_lighting);
+#endif
 
 		switch (mac)
 		{
@@ -672,6 +693,15 @@ char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instru
 	{
 		xgpu_text_append(&text, "\tposition.z = position.w - position.z;\n");
 	}
+	/* A z bias moves a decal's depth toward the camera by a number of the
+	Xbox's 24-bit depth units. A polygon offset's units in a floating-point
+	depth buffer are a part of the depth itself, which reversed is small far
+	away: 8 of them moved a decal a hundredth of what the Xbox did at ten
+	world units, and an additive light on a curved hull (the Pelican's)
+	sank into it in slivers. So the units are added here, in the Xbox's
+	measure; the polygon offset keeps only the slope (d3d8_gl.c). */
+	if (xgpu_reversed_depth)
+		xgpu_text_append(&text, "\tposition.z += depth_bias * position.w;\n");
 	xgpu_text_append(&text,
 		/* A position whose w is zero, or is not a number, is the clip-space
 		origin: the screen conversion's reciprocal is clamped rather than
@@ -697,6 +727,7 @@ char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instru
 		"\txD1 = clamp(oD1, 0.0, 1.0);\n"
 		"\txB0 = clamp(oB0, 0.0, 1.0);\n"
 		"\txB1 = clamp(oB1, 0.0, 1.0);\n"
+		"\tshield_uv = v4.xy;\n"
 		"\txT0 = oT0;\n"
 		"\txT1 = oT1;\n"
 		"\txT2 = oT2;\n"
@@ -736,6 +767,7 @@ char *nv2a_fixed_function_glsl(void)
 		"\txD1 = clamp(v4_in, 0.0, 1.0);\n"
 		"\txB0 = vec4(0.0, 0.0, 0.0, 1.0);\n"
 		"\txB1 = vec4(0.0, 0.0, 0.0, 1.0);\n"
+		"\tshield_uv = vec2(0.0);\n"
 		"\txT0 = v9_in;\n"
 		"\txT1 = v10_in;\n"
 		"\txT2 = v11_in;\n"
@@ -743,6 +775,6 @@ char *nv2a_fixed_function_glsl(void)
 		"\txFog = 1.0;\n"
 		"}\n",
 		/* (display.reversed_depth) */
-		xgpu_reversed_depth ? "\tgl_Position.z = gl_Position.w - gl_Position.z;\n" : "");
+		xgpu_reversed_depth ? "\tgl_Position.z = gl_Position.w - gl_Position.z + depth_bias * gl_Position.w;\n" : "");
 	return text.buffer;
 }

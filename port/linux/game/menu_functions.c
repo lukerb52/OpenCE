@@ -70,6 +70,9 @@ their handlers open opens.
 */
 
 #include "cseries.h"
+#include "third_person.h"
+#include "lighting_menu.h"
+#include "third_person_protocol.h"
 #include "input/input.h"
 #include "interface/event_manager.h"
 #include "interface/player_ui.h"
@@ -78,6 +81,7 @@ their handlers open opens.
 #include "main/main.h"
 #include "networking/network_game_manager.h"
 #include "saved games/player_profile.h"
+#include "saved games/game_state.h"
 #include "tag_files/tag_groups.h"
 #include "text/text_group.h"
 #include "text/unicode.h"
@@ -85,7 +89,11 @@ their handlers open opens.
 #include "halo_menus.h"
 #include "controller_remap.h"
 #include "custom_edition_cache.h"
+#include "mcc_ui.h"
 #include "custom_edition_maps.h"
+#include "mcc_maps.h"
+#include "mcc_menu_text.h"
+#include "mcc_cache.h"
 #include "game_modes.h"
 #include "network_voice.h"
 #include "network_map_vote.h"
@@ -345,6 +353,8 @@ or the profile's */
 static boolean setting_text(char const *name, char *text, unsigned int size, boolean default_value)
 {
 	short index;
+	int grouped = lighting_menu_text(name, text, size, default_value);
+	if (grouped >= 0) return grouped;
 
 	/* (DISCORD ACCOUNT's LINK: no change, until one is chosen; the master a
 	server that refused this machine for its VPN is listed by, chosen
@@ -414,7 +424,11 @@ static boolean setting_text(char const *name, char *text, unsigned int size, boo
 static boolean setting_write(char const *name, char const *value)
 {
 	short index;
+	int grouped = lighting_menu_write(name, value);
+	if (grouped >= 0) return grouped;
 
+	if (!strcmp(name, "display.third_person") && third_person_policy() != _third_person_player_choice)
+		return TRUE;
 	/* (DISCORD ACCOUNT's LINK: done, not written: the master's page opened
 	in the browser, or the account forgotten, player_link.c) */
 	if (!strcmp(name, "link.action"))
@@ -469,15 +483,20 @@ static boolean setting_load(struct widget_instance *widget)
 static boolean setting_save(struct widget_instance *widget)
 {
 	struct pc_menu_setting *setting = pc_menu_setting_get(widget->definition_tag_index);
+	int written;
 
 	if (spinner_item(widget))
 		return TRUE;
 	if (!setting || setting->loaded_index == NONE || widget->parameters.list.selected_index < 0 ||
 		widget->parameters.list.selected_index >= setting->value_count)
 		return FALSE;
+	if (!strcmp(setting->setting, "display.third_person") && third_person_policy() != _third_person_player_choice)
+		return TRUE;
 	if (widget->parameters.list.selected_index == setting->loaded_index)
 		return TRUE;
-	if (!config_write(setting->setting, setting->values[widget->parameters.list.selected_index]))
+	written = lighting_menu_write(setting->setting, setting->values[widget->parameters.list.selected_index]);
+	if (written < 0) written = config_write(setting->setting, setting->values[widget->parameters.list.selected_index]);
+	if (!written)
 	{
 		platform_log("menus: could not write %s to config.toml", setting->setting);
 		return FALSE;
@@ -668,6 +687,10 @@ static struct
 	short saved_game_to_delete;
 } campaign;
 
+/* MCC checkpoint identities are independent of the stock campaign's level
+ * numbers. Only MCC rows use this additional storage. */
+static char mcc_saved_game_names[MAXIMUM_ROWS][256];
+
 /* the descendant of the widget with the name (a widget's name is its
 definition's: the last part of ours), the nth of them */
 static struct widget_instance *descendant(struct widget_instance *widget, char const *name, long *nth)
@@ -715,6 +738,9 @@ static void text_set(struct widget_instance *text_box, wchar_t const *text)
 {
 	text_set_length(text_box, text, ROW_TEXT_LENGTH);
 }
+
+#include "changelog_menu_runtime.inl"
+#include "gulch_build_label.inl"
 
 /* one of our string lists' strings, on one line (its line breaks spaces),
 of up to size characters */
@@ -970,12 +996,38 @@ static boolean campaign_menu_initialize(short controller)
 }
 
 /* "campaign menu continue": the saved game goes on */
+static boolean mcc_saved_game_read(char name[256], short *difficulty)
+{
+	boolean corrupted = FALSE;
+
+	name[0] = 0;
+	if (player_ui_get_active_player_profile_index(0) == NONE ||
+		!game_state_test_persistent_storage(name, difficulty, &corrupted) ||
+		!mcc_level_name(name))
+	{
+		name[0] = 0;
+		return FALSE;
+	}
+	*difficulty = (short)PIN(*difficulty, 0, NUMBER_OF_GAME_DIFFICULTY_LEVELS - 1);
+	return TRUE;
+}
+
 static boolean campaign_continue(short controller)
 {
 	struct player_profile profile;
 	char const *map_name;
 	short level, difficulty;
 
+	{
+		char mcc_name[256];
+		if (mcc_saved_game_read(mcc_name, &difficulty))
+		{
+			if (!campaign_profile(controller, &profile) || !mcc_cache_require(mcc_name, 0))
+				return campaign_fail();
+			campaign_start(mcc_name, difficulty, controller);
+			return TRUE;
+		}
+	}
 	if (!campaign_profile(controller, &profile) || !ui_widget_port_saved_game(&map_name, &level, &difficulty))
 		return campaign_fail();
 	campaign_start(map_name, difficulty, controller);
@@ -997,6 +1049,8 @@ enum
 	MAP_KIND_MULTIPLAYER,
 	MAP_KIND_CUSTOM_SINGLEPLAYER,
 	MAP_KIND_CUSTOM_MULTIPLAYER,
+	MAP_KIND_MCC_SINGLEPLAYER,
+	MAP_KIND_MCC_MULTIPLAYER,
 	NUMBER_OF_MAP_KINDS
 };
 
@@ -1008,7 +1062,14 @@ short ui_widget_port_multiplayer_maps(char const *const **names, short *last_use
 
 static boolean map_kind_singleplayer(short kind)
 {
+	if (kind == MAP_KIND_MCC_SINGLEPLAYER)
+		return TRUE;
 	return kind == MAP_KIND_SINGLEPLAYER || kind == MAP_KIND_CUSTOM_SINGLEPLAYER;
+}
+
+static boolean map_kind_mcc(short kind)
+{
+	return kind == MAP_KIND_MCC_SINGLEPLAYER || kind == MAP_KIND_MCC_MULTIPLAYER;
 }
 
 /* The kind the chooser shows, kept to the multiplayer kinds unless
@@ -1137,6 +1198,9 @@ static void map_description_show(struct widget_instance *description, short leve
 	struct widget_instance *widget;
 	short marker;
 
+	/* MCC folder descriptions have no map display index. */
+	visible_set(named(description, "mcc_folder_name", 0), FALSE);
+	visible_set(named(description, "mcc_folder_help", 0), FALSE);
 	visible_set(named(description, "replay_level_right_name", 0), level != NONE);
 	visible_set(named(description, "replay_level_right_pic", 0), level != NONE);
 	visible_set(named(description, "replay_level_right_data", 0), level != NONE);
@@ -1158,6 +1222,106 @@ static void map_description_show(struct widget_instance *description, short leve
 		widget->parameters.text_box.string_list_index = map;
 }
 
+/* MCC has its own catalog, selection state and namespace. Its name and
+description use its reserved display indices; an absent screenshot uses
+the stock unknown-map image without entering the CE picture provider. */
+static struct
+{
+	short first, chosen;
+	boolean campaign;
+} mcc_solo_list;
+
+static struct mcc_map_browser mcc_solo_browsers[2];
+
+static void mcc_browser_focus(struct widget_instance *list, struct mcc_map_browser *browser,
+	short *first, short *chosen)
+{
+	*chosen = browser->chosen;
+	*first = map_kind_first(*chosen, browser->count);
+	if (browser->count)
+		map_kind_focus(list, *first, *chosen);
+	else
+		focus_row(list, 0);
+}
+
+static void mcc_map_description_show(struct widget_instance *description, short index)
+{
+	struct widget_instance *picture;
+
+	map_description_show(description, NONE, index == NONE ? NONE : (short)(MCC_MAPS_FIRST_DISPLAY_INDEX + index));
+	picture = named(description, "mp_map_right_pic", 0);
+	if (picture)
+		picture->animation.current_frame_index = index == NONE ? 13 : MCC_MAPS_FIRST_DISPLAY_INDEX + index;
+}
+
+static void mcc_solo_map_text(short row, wchar_t *text)
+{
+	mcc_map_browser_text(&mcc_solo_browsers[mcc_solo_list.campaign], row, text);
+	mcc_menu_text_row(text);
+}
+
+static void mcc_browser_description(struct widget_instance *description, struct mcc_map_browser *browser)
+{
+	short index = mcc_map_browser_index(browser, browser->chosen);
+	wchar_t text[ROW_TEXT_LENGTH];
+
+	visible_set(named(description, "mp_map_right_item", 0), TRUE);
+	mcc_map_description_show(description, index);
+	if (index == NONE)
+	{
+		mcc_map_browser_text(browser, browser->chosen, text);
+		text_set(named(description, "mcc_folder_name", 0), text);
+		text_set(named(description, "mcc_folder_help", 0), browser->count ?
+			L"Open folder to\r\nchoose a map." : L"No MCC maps found\r\nin this category.");
+		visible_set(named(description, "mcc_folder_name", 0), TRUE);
+		visible_set(named(description, "mcc_folder_help", 0), TRUE);
+	}
+}
+
+static boolean mcc_solo_folder_choose(struct widget_instance *list)
+{
+	struct mcc_map_browser *browser = &mcc_solo_browsers[mcc_solo_list.campaign];
+
+	if (!mcc_map_browser_enter(browser, mcc_solo_list.chosen))
+		return FALSE;
+	mcc_browser_focus(list, browser, &mcc_solo_list.first, &mcc_solo_list.chosen);
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	return TRUE;
+}
+
+static void mcc_solo_list_update(struct widget_instance *list)
+{
+	struct widget_instance *description = list->parameters.list.extended_description;
+	struct mcc_map_browser *browser = &mcc_solo_browsers[mcc_solo_list.campaign];
+	short row = map_kind_rows_update(list, &mcc_solo_list.first, browser->count, mcc_solo_map_text);
+
+	if (row != NONE)
+	{
+		mcc_solo_list.chosen = row;
+		mcc_map_browser_select(browser, row);
+	}
+	mcc_browser_description(description, browser);
+	profile_name_show(description);
+}
+
+static boolean mcc_solo_choose(short controller)
+{
+	short index = mcc_map_browser_index(&mcc_solo_browsers[mcc_solo_list.campaign], mcc_solo_list.chosen);
+	char const *level_name = mcc_maps_level_name(index);
+	struct player_profile profile;
+
+	if (!level_name || !campaign_profile(controller, &profile))
+		return campaign_fail();
+	if (mcc_maps_campaign(index))
+	{
+		main_set_map_name(level_name);
+		main_defer_map_map_change();
+		return TRUE;
+	}
+	campaign_start(level_name, main_get_difficulty(), controller);
+	return FALSE;
+}
+
 /* New Game's list: SINGLEPLAYER's levels, the profile's reached, or
 MULTIPLAYER's maps, played alone to walk around (no game engine: a campaign
 game on the map); CUSTOM SINGLEPLAYER's maps played as the campaign's levels
@@ -1172,6 +1336,27 @@ static struct
 	short map_count;
 } level_list;
 
+/* Handle Back explicitly: a failed handler would propagate B to the
+screen's default back action even after returning to the package list. */
+static boolean mcc_solo_back(struct widget_instance *list, boolean *widget_deleted)
+{
+	struct widget_instance *child = named(list, "solo_level_select_list", 0);
+
+	if (child)
+		list = child;
+	if (map_kind_mcc(level_list.kind) && mcc_map_browser_back(&mcc_solo_browsers[mcc_solo_list.campaign]))
+	{
+		mcc_browser_focus(list, &mcc_solo_browsers[mcc_solo_list.campaign],
+			&mcc_solo_list.first, &mcc_solo_list.chosen);
+		ui_play_audio_feedback_sound(SOUND_BACK);
+		return TRUE;
+	}
+	ui_play_audio_feedback_sound(SOUND_BACK);
+	ui_widget_port_go_back(list);
+	*widget_deleted = TRUE;
+	return TRUE;
+}
+
 /* a map list's entries of a kind (the Map screen's difficulties aside) */
 static short map_kind_count(short kind, short multiplayer_map_count)
 {
@@ -1183,6 +1368,10 @@ static short map_kind_count(short kind, short multiplayer_map_count)
 		return xbox_multiplayer_map_count(multiplayer_map_count);
 	case MAP_KIND_CUSTOM_SINGLEPLAYER:
 		return custom_edition_maps_count(TRUE);
+	case MAP_KIND_MCC_SINGLEPLAYER:
+		return mcc_maps_type_count(TRUE);
+	case MAP_KIND_MCC_MULTIPLAYER:
+		return mcc_maps_type_count(FALSE);
 	default:
 		return custom_edition_maps_count(FALSE);
 	}
@@ -1214,6 +1403,10 @@ static boolean level_list_initialize(struct widget_instance *list, short control
 {
 	struct player_profile profile;
 	short level, last_used;
+	short mcc_kind = level_list.kind;
+
+	mcc_maps_rescan();
+	mcc_solo_list.first = mcc_solo_list.chosen = 0;
 
 	if (!campaign_profile(controller, &profile))
 		return FALSE;
@@ -1230,6 +1423,16 @@ static boolean level_list_initialize(struct widget_instance *list, short control
 	level_list.first = map_kind_first(level, NUMBER_OF_SINGLE_PLAYER_LEVELS);
 	map_kind_set(list, level_list.kind);
 	map_kind_focus(list, level_list.first, level_list.chosen);
+	/* MCC keeps its folder when the difficulty screen recreates this list. */
+	if (map_kind_mcc(mcc_kind))
+	{
+		level_list.kind = mcc_kind;
+		mcc_solo_list.campaign = mcc_kind == MAP_KIND_MCC_SINGLEPLAYER;
+		mcc_map_browser_open(&mcc_solo_browsers[mcc_solo_list.campaign], mcc_solo_list.campaign);
+		map_kind_set(list, mcc_kind);
+		mcc_browser_focus(list, &mcc_solo_browsers[mcc_solo_list.campaign],
+			&mcc_solo_list.first, &mcc_solo_list.chosen);
+	}
 	return TRUE;
 }
 
@@ -1246,8 +1449,24 @@ static void level_list_update(struct widget_instance *list)
 
 	if (kind != level_list.kind)
 	{
+		if (map_kind_mcc(kind))
+		{
+			boolean chooser = focused_row(list) == 0;
+
+			mcc_solo_list.campaign = kind == MAP_KIND_MCC_SINGLEPLAYER;
+			mcc_map_browser_open(&mcc_solo_browsers[mcc_solo_list.campaign], mcc_solo_list.campaign);
+			mcc_browser_focus(list, &mcc_solo_browsers[mcc_solo_list.campaign],
+				&mcc_solo_list.first, &mcc_solo_list.chosen);
+			if (chooser)
+				focus_row(list, 0);
+		}
 		level_list.kind = kind;
 		level_list.first = level_list.chosen = 0;
+	}
+	if (map_kind_mcc(kind))
+	{
+		mcc_solo_list_update(list);
+		return;
 	}
 	count = map_kind_count(kind, level_list.map_count);
 	entry = map_kind_rows_update(list, &level_list.first, count,
@@ -1286,6 +1505,9 @@ static boolean level_choose(struct widget_instance *list, short controller)
 	level_list_update(list);
 	level = campaign.shown_level;
 	count = map_kind_count(level_list.kind, level_list.map_count);
+
+	if (map_kind_mcc(level_list.kind))
+		return mcc_solo_choose(controller);
 
 	if (level_list.kind != MAP_KIND_SINGLEPLAYER && (level_list.chosen < 0 || level_list.chosen >= count))
 		return campaign_fail();
@@ -1328,6 +1550,11 @@ static boolean difficulty_start(short difficulty, short controller)
 
 	if (!campaign_profile(controller, &profile))
 		return campaign_fail();
+	if (mcc_maps_level_campaign(map_name))
+	{
+		campaign_start(map_name, PIN(difficulty, 0, 3), controller);
+		return TRUE;
+	}
 	/* (a campaign level, or a Custom Edition campaign map) */
 	if (!custom_edition_maps_level_campaign(map_name))
 		map_name = main_get_solo_level_name(0);
@@ -1371,6 +1598,7 @@ static void saved_games_read(short controller)
 	short index;
 
 	campaign.saved_game_count = 0;
+	memset(mcc_saved_game_names, 0, sizeof(mcc_saved_game_names));
 	if (!campaign_profile(controller, &active))
 		return;
 	active_index = player_ui_get_active_player_profile_index(0);
@@ -1383,6 +1611,15 @@ static void saved_games_read(short controller)
 		if (!((unsigned long)profiles[index] & PROFILE_VALID_BIT) || !player_profile_get(profiles[index], &profile))
 			continue;
 		player_ui_set_active_player_profile(0, profiles[index], &profile);
+		if (mcc_saved_game_read(mcc_saved_game_names[campaign.saved_game_count], &saved_game->difficulty))
+		{
+			saved_game->profile_index = profiles[index];
+			saved_game->level = NONE;
+			ustrncpy(saved_game->profile_name, profile.player_name, MAXIMUM_PLAYER_PROFILE_NAME_LENGTH);
+			saved_game->profile_name[MAXIMUM_PLAYER_PROFILE_NAME_LENGTH] = 0;
+			campaign.saved_game_count++;
+			continue;
+		}
 		if (ui_widget_port_saved_game(&map_name, &saved_game->level, &saved_game->difficulty))
 		{
 			saved_game->profile_index = profiles[index];
@@ -1435,6 +1672,17 @@ static void saved_game_list_update(struct widget_instance *list)
 	{
 		struct campaign_saved_game const *saved_game = &campaign.saved_games[campaign.shown_saved_game];
 
+		if (mcc_saved_game_names[campaign.shown_saved_game][0])
+		{
+			short index = mcc_maps_find(mcc_saved_game_names[campaign.shown_saved_game]);
+			struct widget_instance *picture = named(description, "load_level_right_pic", 0);
+			level_description(description, "load_level",
+				index == NONE ? LEVEL_UNAVAILABLE : MCC_MAPS_FIRST_DISPLAY_INDEX + index,
+				FALSE, NULL, saved_game->difficulty);
+			if (picture) picture->animation.current_frame_index = LEVEL_UNAVAILABLE;
+			profile_name_show(description);
+			return;
+		}
 		level_description(description, "load_level", saved_game->level, FALSE, NULL, saved_game->difficulty);
 	}
 	else if (row != NONE)
@@ -1457,6 +1705,14 @@ static boolean saved_game_continue(short controller)
 	if (!player_profile_get(saved_game->profile_index, &profile))
 		return campaign_fail();
 	player_ui_set_active_player_profile(0, saved_game->profile_index, &profile);
+	if (mcc_saved_game_names[campaign.shown_saved_game][0])
+	{
+		char const *name = mcc_saved_game_names[campaign.shown_saved_game];
+		if (!mcc_cache_require(name, 0))
+			return campaign_fail();
+		campaign_start(name, saved_game->difficulty, controller);
+		return TRUE;
+	}
 	campaign_start(main_get_solo_level_name(saved_game->level), saved_game->difficulty, controller);
 	return TRUE;
 }
@@ -1516,10 +1772,17 @@ static struct widget_instance *screen_of(struct widget_instance *widget)
 }
 
 /* "port settings save" (OK): those changed written, and applied */
+boolean network_game_is_active(void);
+
 static boolean setting_changed_save(struct widget_instance *spinner, struct pc_menu_setting *setting)
 {
 	short index = spinner->parameters.list.selected_index;
 
+	/* A locked display value is never a change to the personal preference,
+	   even if the host unlocks the lobby just before this menu closes. */
+	if (!strcmp(setting->setting, "display.third_person") &&
+		(third_person_policy() != _third_person_player_choice || setting->loaded_index == NONE))
+		return TRUE;
 	if (index < 0 || index >= setting->value_count || index == setting->loaded_index)
 		return TRUE;
 	if (!setting_write(setting->setting, setting->values[index]))
@@ -1529,6 +1792,8 @@ static boolean setting_changed_save(struct widget_instance *spinner, struct pc_m
 	}
 	platform_log("menus: %s = %s", setting->setting, setting->values[index]);
 	setting->loaded_index = index;
+	if (!strcmp(setting->setting, "display.menu_frontend") && main_menu_is_active() &&
+		!network_game_is_active()) main_goto_main_menu();
 	return TRUE;
 }
 
@@ -1542,14 +1807,45 @@ static boolean setting_default_show(struct widget_instance *spinner, struct pc_m
 	return TRUE;
 }
 
+#include "frontend_menu_runtime.inl"
+#include "frontend_prompts.h"
+
+static boolean camera_setting_show(struct widget_instance *spinner, struct pc_menu_setting *setting)
+{
+	if (!strcmp(setting->setting, "display.third_person"))
+	{
+		if (third_person_policy() != _third_person_player_choice)
+		{
+			spinner->parameters.list.selected_index = setting_value_index(setting, third_person_enabled() ? "true" : "false");
+			setting->loaded_index = NONE;
+		}
+		else if (setting->loaded_index == NONE)
+		{
+			setting->loaded_index = setting_value_index(setting, config_boolean("display.third_person") ? "true" : "false");
+			spinner->parameters.list.selected_index = setting->loaded_index;
+		}
+	}
+	return TRUE;
+}
+
 /* "port settings help": the line of the row chosen (by its label's string:
 the buttons' is the first) */
 static void settings_help(struct widget_instance *list)
 {
 	struct widget_instance *help = list->parameters.list.extended_description;
 	struct widget_instance *row = list->focused_child;
+	struct widget_instance *child;
 	short index = 0;
 
+	/* Pointer focus clears the old descendant chain. Returning to a generated
+	   setting row with the d-pad must reconnect its spinner to receive input. */
+	if (row && !row->focused_child)
+		for (child = row->child; child; child = child->next)
+			if (child->type == 2 && pc_menu_setting_get(child->definition_tag_index))
+			{
+				row->focused_child = child;
+				break;
+			}
 	if (!help)
 		return;
 	if (row && row->child && row->child->type == 1 && strncmp(row->name, "button", 6))
@@ -1743,6 +2039,8 @@ static void discord_account_show(struct widget_instance *list)
 The remaining options close the gap; the help and bottom buttons stay put. */
 /* Button Appearance filters its rows in the controller feature module. */
 #include "controller_buttons.h"
+#include "keyboard_prompts.h"
+#include "frontend_input.h"
 #include "controller_button_menu.inl"
 
 static void hud_button_style_row_show(struct widget_instance *list)
@@ -2279,9 +2577,15 @@ static struct
 	{ "controls.scoreboard", L"SHOW SCORES", 2 },
 	{ "controls.pause", L"PAUSE MENU", 2 },
 	{ "controls.screenshot", L"SCREENSHOT", 2 },
+	{ "controls.swap_shoulder", L"SWAP SHOULDER", 4 },
+	{ "controls.free_look", L"HOLD FREE LOOK", 4 },
+	{ "controls.toggle_perspective", L"TOGGLE PERSPECTIVE", 4 },
 	{ "controls.push_to_talk", L"PUSH TO TALK", 3 },
 	{ "controls.chat", L"CHAT", 3 },
 	{ "controls.team_chat", L"TEAM CHAT", 3 },
+	{ "controls.camera_distance", L"CAMERA DISTANCE", 4 },
+	{ "controls.camera_height", L"CAMERA HEIGHT", 4 },
+	{ "controls.camera_offset", L"CAMERA OFFSET", 4 },
 	{ "controls.vote_yes", L"VOTE YES", 3 },
 	{ "controls.vote_no", L"VOTE NO", 3 },
 };
@@ -3335,11 +3639,13 @@ boolean ui_widget_port_multiplayer_player(short controller_index, long profile_i
 boolean ui_widget_port_unjoin_player(struct widget_instance *widget, struct event_record *event,
 	boolean *widget_deleted);
 void network_game_server_port_set_settings(wchar_t const *name, long maximum_players);
+void network_game_server_port_set_camera_policy(short policy);
 void network_game_server_port_set_cooperative_friendly_fire(short friendly_fire);
 void network_game_server_port_set_cooperative_player_collisions(boolean player_collisions);
 void network_game_server_port_set_cooperative_ally_friendly_fire(boolean ally_friendly_fire);
 void *global_network_game_client_get(void);
 void *global_network_game_server_get(void);
+#include "bots_menu.inl"
 boolean network_game_is_splitscreen_local(void);
 struct advertised_game *network_game_client_get_available_games(void *client);
 boolean network_game_client_advertised_game_is_valid(struct advertised_game *game);
@@ -3640,13 +3946,90 @@ static void map_difficulty_text(short difficulty, wchar_t *text)
 	string_get("pc\\main_menu\\player_profiles_select\\difficulty_names", difficulty, text);
 }
 
+static struct
+{
+	short first, chosen, step, level;
+	boolean multiplayer_only;
+	boolean campaign;
+} mcc_host_list;
+
+static struct mcc_map_browser mcc_host_browsers[2];
+
+static void mcc_host_map_text(short row, wchar_t *text)
+{
+	mcc_map_browser_text(&mcc_host_browsers[mcc_host_list.campaign], row, text);
+	mcc_menu_text_row(text);
+}
+
+static void mcc_host_list_update(struct widget_instance *list)
+{
+	struct widget_instance *description = list->parameters.list.extended_description;
+	struct mcc_map_browser *browser = &mcc_host_browsers[mcc_host_list.campaign];
+	short count = mcc_host_list.step == MAP_STEP_DIFFICULTIES ? NUMBER_OF_GAME_DIFFICULTY_LEVELS :
+		browser->count;
+	short row = map_kind_rows_update(list, &mcc_host_list.first, count,
+		mcc_host_list.step == MAP_STEP_DIFFICULTIES ? map_difficulty_text : mcc_host_map_text);
+
+	if (row != NONE)
+	{
+		mcc_host_list.chosen = row;
+		if (mcc_host_list.step != MAP_STEP_DIFFICULTIES)
+			mcc_map_browser_select(browser, row);
+	}
+	if (mcc_host_list.step == MAP_STEP_DIFFICULTIES)
+		mcc_map_description_show(description, mcc_host_list.level);
+	else
+		mcc_browser_description(description, browser);
+	profile_name_show(description);
+	frontend_multiplayer_difficulty(list, mcc_host_list.step == MAP_STEP_DIFFICULTIES ? mcc_host_list.chosen : NONE);
+}
+
+static boolean mcc_host_list_choose(struct widget_instance *list, boolean *widget_deleted)
+{
+	struct mcc_map_browser *browser = &mcc_host_browsers[mcc_host_list.campaign];
+	short index = mcc_host_list.step == MAP_STEP_DIFFICULTIES ? mcc_host_list.level :
+		mcc_map_browser_index(browser, mcc_host_list.chosen);
+	char const *level_name = mcc_maps_level_name(index);
+
+	if (mcc_host_list.step != MAP_STEP_DIFFICULTIES && mcc_map_browser_enter(browser, mcc_host_list.chosen))
+	{
+		mcc_browser_focus(list, browser, &mcc_host_list.first, &mcc_host_list.chosen);
+		ui_play_audio_feedback_sound(SOUND_FORWARD);
+		return FALSE;
+	}
+	if (!level_name)
+		return campaign_fail();
+	if (mcc_host_list.step == MAP_STEP_DIFFICULTIES)
+	{
+		if (!ui_widget_port_mcc_cooperative_level_choose(level_name, mcc_host_list.chosen))
+			return campaign_fail();
+		return ui_widget_port_open(list, SERVER_SETUP_NAME, widget_deleted);
+	}
+	if (!mcc_maps_campaign(index))
+		return ui_widget_port_mcc_multiplayer_map_choose(level_name);
+	if (mcc_host_list.multiplayer_only)
+		return campaign_fail();
+	mcc_map_browser_select(browser, mcc_host_list.chosen);
+	mcc_host_list.level = index;
+	mcc_host_list.step = MAP_STEP_DIFFICULTIES;
+	mcc_host_list.chosen = (short)PIN(main_get_difficulty(), 0, NUMBER_OF_GAME_DIFFICULTY_LEVELS - 1);
+	mcc_host_list.first = 0;
+	map_kind_focus(list, 0, mcc_host_list.chosen);
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	return FALSE;
+}
+
 /* "mp level list initialize": on the multiplayer map used last */
 static boolean map_list_initialize(struct widget_instance *list)
 {
 	char const *const *names;
 	short last_used = 0;
+	short mcc_kind = map_list.kind;
 
 	map_list.hosting = global_network_game_server_get() != NULL && !network_game_is_splitscreen_local();
+	mcc_maps_rescan();
+	csmemset(&mcc_host_list, 0, sizeof(mcc_host_list));
+	mcc_host_list.multiplayer_only = !map_list.hosting;
 	/* (the maps folders looked for again as the list opens) */
 	custom_edition_maps_look_again();
 	map_list.map_count = ui_widget_port_multiplayer_maps(&names, &last_used);
@@ -3659,6 +4042,15 @@ static boolean map_list_initialize(struct widget_instance *list)
 	}
 	map_kind_set(list, map_list.kind);
 	map_step_open(list, MAP_STEP_MAPS, last_used);
+	if (map_kind_mcc(mcc_kind) && (map_list.hosting || mcc_kind == MAP_KIND_MCC_MULTIPLAYER))
+	{
+		map_list.kind = mcc_kind;
+		mcc_host_list.campaign = mcc_kind == MAP_KIND_MCC_SINGLEPLAYER;
+		mcc_map_browser_open(&mcc_host_browsers[mcc_host_list.campaign], mcc_host_list.campaign);
+		map_kind_set(list, mcc_kind);
+		mcc_browser_focus(list, &mcc_host_browsers[mcc_host_list.campaign],
+			&mcc_host_list.first, &mcc_host_list.chosen);
+	}
 	return TRUE;
 }
 
@@ -3672,9 +4064,27 @@ static void map_list_update(struct widget_instance *list)
 
 	if (kind != map_list.kind)
 	{
+		if (map_kind_mcc(kind))
+		{
+			boolean chooser = focused_row(list) == 0;
+
+			csmemset(&mcc_host_list, 0, sizeof(mcc_host_list));
+			mcc_host_list.multiplayer_only = !map_list.hosting;
+			mcc_host_list.campaign = kind == MAP_KIND_MCC_SINGLEPLAYER;
+			mcc_map_browser_open(&mcc_host_browsers[mcc_host_list.campaign], mcc_host_list.campaign);
+			mcc_browser_focus(list, &mcc_host_browsers[mcc_host_list.campaign],
+				&mcc_host_list.first, &mcc_host_list.chosen);
+			if (chooser)
+				focus_row(list, 0);
+		}
 		map_list.kind = kind;
 		map_list.step = MAP_STEP_MAPS;
 		map_list.first = map_list.chosen = 0;
+	}
+	if (map_kind_mcc(kind))
+	{
+		mcc_host_list_update(list);
+		return;
 	}
 	count = map_step_count();
 	entry = map_kind_rows_update(list, &map_list.first, count, map_list.step == MAP_STEP_DIFFICULTIES ?
@@ -3698,6 +4108,7 @@ static void map_list_update(struct widget_instance *list)
 			NONE);
 	}
 	profile_name_show(description);
+	frontend_multiplayer_difficulty(list, map_list.step == MAP_STEP_DIFFICULTIES ? map_list.chosen : NONE);
 }
 
 /* "mp level select" (the list's OK): the map chosen, or a level's
@@ -3709,6 +4120,9 @@ static boolean map_list_choose(struct widget_instance *list, boolean *widget_del
 
 	map_list_update(list);
 	chosen = map_list.chosen;
+
+	if (map_kind_mcc(map_list.kind))
+		return mcc_host_list_choose(list, widget_deleted);
 
 	if (chosen >= map_step_count())
 		return campaign_fail();
@@ -3738,6 +4152,21 @@ static boolean map_list_choose(struct widget_instance *list, boolean *widget_del
 level, else out of the Map screen */
 static boolean map_list_back(struct widget_instance *list, boolean *widget_deleted)
 {
+	if (map_kind_mcc(map_list.kind) && mcc_host_list.step == MAP_STEP_DIFFICULTIES)
+	{
+		mcc_host_list.step = MAP_STEP_MAPS;
+		mcc_browser_focus(list, &mcc_host_browsers[mcc_host_list.campaign],
+			&mcc_host_list.first, &mcc_host_list.chosen);
+		ui_play_audio_feedback_sound(SOUND_BACK);
+		return TRUE;
+	}
+	if (map_kind_mcc(map_list.kind) && mcc_map_browser_back(&mcc_host_browsers[mcc_host_list.campaign]))
+	{
+		mcc_browser_focus(list, &mcc_host_browsers[mcc_host_list.campaign],
+			&mcc_host_list.first, &mcc_host_list.chosen);
+		ui_play_audio_feedback_sound(SOUND_BACK);
+		return TRUE;
+	}
 	ui_play_audio_feedback_sound(SOUND_BACK);
 	if (map_list.step == MAP_STEP_DIFFICULTIES)
 	{
@@ -3745,6 +4174,19 @@ static boolean map_list_back(struct widget_instance *list, boolean *widget_delet
 		return TRUE;
 	}
 	ui_widget_port_go_back(list);
+	*widget_deleted = TRUE;
+	return TRUE;
+}
+
+/* Screens consume B before forwarding events to their list children. */
+static boolean mcc_host_back(struct widget_instance *widget, boolean *widget_deleted)
+{
+	struct widget_instance *list = named(widget, "mp_map_select_list_2", 0);
+
+	if (list && map_kind_mcc(map_list.kind))
+		return map_list_back(list, widget_deleted);
+	ui_play_audio_feedback_sound(SOUND_BACK);
+	ui_widget_port_go_back(widget);
 	*widget_deleted = TRUE;
 	return TRUE;
 }
@@ -3974,6 +4416,9 @@ ui_widget_port_cooperative_level_choose). A Custom Edition map this machine
 has not is taken to be one: co-op is the only game with no game engine. */
 static boolean game_cooperative(struct network_game const *game)
 {
+	if (game && mcc_level_name(game->map.name))
+		return !game->variant.game_engine_index &&
+			(mcc_maps_level_campaign(game->map.name) || mcc_maps_find(game->map.name) == NONE);
 	return game && !game->variant.game_engine_index &&
 		(custom_edition_maps_level_campaign(game->map.name) ||
 		(custom_edition_level_name(game->map.name) && custom_edition_maps_display_index(game->map.name) == NONE));
@@ -4002,10 +4447,10 @@ tools/port_settings.py) */
 #define COOPERATIVE_OPTIONS_HELP 12
 #define COOPERATIVE_VOICE_OPTIONS_HELP 13
 #define SERVER_PASSWORD_HELP 14
-#define MAP_SHARE_OPTIONS_HELP 15
+#define MAP_SHARE_OPTIONS_HELP 18
 /* (LISTING's PUBLIC on a machine with a publisher key: server_master.c) */
-#define SERVER_LISTING_PUBLISHER_HELP 16
-#define MUTATOR_OPTIONS_HELP 17
+#define SERVER_LISTING_PUBLISHER_HELP 19
+#define MUTATOR_OPTIONS_HELP 20
 
 /* whether this machine has a publisher key (read as Server Setup opens) */
 static boolean server_settings_publisher;
@@ -4072,10 +4517,70 @@ static void server_settings_private_set(boolean private_game)
 /* "server settings init": the game's name (player 1's, else the one given
 last), the most players, the gametype's copy (once: the screen is made
 again on coming back from an option's screen) */
+/* This submenu edits the host-owned session without reinitializing the
+main setup's gametype copy, listing or other pending edits. */
+static boolean session_options_initialize(struct widget_instance *list)
+{
+	struct widget_instance *spinner = named(list, "session_compatibility_spinner", 0);
+	if (!spinner) return FALSE;
+	spinner->parameters.list.selected_index = third_person_session_active();
+	spinner = named(list, "camera_policy_spinner", 0);
+	if (spinner) spinner->parameters.list.selected_index = third_person_session_active() ? third_person_policy() : third_person_host_policy();
+	return TRUE;
+}
+
+static boolean session_options_update(struct widget_instance *list)
+{
+	static char const *const policies[] = { "player_choice", "forced_on", "forced_off" };
+	struct widget_instance *spinner = named(list, "session_compatibility_spinner", 0);
+	struct widget_instance *help = list->parameters.list.extended_description;
+	char text[TEXT_FIELD_LENGTH];
+	short selected;
+	if (!spinner) return FALSE;
+	selected = spinner->parameters.list.selected_index != 0;
+	if (selected != third_person_session_active())
+	{
+		third_person_session_set(selected);
+		session_options_initialize(list);
+	}
+	if (help) help->parameters.text_box.string_list_index = third_person_session_locked() ? 2 : third_person_session_active();
+	visible_set(named(list, "op_camera_policy", 0), third_person_session_active());
+	if (third_person_session_active() && (spinner = named(list, "camera_policy_spinner", 0)) != NULL)
+	{
+		selected = (short)PIN(spinner->parameters.list.selected_index, 0, 2);
+		if (selected != third_person_policy())
+		{
+			network_game_server_port_set_camera_policy(selected);
+			if (selected == third_person_policy()) config_write("network.camera_policy", policies[selected]);
+		}
+		spinner->parameters.list.selected_index = third_person_policy();
+		if (help && list->focused_child == named(list, "op_camera_policy", 0))
+			help->parameters.text_box.string_list_index = 3 + third_person_policy();
+	}
+	if (multiplayer.mode != _multiplayer_mode_host_internet)
+		snprintf(text, sizeof(text), "NONE: A LAN GAME");
+	else if (!config_boolean("network.online"))
+		snprintf(text, sizeof(text), "INTERNET PLAY IS OFF (SETTINGS)");
+	else if (!p2p_invite_link(text, sizeof(text)))
+		snprintf(text, sizeof(text), "MADE WHEN THE GAME STARTS");
+	else
+		/* The 64-digit invite does not fit a menu value. The action copies
+		the complete link; show its purpose rather than a clipped address. */
+		snprintf(text, sizeof(text), "SELECT TO COPY LINK");
+	text_field_show(named(list, "invite_value", 0), text, FALSE);
+	if ((spinner = named(list, "op_invite", 0)) != NULL)
+	{
+		spinner->vertical_offset = third_person_session_active() ? 133 : 103;
+		if (help && list->focused_child == spinner) help->parameters.text_box.string_list_index = 6;
+	}
+	return TRUE;
+}
+
 static boolean server_settings_initialize(struct widget_instance *list)
 {
 	struct widget_instance *spinner = named(list, "max_players_spinner", 0);
 
+	if (session_options_initialize(list)) return TRUE;
 	/* (co-op has no gametype to edit) */
 	if (!hosting_cooperative())
 		gametype_setup_begin();
@@ -4118,18 +4623,12 @@ static void server_settings_update(struct widget_instance *list)
 	struct widget_instance *row = named(list, "op_server_name", 0);
 	char text[TEXT_FIELD_LENGTH];
 
+	if (session_options_update(list)) return;
 	if (spinner)
 		*server_settings_maximum_players_index() = (short)PIN(spinner->parameters.list.selected_index, 0,
 			NUMBEROF(maximum_players) - 1);
 	wide_to_text(multiplayer.game_name, text, sizeof(text));
 	text_field_show(named(list, "server_name_value", 0), text, text_field_editing(row));
-	if (multiplayer.mode != _multiplayer_mode_host_internet)
-		snprintf(text, sizeof(text), "NONE: A LAN GAME");
-	else if (!config_boolean("network.online"))
-		snprintf(text, sizeof(text), "INTERNET PLAY IS OFF (SETTINGS)");
-	else if (!p2p_invite_link(text, sizeof(text)))
-		snprintf(text, sizeof(text), "MADE WHEN THE GAME STARTS");
-	text_field_show(named(list, "invite_value", 0), text, FALSE);
 	{
 		wchar_t type[ROW_TEXT_LENGTH];
 
@@ -4137,6 +4636,8 @@ static void server_settings_update(struct widget_instance *list)
 		text_set(named(list, "game_type_value", 0), type);
 	}
 	settings_help(list);
+	if (list->parameters.list.extended_description && list->focused_child == named(list, "op_session_options", 0))
+		list->parameters.list.extended_description->parameters.text_box.string_list_index = 15;
 	{
 		boolean cooperative = hosting_cooperative();
 		short row;
@@ -4272,6 +4773,9 @@ void ui_widget_port_cooperative_settings_apply(void)
 
 static boolean server_start(void)
 {
+	static char const *const camera_policies[] = { "player_choice", "forced_on", "forced_off" };
+	if (third_person_session_active())
+		config_write("network.camera_policy", camera_policies[third_person_policy()]);
 	if (text_field_editing(NULL))
 		text_field_end(TRUE);
 	network_game_server_port_set_settings(multiplayer.game_name,
@@ -4532,6 +5036,9 @@ static short campaign_level_of(char const *map_name)
 {
 	short level;
 
+	if (mcc_level_name(map_name))
+		return NONE;
+
 	/* (a Custom Edition map, custom_maps\a30, is never one) */
 	if (custom_edition_level_name(map_name))
 		return NONE;
@@ -4573,6 +5080,22 @@ static void map_display_name(char const *map_name, wchar_t *text)
 	char const *const *names;
 	short index;
 	short count = xbox_multiplayer_map_count(ui_widget_port_multiplayer_maps(&names, NULL));
+
+	if (mcc_level_name(map_name))
+	{
+		short mcc_index = mcc_maps_find(map_name);
+
+		if (mcc_index != NONE)
+			ustrncpy(text, mcc_maps_name(mcc_index), ROW_TEXT_LENGTH - 1);
+		else
+		{
+			for (index = 0; map_name[index] && index < ROW_TEXT_LENGTH - 1; index++)
+				text[index] = (wchar_t)(unsigned char)map_name[index];
+			text[index] = 0;
+		}
+		text[ROW_TEXT_LENGTH - 1] = 0;
+		return;
+	}
 
 	/* (a Custom Edition map's, if this machine has it: custom_edition_maps.c) */
 	if (custom_edition_level_name(map_name))
@@ -6004,7 +6527,9 @@ static boolean profile_settings_save(struct widget_instance *widget)
 		platform_log("menus: could not save the profile's changes");
 		return campaign_fail();
 	}
-	player_ui_begin_editing_profile(index);
+	/* Preserve MCC pause ownership when saving and reopening its profile. */
+	if (!mcc_ui_settings_profile_reopen(index))
+		player_ui_begin_editing_profile(index);
 	return TRUE;
 }
 
@@ -6124,6 +6649,7 @@ extern void halo_virtual_gamepads_start(void);
 /* "port lobby open" (the lobby made, or come back to): no player being added */
 static boolean lobby_join_reset(void)
 {
+	third_person_session_lock();
 	halo_virtual_gamepads_start();
 	lobby_join.adding = FALSE;
 	lobby_join.controller = NONE;
@@ -6286,6 +6812,20 @@ static void lobby_map_show(struct widget_instance *description, char const *map_
 	short count = xbox_multiplayer_map_count(ui_widget_port_multiplayer_maps(&names, NULL)), map = 19, index;
 	short level = campaign_level_of(map_name);
 	struct widget_instance *widget;
+	short mcc_index = mcc_maps_find(map_name);
+
+	if (mcc_index != NONE)
+	{
+		visible_set(named(description, "lobby_map_pic", 0), TRUE);
+		visible_set(named(description, "lobby_map_name", 0), TRUE);
+		visible_set(named(description, "replay_level_right_pic", 0), FALSE);
+		visible_set(named(description, "replay_level_right_name", 0), FALSE);
+		if ((widget = named(description, "lobby_map_pic", 0)) != NULL)
+			widget->animation.current_frame_index = MCC_MAPS_FIRST_DISPLAY_INDEX + mcc_index;
+		if ((widget = named(description, "lobby_map_name", 0)) != NULL)
+			widget->parameters.text_box.string_list_index = MCC_MAPS_FIRST_DISPLAY_INDEX + mcc_index;
+		return;
+	}
 
 	/* (by the scenario's own name: a map vote's choices name only that) */
 	for (index = 0; index < count; index++)
@@ -6332,6 +6872,8 @@ voice chat (or muted) has a speaker just left of their name
 void menu_functions_text_box_drawn(struct widget_instance *widget, rectangle2d const *bounds)
 {
 	short row;
+
+	frontend_prompts_draw(widget->definition_tag_index, bounds);
 
 	/* (the Mods screen's texts: the fonts and widths their lines are
 	measured in, mods_text_fits) */
@@ -8203,9 +8745,21 @@ boolean pc_menu_event_function_invoke(
 
 		if (!name)
 			return FALSE;
+		if (!strncmp(name, "port frontend ", 14))
+			return frontend_menu_event(widget, name, widget_deleted);
+		if (!strncmp(name, "port bots ", 10))
+			return bots_menu_event(widget, name);
 		if (!strncmp(name, "port controller ", 16))
 			return pad_editor_event(widget, name);
-		if (!strcmp(name, "main menu quit game"))
+		if (!strncmp(name, "port changelog ", 15))
+		{
+			return changelog_menu_event(widget, name);
+		}
+		else if (!strcmp(name, "port gulch build label"))
+		{
+			return gulch_build_label_event(widget);
+		}
+		else if (!strcmp(name, "main menu quit game"))
 		{
 			platform_request_quit();
 		}
@@ -8377,6 +8931,14 @@ boolean pc_menu_event_function_invoke(
 		else if (!strcmp(name, "port map list back"))
 		{
 			return map_list_back(widget, widget_deleted);
+		}
+		else if (!strncmp(name, "port mcc xbox ", 14))
+		{
+			return mcc_xbox_event(name + 14, widget, event, widget_deleted);
+		}
+		else if (!strcmp(name, "port mcc host folder back"))
+		{
+			return mcc_host_back(widget, widget_deleted);
 		}
 		else if (!strcmp(name, "mp profiles list initialize"))
 		{
@@ -8638,7 +9200,13 @@ boolean pc_menu_event_function_invoke(
 		}
 		else if (!strcmp(name, "solo level set map"))
 		{
+			if (map_kind_mcc(level_list.kind) && mcc_solo_folder_choose(widget))
+				return FALSE;
 			return level_choose(widget, controller);
+		}
+		else if (!strcmp(name, "port mcc solo folder back"))
+		{
+			return mcc_solo_back(widget, widget_deleted);
 		}
 		else if (!strcmp(name, "difficulty item select"))
 		{
@@ -8685,7 +9253,9 @@ void pc_menu_game_data_function_invoke(
 	/* (a text field whose screen has gone: let go of) */
 	if (text_field.row && system_milliseconds() - text_field_shown_time > 500)
 		text_field_end(FALSE);
-	if (!strcmp(name, "solo map list update"))
+	if (!strcmp(name, "port changelog focus update"))
+		changelog_menu_focus_update(widget);
+	else if (!strcmp(name, "solo map list update"))
 		level_list_update(widget);
 	else if (!strcmp(name, "mp map list update"))
 		map_list_update(widget);
@@ -8714,6 +9284,12 @@ void pc_menu_game_data_function_invoke(
 		preview_update(widget);
 	else if (!strcmp(name, "port lobby update"))
 		lobby_update(widget);
+	else if (!strcmp(name, "port frontend update"))
+		frontend_menu_help(widget);
+	else if (!strcmp(name, "port frontend navigation update"))
+		frontend_navigation_update(widget);
+	else if (!strcmp(name, "port frontend multiplayer update"))
+		frontend_multiplayer_update(widget);
 	else if (!strcmp(name, "port map vote update"))
 		map_vote_update(widget);
 	else if (!strcmp(name, "port join4 update"))
@@ -8726,6 +9302,12 @@ void pc_menu_game_data_function_invoke(
 		discord_account_show(widget);
 		hdr_calibration_row_show(widget);
 		settings_help(widget);
+		settings_each(widget, camera_setting_show);
+		if (third_person_policy() != _third_person_player_choice &&
+			widget->parameters.list.extended_description &&
+			widget->focused_child == named(widget, "op_third_person", 0))
+			/* FOV And Viewmodels: eight rows, one category, then this help. */
+			widget->parameters.list.extended_description->parameters.text_box.string_list_index = 10;
 	}
 	else if (!strcmp(name, "port hdr calibration"))
 		hdr_calibration_update(widget);

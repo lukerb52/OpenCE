@@ -128,12 +128,13 @@ def test_policy_is_selected_before_game_resources():
     assert imports.count("host_android_chip_family") == 1
 
 
-@pytest.mark.parametrize("enabled,ce,cached,valid,loads,legacy", [
-    (1, 1, 1, 1, 1, 0), (0, 1, 1, 1, 0, 1),
-    (1, 0, 1, 1, 0, 1), (0, 0, 1, 1, 0, 1),
-    (1, 1, 0, 1, 0, 1), (1, 1, 1, 0, 0, 0),
+@pytest.mark.parametrize("enabled,ce,mcc,cached,valid,loads,legacy", [
+    (1, 1, 0, 1, 1, 1, 0), (0, 1, 0, 1, 1, 0, 1),
+    (1, 0, 0, 1, 1, 0, 1), (0, 0, 0, 1, 1, 0, 1),
+    (1, 1, 0, 0, 1, 0, 1), (1, 1, 0, 1, 0, 0, 0),
+    (1, 1, 1, 1, 1, 0, 1), (0, 1, 1, 1, 1, 0, 1),
 ])
-def test_texture_dispatch_boundaries(tmp_path, enabled, ce, cached, valid, loads, legacy):
+def test_texture_dispatch_boundaries(tmp_path, enabled, ce, mcc, cached, valid, loads, legacy):
     source = (ROOT / "source/cache/xbox_texture_cache.c").read_text()
     get = function(source, "_texture_cache_bitmap_get_hardware_format")
     block = get[get.index("#ifdef HALO_ANDROID"):get.index("#endif") + len("#endif")]
@@ -144,7 +145,8 @@ def test_texture_dispatch_boundaries(tmp_path, enabled, ce, cached, valid, loads
 #define _bitmap_cached_bit 0
 #define MAX(a,b) ((a) > (b) ? (a) : (b))
 struct bitmap_data { int flags, pixels_size; };
-static int ce, valid, android_texture_fixes, loads, legacy;
+static int ce, mcc, valid, android_texture_fixes, loads, legacy;
+static int mcc_cache_tags_loaded(void) { return mcc; }
 static int custom_edition_cache_tags_loaded(void) { return ce; }
 static int texture_cache_bitmap_valid(struct bitmap_data *b) { return valid; }
 static int rasterizer_xbox_bitmap_get_pixel_data_size(struct bitmap_data *b) { return 1024; }
@@ -155,6 +157,6 @@ static void dispatch(struct bitmap_data *bitmap) {
  int load = 1;
 '''
     code += block + "\n{ legacy++; }\n}\nint main(void) { struct bitmap_data bitmap={0};\n"
-    code += f"android_texture_fixes={enabled};ce={ce};valid={valid};bitmap.flags={cached};dispatch(&bitmap);\n"
+    code += f"android_texture_fixes={enabled};ce={ce};mcc={mcc};valid={valid};bitmap.flags={cached};dispatch(&bitmap);\n"
     code += f"return loads!={loads} || legacy!={legacy}; }}\n"
     run_c(tmp_path, code)

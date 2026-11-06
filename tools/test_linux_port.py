@@ -75,6 +75,19 @@ def test_render_skips_tags_used_as_both_struct_and_union():
 XDK_INCLUDE = Path(__file__).resolve().parent.parent / "port" / "include" / "xdk"
 
 
+@pytest.mark.skipif(shutil.which("clang") is None, reason="clang is needed to compile the headers")
+def test_source_fixups_header_is_self_contained(tmp_path):
+    root = XDK_INCLUDE.parent.parent.parent
+    source = write(tmp_path / "fixups.c", '#include "halo_linux_source_fixups.h"\n')
+    # This declarations-only header must not require the game's include path
+    # or host libc, so the Linux target can be checked on Windows too.
+    subprocess.run(
+        ["clang", "--target=i686-linux-gnu", "-std=gnu89", "-Werror", "-fsyntax-only",
+         "-I", str(root / "port/linux/include"), str(source)],
+        check=True,
+    )
+
+
 def test_xdk_headers_use_the_sdk_spellings():
     # each port gives the SDK's keywords and names its own meaning (its
     # prefix header), so none of one port's must be written into them
@@ -261,7 +274,12 @@ def test_menus_are_well_formed():
                         header = png.read(24)
                     width, height = int.from_bytes(header[16:20], "big"), int.from_bytes(header[20:24], "big")
                     logical = int(frame.get("width")), int(frame.get("height"))
-                    assert width % logical[0] == 0 and width // logical[0] == height // logical[1], where
+                    if element.get("name", "").startswith("frontend_legacy/glyph_"):
+                        # Controller artwork is presented in its authored 21x26
+                        # legacy glyph cell, independently of the texture size.
+                        assert logical == (21, 26) and width == height == 256, where
+                    else:
+                        assert width % logical[0] == 0 and width // logical[0] == height // logical[1], where
             elif element.tag == "strings":
                 strings[element.get("name")] = element
                 # (a string's map= is its number in the list's map list, menu_tags.c)
@@ -303,7 +321,8 @@ def test_menus_are_well_formed():
 
 def test_menu_settings_exist():
     """Every setting a menu's spinner sets is one of config.toml's
-    (port/linux/src/port_config.c), of the profile or an action of a row's
+    (port/linux/src/port_config.c), a group of those settings, of the profile
+    or an action of a row's
     (menu_functions.c), and
     the keyboard's controls are the same in the settings, in the controls'
     screen and in the input code."""
@@ -314,9 +333,17 @@ def test_menu_settings_exist():
     profile = set(re.findall(r'\{ "(profile\.[a-z_]+)", \d', functions))
     # (and the actions a row does on OK rather than a setting: DISCORD ACCOUNT's LINK, setting_write's)
     actions = set(re.findall(r'!strcmp\(name, "([a-z_]+\.action)"\)', functions))
+    # Grouped lighting rows are implemented by a separate menu module. Check
+    # their actual member keys too, rather than accepting a whole namespace.
+    lighting = (root / "port/linux/game/lighting_menu.c").read_text()
+    groups = dict(re.findall(r'\{\s*"(lighting\.[a-z_]+)",\s*\{([^}]+)\}\}', lighting))
+    assert groups
+    for name, body in groups.items():
+        members = set(re.findall(r'"([a-z_]+\.[a-z_]+)"', body))
+        assert members and members <= known, f"{name}: {members - known}"
     for path in (MENUS / "ce").glob("*.xml"):
         for setting in re.findall(r'setting="([^"]+)"', path.read_text()):
-            assert setting in known | profile | actions, f"{path.name}: {setting}"
+            assert setting in known | profile | actions | groups.keys(), f"{path.name}: {setting}"
     controls = set(re.findall(r'"(controls\.[a-z_]+)"', (root / "port/linux/src/xinput_sdl.c").read_text()))
     assert controls == {name for name in known if name.startswith("controls.")}
     assert controls == set(re.findall(r'\{ "(controls\.[a-z_]+)", L"', functions))
@@ -416,7 +443,7 @@ def test_config_has_each_section_once(tmp_path):
     (stubs / "SDL3" / "SDL.h").write_text("")
     (stubs / "platform.h").write_text("void platform_log(const char *format, ...);\n")
     # (beside the stubs, which it then includes instead of the platform layer's)
-    for name in ("port_config.c", "port_config.h"):
+    for name in ("port_config.c", "port_config.h", "lighting_settings_migration.inl"):
         shutil.copy(root / "port/linux/src" / name, stubs / name)
     (tmp_path / "main.c").write_text(CONFIG_PROGRAM)
     program = tmp_path / "config_program"
@@ -439,19 +466,32 @@ def test_config_has_each_section_once(tmp_path):
         return re.findall(r"^\[(\w+)\]$", config.read_text(), re.M)
 
     # the defaults
-    assert run("get", "display.first_person_legs")[0] == "false"
+    assert run("get", "display.match_timer")[0] == "false"
     assert len(sections()) == len(set(sections())), sections()
-    run("write", "display.first_person_legs", "true")
-    assert run("get", "display.first_person_legs")[0] == "true"
+    run("write", "display.match_timer", "true")
+    assert run("get", "display.match_timer")[0] == "true"
 
     # an older version's
     config.write_text("[display]\nvsync = false\n\n[game]\nconsole_log = \"all\"\n\n"
-                      "[display]\nfirst_person_legs = true\n")
-    value, log = run("get", "display.first_person_legs")
+                      "[display]\nmatch_timer = true\n")
+    value, log = run("get", "display.match_timer")
     assert value == "true" and "joined" in log
     assert sections().count("display") == 1
     assert run("get", "display.vsync")[0] == "false"
     assert run("get", "game.console_log")[0] == "all"
+
+    # Legacy lighting resets before any menu or game reads it; the marker is
+    # written with the reset and later explicit choices survive fresh loads.
+    config.write_text('[display]\nvsync = false\nweapon_glow = true\n'
+                      'shield_glow = true\nshield_glow_intensity = "light_show"\n')
+    assert run("get", "display.weapon_glow")[0] == "false"
+    assert run("get", "display.shield_glow")[0] == "false"
+    assert run("get", "display.shield_glow_intensity")[0] == "default"
+    assert run("get", "display.dynamic_lighting_reset")[0] == "true"
+    assert 'weapon_glow = false' in config.read_text()
+    assert run("get", "display.vsync")[0] == "false"
+    run("write", "display.weapon_glow", "true")
+    assert run("get", "display.weapon_glow")[0] == "true"
 
 
 # ---------- system link's stand-in machines (tools/system_link_bots.py)
@@ -504,8 +544,8 @@ def test_system_link_bots_messages_are_the_games():
 
 def test_network_format_is_the_recorded_one():
     """what the machines send each other is what port/linux/network_format.txt
-    records for HALO_PORT_NETWORK_VERSION, and NETCODE.md says what that
-    version changed"""
+    records for MCC_PROTOCOL_VERSION, and NETCODE.md says what that version
+    changed. The ordinary OpenCE contract is pinned by test_mcc_protocol.py."""
     from tools import network_format
 
     problems = network_format.check()

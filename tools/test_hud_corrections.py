@@ -1,4 +1,4 @@
-"""Supplied reticle/zoom artwork fidelity and CE sprite selection."""
+"""Supplied artwork fidelity, classic cutouts, and CE sprite selection."""
 import hashlib
 import json
 from pathlib import Path
@@ -8,27 +8,11 @@ from PIL import Image
 
 from harness import function
 from hud_assets import build_asset
-import shutil
-import subprocess
-import sys
-import pytest
+from test_hud_button_style import run_c
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / 'port/assets/hud'
 
-
-def run_c(tmp_path, code):
-    compiler = shutil.which('clang')
-    if not compiler:
-        pytest.skip('clang required')
-    source = tmp_path / 'style.c'
-    binary = tmp_path / 'style.exe'
-    source.write_text(code)
-    target = ['--target=i686-pc-windows-msvc'] if sys.platform == 'win32' else ['-m32']
-    result = subprocess.run([compiler, *target, '-std=gnu89', '-O1', str(source), '-o', str(binary)],
-                            capture_output=True, text=True)
-    assert result.returncode == 0, result.stderr
-    subprocess.run([str(binary)], check=True, timeout=10)
 
 
 def test_supplied_sources_are_unchanged():
@@ -38,7 +22,7 @@ def test_supplied_sources_are_unchanged():
 
 
 def test_packed_corrections_use_supplied_pixels():
-    for filename in ['layout.json', 'ce_layout.json']:
+    for filename in ['layout.json', 'ce_layout.json', 'mcc_layout.json']:
         for entry in json.loads((ASSETS / filename).read_text())['assets']:
             if not any('source_png' in cell for cell in entry['cells']):
                 continue
@@ -63,9 +47,11 @@ def test_packed_corrections_use_supplied_pixels():
 
 def test_sniper_reticle_keeps_stock_visible_size_and_position():
     # Measured stock alpha bounds (>=128), not the padded sprite rectangles.
+    # MCC's original sheet has four times Xbox/CE's texture resolution.
     for name, scale, sprite, bounds in [
         ('sniper__hud_reticles_scope__0', 8, [32, 0, 50, 18], [36, 4, 45, 13]),
         ('ce_sniper_scope', 8, [51, 0, 63, 12], [52, 1, 61, 10]),
+        ('mcc_sniper_scope', 2, [108, 0, 152, 44], [112, 4, 148, 40]),
     ]:
         alpha = Image.open(ASSETS / (name+'.png')).getchannel('A')
         x0,y0,x1,y1 = [n*scale for n in sprite]
@@ -75,6 +61,7 @@ def test_sniper_reticle_keeps_stock_visible_size_and_position():
         # Proportional resampling of the supplied image can round one edge
         # by one high-res pixel (1/8 Xbox/CE texel), not one stock texel.
         assert np.all(np.abs(actual - np.array(bounds)*scale) <= 1), name
+
 
 
 def test_ce_keeps_8x_and_only_selects_verified_scope(tmp_path):

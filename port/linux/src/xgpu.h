@@ -69,6 +69,10 @@ int xgpu_gl_ready(void);
 may give its name to a new texture (call before glDeleteTextures) */
 void xgpu_gl_texture_deleted(unsigned int texture);
 
+GLuint xgpu_texture_name_new(void);
+void xgpu_texture_names_prepare(void);
+void xgpu_texture_names_dispose(void);
+
 /* a compiled shader, or a linked program of two, or 0 with the log
 written */
 GLuint xgpu_compile_shader(GLenum type, const char *code, const char *what);
@@ -115,9 +119,11 @@ header). Attributes whose bit is set in packed_attribute_mask are fed as
 NORMPACKED3 32-bit integers and unpacked in the shader. With lighting (else
 NULL), the normal and world position go to the pixel shader too, which
 lights the diffuse color for each pixel (nv2a_pixel_shader_key
-per_pixel_lighting). Returns a malloc'd string. */
+per_pixel_lighting). plasma_model adds optional light falloff/occlusion;
+FALSE emits the original translation. Android always omits the additions.
+Returns a malloc'd string. */
 char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instruction_count,
-	unsigned long packed_attribute_mask, const struct nv2a_vertex_lighting *lighting);
+	unsigned long packed_attribute_mask, const struct nv2a_vertex_lighting *lighting, BOOL plasma_model);
 /* the fixed-function pipeline's vertex shader (the loading screen's draws):
 positions already in clip space. Returns a malloc'd string. */
 char *nv2a_fixed_function_glsl(void);
@@ -175,6 +181,12 @@ struct nv2a_pixel_shader_key
 	blend of a constant color factor with a constant alpha one, as the
 	meters' (shader_transparent_meter) */
 	unsigned char source_blend;
+	/* MCC environment lightmap pass only; part of the compiled shader key. */
+	unsigned char mcc_bump_attenuation;
+	/* Optional model-light falloff/occlusion, only for selected point lights. */
+	unsigned char plasma_model;
+	/* The procedural surface is needed only while a shield draw enables it. */
+	unsigned char shield_honeycomb;
 };
 
 char *nv2a_pixel_shader_to_glsl(const struct nv2a_pixel_shader_key *key);
@@ -237,6 +249,15 @@ GLuint xgpu_texture_get(const DWORD *resource, const D3DCOLOR *palette, GLenum *
 void xgpu_texture_cache_begin_frame(void);
 /* (debug.gpu_stats) a texture of this many bytes uploaded to GL (d3d8_gl.c) */
 void xgpu_statistics_texture_upload(unsigned long bytes);
+
+/* MCC-owned immutable resources never enter the guest physical texture cache. */
+BOOL xgpu_mcc_texture_get(DWORD const *resource, D3DCOLOR const *palette,
+	GLuint *texture, GLenum *target, struct xgpu_texture_description *description);
+BOOL xgpu_mcc_texture_describe(DWORD const *resource, struct xgpu_texture_description *description);
+BOOL xgpu_mcc_texture_upload(GLuint texture, GLenum target,
+	struct xgpu_texture_description const *description, void const *pixels,
+	unsigned long bytes, D3DCOLOR const *palette);
+void xgpu_mcc_texture_unbind(DWORD const *resource);
 
 /* ---------- render targets */
 

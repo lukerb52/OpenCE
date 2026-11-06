@@ -67,6 +67,17 @@ SDL_ANDROID_MOUSE_PATCH = Path("port/android/patches/sdl-relative-mouse.patch")
 SDL_ANDROID_MOUSE_LISTENER = "android-project/app/src/main/java/org/libsdl/app/SDLControllerManager.java"
 ANDROID_API = 28
 
+# Android keeps stock lighting until the optional renderer is validated on
+# devices. Its existing engine hooks link to dynamic_lighting_disabled.c;
+# none of the added light pools, traces, textures or shader emitters are built.
+DYNAMIC_LIGHTING_GAME_SOURCES = {
+    "plasma_lighting.c", "plasma_falloff.c", "plasma_occlusion.c", "plasma_collision.c", "plasma_collision_scene.c", "plasma_collision_models.c",
+    "rocket_lighting.c", "muzzle_lighting.c", "covenant_lighting.c",
+    "covenant_emitter_lighting.c", "ammo_counter_lighting.c", "ammo_counter_falloff.c",
+    "needler_lighting.c", "authored_emitter_lighting.c", "ambient_emitter_lighting.c", "shield_glow.c", "lighting_config.c",
+}
+DYNAMIC_LIGHTING_PLATFORM_SOURCES = {"plasma_model_shader.c", "plasma_occlusion_gl.c"}
+
 # The guest ABI: AArch64 code with 32-bit pointers (clang's only such target
 # is Apple's arm64_32, whose Mach-O output is converted afterwards). The
 # Darwin environment is hidden from the sources; the C library is musl.
@@ -468,7 +479,14 @@ def generate_android_build(n: Writer, sln: Any) -> None:
             cflags += f" -include {PORT_DIR}/include/halo_android_variadic_prototypes.h"
         objects.append(guest_object(source, cflags))
     for source in sorted(Path(config["game_sources"]).glob("*.c")):
-        objects.append(guest_object(source, game_cflags))
+        if source.name in DYNAMIC_LIGHTING_GAME_SOURCES:
+            continue
+        cflags = game_cflags
+        # The main menu labels the executable with its release number.
+        if source.as_posix() == "port/linux/game/menu_functions.c":
+            cflags += " " + updater_defines(getattr(sln, "port_release", False))
+        objects.append(guest_object(source, cflags))
+    objects.append(guest_object(PORT_DIR / "guest/dynamic_lighting_disabled.c", game_cflags))
     objects.append(guest_object(STB_VORBIS_SOURCE, game_cflags))
 
     # the platform layer shared with Linux, and the guest runtime
@@ -480,9 +498,10 @@ def generate_android_build(n: Writer, sln: Any) -> None:
         f"-I{ZLIB_DIR}", "-Isource -Isource/cseries",
         f"-I{SDL_DIR}/include", f"-I{gl_include}", *libc_includes, f"-idirafter {XDK_INCLUDE}",
     ])
-    guest_host_only = {"memory_watch.c"}  # replaced by guest_memory_watch.c
+    # memory_watch.c is replaced by guest_memory_watch.c.
+    guest_excluded = {"memory_watch.c"} | DYNAMIC_LIGHTING_PLATFORM_SOURCES
     for source in sorted((LINUX_DIR / "src").glob("*.c")):
-        if source.name.startswith("posix_") or source.name in guest_host_only:
+        if source.name.startswith("posix_") or source.name in guest_excluded:
             continue
         objects.append(guest_object(source, platform_cflags))
     # the high-res HUD's textures (port/assets/hud; port/linux/src/hud_hires.c)
@@ -594,6 +613,7 @@ def generate_android_build(n: Writer, sln: Any) -> None:
     ])
     host_sources = sorted((PORT_DIR / "host").glob("*.c")) + [
         LINUX_DIR / "src" / "posix_files.c", LINUX_DIR / "src" / "posix_net.c",
+        LINUX_DIR / "src" / "posix_mcc_preview.c",
         # the app reads debug.sample_seconds from config.toml (host_main.c)
         TOML_DIR / "tomlc17.c",
     ]
@@ -649,7 +669,10 @@ def generate_android_build(n: Writer, sln: Any) -> None:
     # config.toml (port/android/host/host_main.c)
     staged_brokers = assets_dir / "brokers.txt"
     n.build(outputs=staged_brokers, rule="android_copy", inputs=Path("port/assets/network/brokers.txt"))
-    n.build(outputs="android", rule="phony", inputs=[libmain, staged_sdl, staged_image, staged_brokers])
+    # Include MCC's decoder notice in the APK as well as the release archive.
+    staged_bcdec_license = assets_dir / "bcdec-LICENSE.txt"
+    n.build(outputs=staged_bcdec_license, rule="android_copy", inputs=Path("port/third_party/bcdec/LICENSE"))
+    n.build(outputs="android", rule="phony", inputs=[libmain, staged_sdl, staged_image, staged_brokers, staged_bcdec_license])
 
     apk = PORT_DIR / "app" / "build" / "outputs" / "apk" / "debug" / "app-debug.apk"
     sdl_android_mouse_listener = SDL_DIR / SDL_ANDROID_MOUSE_LISTENER
@@ -661,7 +684,7 @@ def generate_android_build(n: Writer, sln: Any) -> None:
         description="ANDROID GRADLE $out",
         pool="console",
     )
-    n.build(outputs=apk, rule="android_gradle", inputs=[libmain, staged_sdl, staged_image, staged_brokers],
+    n.build(outputs=apk, rule="android_gradle", inputs=[libmain, staged_sdl, staged_image, staged_brokers, staged_bcdec_license],
             implicit=[sdl_android_mouse_listener])
     n.build(outputs="android_apk", rule="phony", inputs=apk)
     n.newline()

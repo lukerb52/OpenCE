@@ -7,6 +7,13 @@ The port's functions that the game's sources call, declared for them.
 #ifndef __HALO_LINUX_SOURCE_FIXUPS_H
 #define __HALO_LINUX_SOURCE_FIXUPS_H
 
+/* Discard measured listener motion at camera cuts and lifecycle boundaries
+(source/sound/sound_manager.c). NONE resets every local listener. */
+void sound_listener_motion_reset(short local_player_index);
+
+/* MCC weapon-deletion notification (port/linux/game/mcc_first_person.inl). */
+void mcc_first_person_weapon_deleted(long weapon_index);
+
 /* frames between the 30 Hz ticks (port/linux/game/render_interpolation.c);
 the platform layer reads the display.interpolation setting */
 struct observer_result;
@@ -25,7 +32,8 @@ struct real_matrix4x3 *render_interpolation_object_node_matrices(long object_ind
 void render_interpolation_object_point(long object_index, union real_point3d *point);
 struct observer_result const *render_interpolation_camera(short local_player_index,
 	struct observer_result const *observer);
-void render_interpolation_first_person(short local_player_index, struct real_matrix4x3 *node_matrices,
+void render_interpolation_first_person(short local_player_index, long weapon_index, long animation_graph_index,
+	struct real_matrix4x3 *node_matrices,
 	short node_count, struct render_camera const *camera);
 float render_interpolation_game_time_sec(long ticks);
 
@@ -129,5 +137,17 @@ char const *server_director_first_level(void);
 middle button, R and F are held, and the wheel's notches since the last call
 (port/linux/src/xinput_sdl.c) */
 int halo_linux_debug_camera_input(int *middle, int *up, int *down, float *wheel);
+
+/* port/linux/src/touch_gyro.c: consume zoom-only gyro input outside zoom. */
+void halo_linux_gyro_filter(int zoomed, float *yaw, float *pitch);
+
+/* port/linux/src/shader_prepare.c, through the active GL backend. */
+void render_prepare_map(char const *name);
+void render_prepare_end(void);
+/* port/linux/game/texture_prepare.c: bounded Xbox/CE preparation, default off. */
+void texture_prepare_map(void);
+int render_prepare_texture(void const *header);
+/* port/linux/game/material_prepare.c: optional loading-only shader selection. */
+#include "../game/material_prepare.h"
 
 #endif
