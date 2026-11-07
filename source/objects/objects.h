@@ -425,8 +425,6 @@ boolean object_has_node(long object_index, short node_index);
 void object_set_automatic_deactivation(long object_index, boolean automatic_deactivation);
 void object_set_visibility(long object_index, boolean visible_flag);
 void object_get_velocities(long object_index, real_vector3d *translational_velocity, real_vector3d *angular_velocity);
-/* port: for the sounds' Doppler effect (game_sound.c, sound_manager.c) */
-void object_get_point_velocity(long object_index, real_point3d const *point, real_vector3d *velocity);
 struct location *object_get_location(long object_index, struct location *location);
 void object_start_interpolation(long object_index, short frame_count);
 void object_offset_interpolation(long object_index, real_vector3d *offset);
@@ -472,8 +470,6 @@ void object_translate(long object_index, real_point3d const *new_position, struc
 long object_new(struct object_placement_data *data);
 void object_attach_to_node(long parent_object_index, long child_object_index, short parent_node_index);
 boolean object_force_inside_bsp(long object_index, real_point3d const *known_good_point);
-/* port: exclude the shooter when validating a muzzle-origin projectile. */
-boolean object_force_inside_bsp_ignoring(long object_index, real_point3d const *known_good_point, long ignore_object_index);
 void object_compute_node_matrices_recursive(long object_index);
 long object_new_from_scenario(struct scenario_object_datum *scenario_object, struct tag_block *palette);
 void object_attach_to_marker(long parent_object_index, char const *parent_marker_name, long child_object_index, char const *child_marker_name);
@@ -533,8 +529,8 @@ __inline void object_get_bounding_sphere(
 	return;
 }
 
-/* port: port/linux/game/object_pose.c's */
-real object_pose_render_radius(long object_index, real render_radius);
+/* port: port/linux/game/mutator_big_head.c's */
+real mutator_big_head_render_radius(long object_index, real render_radius);
 
 __inline void object_get_render_bounding_sphere(
 	long object_index,
@@ -554,8 +550,8 @@ __inline void object_get_render_bounding_sphere(
 	{
 		*radius *= object->object.scale;
 	}
-	/* port: and to hold the nodes a mutator's poses moved */
-	*radius = object_pose_render_radius(object_index, *radius);
+	/* port: and to hold a head the big head mutator scaled */
+	*radius = mutator_big_head_render_radius(object_index, *radius);
 
 	return;
 }

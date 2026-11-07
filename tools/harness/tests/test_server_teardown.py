@@ -33,11 +33,7 @@ CONTROLS = {
 
 def generated(platform, control=None):
     server = read('source/networking/network_server_manager.c')
-    population = read('port/linux/game/bots_population.inl')
-    code = '\n'.join(re.findall(r'^static (?:unsigned )?long (?:population_|bots_population_).*;',
-                               read('port/linux/game/bots_network.c') + population, re.M)) + '\n'
-    code += function(population, 'bots_population_map_reset') + '\n'
-    code += function(read('port/linux/game/bots_management.inl'), 'bots_management_reset')
+    code = function(read('port/linux/game/bots_management.inl'), 'bots_management_reset')
     code += '\n' + function(read('port/linux/game/bots_network.c'), 'bots_network_session_end')
     code += '\n' + function(server, 'network_game_server_dispose')
     if control:

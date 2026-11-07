@@ -43,7 +43,7 @@ from typing import Any, Dict, List, Optional
 
 from .android_build import VARIADIC_PROTOTYPE_FILES
 from .embed_assets import hud_assets_build, hud_configure_inputs
-from .linux_build import (LUA_DIR, LUA_SOURCES, EXPAT_DIR, EXPAT_SOURCES, KCP_DIR, MONOCYPHER_DIR, MUSL_MATH_DIR, STB_VORBIS_SOURCE, TOML_DIR,
+from .linux_build import (EXPAT_DIR, EXPAT_SOURCES, KCP_DIR, MONOCYPHER_DIR, MUSL_MATH_DIR, STB_VORBIS_SOURCE, TOML_DIR,
                           XDK_INCLUDE, ZLIB_DEFINES, ZLIB_DIR, ZLIB_SOURCES, compile_launcher, configuration_defines,
                           game_defines_and_includes, game_sources, musl_math_cflags, musl_math_sources,
                           opus_cflags, opus_sources, updater_defines, xdk_headers)
@@ -289,8 +289,6 @@ def generate_web_build(n: Writer, sln: Any) -> None:
         add_object(source, opus_cflags(abi))
     for name in ("monocypher.c", "monocypher-ed25519.c"):
         add_object(MONOCYPHER_DIR / name, " ".join([abi, "-std=gnu11", "-w"]))
-    for name in LUA_SOURCES:
-        add_object(LUA_DIR / name, " ".join([abi, "-std=gnu11", "-w"]))
     for name in ZLIB_SOURCES:
         add_object(ZLIB_DIR / name, " ".join([abi, "-std=gnu11", *ZLIB_DEFINES, "-w"]))
     for source in musl_math_sources():
@@ -349,10 +347,7 @@ def generate_web_build(n: Writer, sln: Any) -> None:
         command="$web_emcc $ldflags -o $out @$out.rsp",
         description="WEB LINK $out",
         rspfile="$out.rsp",
-        # Emscripten parses response files as shell words even on Windows.
-        # Native backslashes are escapes there; quote portable paths so both
-        # separators and source directories containing spaces survive.
-        rspfile_content=" ".join(f'"{obj.as_posix()}"' for obj in objects),
+        rspfile_content="$in_newline",
     )
     n.build(outputs=halo_js, implicit_outputs=[halo_wasm], rule="web_link", inputs=objects,
             implicit=[library_js, pre_js, SDL_PORT, sdl_stamp], variables={"ldflags": " ".join(link_flags)})
@@ -376,7 +371,6 @@ def generate_web_build(n: Writer, sln: Any) -> None:
         description="WEB LICENSES $out",
     )
     n.build(outputs=licenses, rule="web_licenses", implicit=[PORT_DIR / "licenses.py", Path("LICENSE"), sdl_license,
-            Path("port/third_party/dualsense/TriggerEffectGenerator-LICENSE.txt"),
             Path("LICENSES/GPL-3.0-only.txt"), Path("docs/reading/bots_and_android_features.md")])
     site_files.append(licenses)
     n.rule(

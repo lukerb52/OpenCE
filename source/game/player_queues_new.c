@@ -633,8 +633,7 @@ void update_client_queue(
 		*saved = *action;
 		*pending |= action->control_flags;
 		*pending_primary_trigger = MAX(*pending_primary_trigger, action->primary_trigger);
-		/* port: only buttons accumulate; camera state belongs to the latest input. */
-		saved->control_flags = (*pending & 0xFFFFUL) | (action->control_flags & 0x10000UL);
+		saved->control_flags = *pending;
 		saved->primary_trigger = *pending_primary_trigger;
 	}
 	++update_client_globals.current_local_player;
@@ -903,7 +902,7 @@ void update_server_handle_client_update(
 			}
 			queue->current_action = actions[action_index];
 			update_server_pending_control_flags[DATUM_INDEX_TO_ABSOLUTE_INDEX(player_list[player_index])] |=
-				queue->current_action.control_flags & 0xFFFFUL; /* port: only latch buttons */
+				queue->current_action.control_flags;
 			match_assert_valid_real(
 				"c:\\halo\\SOURCE\\game\\player_queues_new.c",
 				0x238,

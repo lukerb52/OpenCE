@@ -628,12 +628,7 @@ symbols in this file:
 struct widget_instance;
 
 #include "mcc_hud_draw.h"
-#include "mcc_menu_preview.h" /* port: port/linux/game/mcc_menu_preview.c */
-#include "mcc_menu_text.h" /* port: port/linux/game/mcc_menu_text.c */
 #include "cseries.h"
-#include "frontend_menu.h" /* port: port/linux/game/frontend_menu.c and frontend_menu_runtime.inl */
-#include "keyboard_glyphs.h" /* port: optional semantic HUD prompts, not widget/menu icons */
-#include "frontend_input.h" /* port: modern frontend input-source observation */
 #include "errors.h"
 #include "bitmaps/bitmap_group.h"
 #include "bitmaps/bitmaps.h"
@@ -1871,9 +1866,7 @@ void draw_bitmap_in_rect(
 		/* port: (rasterizer.h) */
 		parameters.alpha_weighted = FALSE;
 		parameters.framebuffer_blend_function = 0;
-		/* port: modern rounded panels preserve their ends using these same plasma parameters. */
-		if (!frontend_panel_draw(&parameters, vertices, bitmap->width))
-			rasterizer_psuedo_dynamic_screen_quad_draw(&parameters, vertices);
+		rasterizer_psuedo_dynamic_screen_quad_draw(&parameters, vertices);
 	}
 
 	return;
@@ -4088,9 +4081,6 @@ struct widget_instance *ui_widget_load_by_name_or_tag(
 		(widget_stack>=0) && (widget_stack<MAXIMUM_GAMEPADS));
 	if (tag_index == NONE)
 		tag_index = tag_loaded(UI_WIDGET_DEFINITION_TAG, name);
-	/* port: explicit frontend/settings routes preserve the starting and pause
-	 * roots. Child definitions and map-authored widgets are never redirected. */
-	if (!parent) tag_index = frontend_menu_destination(tag_index);
 	if (tag_index != NONE)
 	{
 		definition = ui_widget_definition_get(tag_index);
@@ -4158,8 +4148,6 @@ struct widget_instance *ui_widget_load_by_name_or_tag(
 				tag_index,
 				local_player_index,
 				widget_stack);
-			/* port: additive Xbox settings links; feature code rejects other screens/maps. */
-			frontend_menu_attach(widget);
 		}
 		else
 		{
@@ -4313,9 +4301,6 @@ void draw_string_and_hack_in_icons(
 			short icon_index;
 
 			current = icon_spec + wcslen(icon_names[icon_type]);
-			/* port: HUD/scoreboard callers pass TRUE; authored menu icons stay native. */
-			if (ignore_icon_color && keyboard_hud_inline(icon_type, &cursor_bounds))
-				continue;
 			remapped_icon_type = remap_sticks_for_local_player(
 				icon_type,
 				local_player_index_for_draw_string_and_hack_in_icons);
@@ -5158,8 +5143,7 @@ void main_screen_shell_load(
 		{
 			extern char const *pc_menus_root_name(void);
 
-			/* port: apply frontend preferences only at this main-menu boundary. */
-			if (!ui_widget_load_by_name_or_tag(frontend_menu_root(pc_menus_root_name()), NONE, NULL, NONE, NONE, NONE, NONE))
+			if (!ui_widget_load_by_name_or_tag(pc_menus_root_name(), NONE, NULL, NONE, NONE, NONE, NONE))
 				error(_error_silent, "failed to load main screen shell window");
 		}
 		if (widget_globals.main_menu_deferred_error_code != NONE)
@@ -5533,8 +5517,6 @@ static void widget_instance_render_text_box(
 	bounds.y0 += offset.y;
 	bounds.x0 += definition->horizontal_offset;
 	bounds.y0 += definition->vertical_offset;
-	/* port: contextual help keeps the modern panel's authored blue text. */
-	if (frontend_menu_wrap(widget->definition_tag_index)) focus = FALSE;
 	if (focus)
 	{
 		color = get_ui_argb_white();
@@ -5611,24 +5593,6 @@ static void widget_instance_render_text_box(
 			clip.y1 = MIN(clip.y1, bounds.y1);
 		}
 	}
-	/* port: measure modern help without the text renderer's horizontal clamp,
-	 * then wrap its fresh instance copy to the actual panel width. */
-	if (frontend_menu_wrap(widget->definition_tag_index))
-	{
-		rectangle2d measure = bounds;
-		measure.x1 = SHORT_MAX;
-		frontend_menu_reflow_text(*text);
-		/* port: measure line advances from the left, then restore the authored
-		 * alignment. A centered cursor includes half the measurement box. */
-		draw_string_set_draw_mode(font_index, NONE, 0, 0, &color);
-		ui_widget_port_text_wrap(*text, &measure, (short)(bounds.x1 - bounds.x0 - 2));
-		draw_string_set_draw_mode(font_index, NONE, justification, 0, &color);
-	}
-	/* port: authored MCC catalog text needs measured wrapping in every
-	 * frontend. The MCC module owns formatting and clips to this text box. */
-	if (mcc_menu_text_draw(widget->definition_tag_index, widget->parameters.text_box.string_list_index,
-		*text, font_index, justification, &color, &bounds, &clip))
-		return;
 	if (string_has_icons_to_draw(*text))
 		draw_string_and_hack_in_icons(&bounds, &clip, NULL, 0, *text, FALSE);
 	else
@@ -7043,10 +7007,6 @@ static void ui_widgets_process_mouse(
 
 	ui_debug_frame++;
 	pointer_active = halo_ui_pointer_update(ui_mouse_menus_active(), &pointer) != 0;
-	/* port: observe the existing pointer read without consuming input again. */
-	if (pointer_active)
-		frontend_input_pointer(pointer.touch, pointer.moved || pointer.left_clicks ||
-			pointer.right_clicks || pointer.wheel_steps || pointer.downs);
 	if (pointer_active)
 		ui_mouse_pointer_is_touch = pointer.touch != 0;
 	if (pointer_active && ui_debug_targets_enabled())
@@ -7275,40 +7235,6 @@ static void widget_instance_render_recursive(
 	/* port: (custom_edition_maps_picture) */
 	struct bitmap_data *custom_edition_picture;
 	short frame_index;
-	/* port: a local modern definition supplies identical drawing and pointer bounds. */
-	struct ui_widget_definition frontend_definition;
-	short mcc_picture_index; /* port: MCC owns its picture selection and cache. */
-	rectangle2d frontend_clip;
-	short frontend_shift = 0;
-	short frontend_left = definition->bounds.x0, frontend_right = definition->bounds.x1;
-	boolean frontend_layout;
-
-	frontend_layout = frontend_menu_geometry(widget->definition_tag_index,
-		&frontend_left, &frontend_right, &frontend_shift);
-	if (frontend_layout)
-	{
-		frontend_definition = *definition;
-		frontend_definition.bounds.x0 = frontend_left;
-		frontend_definition.bounds.x1 = frontend_right;
-		/* port: the modern value column grows with its text and right arrow. */
-		if (widget->type == _ui_widget_type_spinner_list)
-		{
-			frontend_definition.list_footer_bounds.x0 += frontend_right - definition->bounds.x1;
-			frontend_definition.list_footer_bounds.x1 += frontend_right - definition->bounds.x1;
-		}
-		frontend_definition.text_font.index = frontend_menu_font(widget->definition_tag_index, definition->text_font.index);
-		definition = &frontend_definition;
-		offset.x += frontend_shift;
-		/* port: detached help text also has no parent; only the screen container
-		 * supplies the viewport clip, before child offsets are accumulated. */
-		if (!widget->parent && widget->type == _ui_widget_type_container && clip_rect)
-		{
-			frontend_clip = *clip_rect;
-			frontend_clip.x0 = definition->bounds.x0;
-			frontend_clip.x1 = definition->bounds.x1;
-			clip_rect = &frontend_clip;
-		}
-	}
 
 	if (!use_nifty_plasma_fx &&
 		TEST_FLAG(definition->flags, _widget_always_render_with_nifty_fx_bit))
@@ -7330,23 +7256,12 @@ static void widget_instance_render_recursive(
 	}
 	if (!widget->visible)
 		return;
-	/* port: modern scrolling excludes off-screen rows from drawing and pointer hits. */
-	if (!frontend_menu_row_drawable(widget)) return;
 	ui_mouse_note_target(widget, definition, offset);
 	/* port: a Custom Edition map's picture, drawn over the whole widget, or
 	the unknown level's frame for a map without one
 	(port/linux/game/custom_edition_maps.c) */
 	frame_index = widget->animation.current_frame_index;
-	/* port: MCC display indices never enter the CE provider. A failed MCC
-	 * preview retains the existing unknown frame in every menu style. */
-	mcc_picture_index = mcc_menu_preview_index(definition->background_bitmap.index, frame_index);
-	if (mcc_picture_index != NONE)
-	{
-		frame_index = 13;
-		custom_edition_picture = NULL;
-	}
-	else
-		custom_edition_picture = custom_edition_maps_picture(definition->background_bitmap.index, &frame_index);
+	custom_edition_picture = custom_edition_maps_picture(definition->background_bitmap.index, &frame_index);
 	bitmap = custom_edition_picture ? custom_edition_picture : bitmap_group_get_bitmap_from_sequence(
 		definition->background_bitmap.index,
 		0,
@@ -7442,15 +7357,8 @@ static void widget_instance_render_recursive(
 			boolean shown = TRUE;
 			boolean stretched = custom_edition_picture &&
 				custom_edition_maps_campaign_level(widget->animation.current_frame_index) == NONE;
-			/* port: modern art follows its responsive bounds; inherited map and
-			 * gametype previews retain their native padded-bitmap texel placement. */
-			stretched = stretched || (frontend_layout && frontend_menu_stretch_bitmap(widget->definition_tag_index));
 
-			/* port: MCC art fits and clips to this style's authored thumbnail
-			 * rectangle; only the MCC module decodes or owns its texture. */
-			if (mcc_picture_index != NONE && mcc_menu_preview_draw(mcc_picture_index, &bounds, clip, color, &multitexture_params))
-				shown = FALSE;
-			if (shown && pc_menu_frame_placement(bitmap, &frame_x, &frame_y, &frame_width, &frame_height))
+			if (pc_menu_frame_placement(bitmap, &frame_x, &frame_y, &frame_width, &frame_height))
 			{
 				bounds.x0 += frame_x;
 				bounds.y0 += frame_y;
@@ -7462,15 +7370,6 @@ static void widget_instance_render_recursive(
 			}
 			if (shown)
 			{
-				/* port: scaled modern difficulty icons exclude the native bitmap's
-				 * power-of-two padding, keeping their visible art centered. */
-				if (frontend_layout && frontend_menu_bitmap_region(widget->definition_tag_index, &frame_width, &frame_height))
-				{
-					set_rectangle2d(&texels, 0, 0, frame_width, frame_height);
-					stretched = FALSE;
-				}
-				/* port: scope panel slicing to this modern widget's background. */
-				frontend_panel_begin(widget->definition_tag_index);
 				draw_bitmap_in_rect(
 					bitmap,
 					&bounds,
@@ -7479,7 +7378,6 @@ static void widget_instance_render_recursive(
 					color,
 					&multitexture_params,
 					FALSE);
-				frontend_panel_end();
 			}
 		}
 		if (use_nifty_plasma_fx)
@@ -7493,8 +7391,6 @@ static void widget_instance_render_recursive(
 	switch (widget->type)
 	{
 	case _ui_widget_type_text_box:
-		/* port: the widened clip belongs only to this modern text draw. */
-		frontend_menu_text_begin(widget->definition_tag_index);
 		widget_instance_render_text_box(
 			widget,
 			definition,
@@ -7513,7 +7409,6 @@ static void widget_instance_render_recursive(
 			text_bounds.y0 += definition->vertical_offset;
 			menu_functions_text_box_drawn(widget, &text_bounds);
 		}
-		frontend_menu_text_end();
 		break;
 
 	case _ui_widget_type_spinner_list:
@@ -8098,12 +7993,6 @@ static void widget_instance_process_one_event_recursive(
 		"c:\\halo\\SOURCE\\interface\\ui_widget.c",
 		3067,
 		widget && definition && event && return_widget_deleted);
-	/* port: optional main-menu shortcuts and additive Xbox editor actions. */
-	if (event_for_this_widget && frontend_menu_shortcut(widget, event))
-	{
-		*return_widget_deleted = TRUE;
-		return;
-	}
 	if (event->type == _event_type_button &&
 		event->data.button.index >= _widget_event_dpad_up &&
 		event->data.button.index <= _widget_event_dpad_right)

@@ -181,7 +181,6 @@ symbols in this file:
 /* ---------- headers */
 
 #include "cseries.h"
-#include "third_person.h" /* port: port/linux/game/third_person.c */
 #define limit2d limit2d_inline
 #include "game/game.h"
 #undef limit2d
@@ -213,9 +212,7 @@ symbols in this file:
 
 #include "real_math.h"
 #include "passenger_camera.h" /* port: port/linux/game/passenger_camera.c; after the limit2d alias above */
-#include "mutator_scripts.h" /* port: port/linux/game/mutator_scripts.c */
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
-#include "dualsense_game.h" /* port: port/linux/game/dualsense_game.c */
 
 /* ---------- constants */
 
@@ -448,7 +445,6 @@ void player_control_dispose(
 void player_control_dispose_from_old_map(
 	void)
 {
-	dualsense_game_reset(); /* port: release feature feedback before the map goes */
 	return;
 }
 
@@ -755,10 +751,8 @@ static void handle_one_player_input(
 		}
 
 		/* port: this local passenger view has no weapon zoom, including a
-		scope held before entering the seat or enabling the setting; nor the
-		view a mutator's script asks for (port/linux/game/mutator_scripts.c). */
-		if (passenger_camera_enabled(local_player_index) ||
-			mutator_view_active(local_player_index))
+		scope held before entering the seat or enabling the setting. */
+		if (passenger_camera_enabled(local_player_index))
 		{
 			player->zoom_level = NONE;
 			if (unit->unit.current_zoom_level != NONE || unit->unit.desired_zoom_level != NONE)
@@ -844,9 +838,6 @@ static void handle_one_player_input(
 
 		action.desired_facing = player->desired_angles;
 		action.control_flags = player->control_flags;
-		/* port: replicate this tick's shoulder view, including collision fallback. */
-		SET_FLAG(action.control_flags, THIRD_PERSON_INPUT_BIT,
-			third_person_active(local_player_index) && third_person_enabled() && player->zoom_level == NONE);
 		action.desired_weapon_index = player->desired_weapon_index;
 		action.desired_grenade_index = player->desired_grenade_index;
 		action.desired_zoom_level = player->zoom_level;
@@ -881,7 +872,6 @@ boolean player_control_update(
 	{
 		handle_one_player_input(local_player_index, time_delta_sec);
 	}
-	dualsense_game_update(); /* port: feedback also observes menus and players without units */
 	collision_log_end_period();
 	profile_exit(player_control_update_section);
 
@@ -1937,7 +1927,6 @@ void player_control_initialize_for_new_map(
 {
 	short local_player_index;
 
-	dualsense_game_reset(); /* port: no feedback history crosses map loads */
 	player_control_globals->action_test_flags = 0;
 	player_control_globals->action_flags = 0;
 	player_control_globals->suppressed_action_flags = 0;
@@ -1994,10 +1983,6 @@ static void player_control_modify_desired_angles(
 	struct player_control_unit_camera_info camera_info;
 	real pitch_minimum = -DEGREES_TO_RADIANS(85.5f);
 	real pitch_maximum = DEGREES_TO_RADIANS(85.5f);
-
-	/* port: orbit the shoulder camera while keeping gameplay aim fixed. */
-	if (third_person_free_look_input(local_player_index, delta_yaw, delta_pitch))
-		return;
 
 	match_assert(
 		"c:\\halo\\SOURCE\\game\\player_control.c",

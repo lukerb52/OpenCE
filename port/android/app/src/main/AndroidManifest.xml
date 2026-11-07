@@ -26,7 +26,7 @@
          system would take them and the game would never see them -->
     <application
         android:name=".HaloApplication"
-        android:label="${appLabel}"
+        android:label="@string/app_name"
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="false"
         android:isGame="true"
@@ -51,7 +51,6 @@
             android:exported="true"
             android:screenOrientation="sensorLandscape"
             android:configChanges="orientation|screenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode">
-            <meta-data android:name="android.app.shortcuts" android:resource="@xml/mcc_shortcuts" />
             <meta-data
                 android:name="android.app.category"
                 android:value="game" />
@@ -68,10 +67,6 @@
                 <data android:scheme="halo" android:host="join" />
             </intent-filter>
         </activity>
-
-        <activity android:name=".MccImportActivity" android:exported="true"
-            android:launchMode="singleTask" android:label="@string/mcc_import_label"
-            android:configChanges="orientation|screenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode" />
 
         <!-- in a process of its own, with a fresh Java heap (HaloApplication) -->
         <activity
@@ -92,7 +87,7 @@
         <!-- the downloaded new version, for the package installer (Updater) -->
         <provider
             android:name=".UpdateProvider"
-            android:authorities="${applicationId}.update"
+            android:authorities="com.halo.decomp.update"
             android:exported="false"
             android:grantUriPermissions="true" />
 

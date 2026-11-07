@@ -337,9 +337,13 @@ static boolean bitmap_format_drawable(
 	}
 }
 
-/* what every bitmap must satisfy for the texture cache to read it at all
-(see below): everything but the swizzle's requirement on its sides */
-static boolean bitmap_readable(
+/* Whether the texture cache can draw `bitmap` from pixels laid out as its
+tag lays them out, as rasterizer_xbox_bitmap_rebuild_hardware_format and
+the texture cache assume without checking: the game's own bitmap_verify, a
+format with a hardware texture, a compressed flag that says whether the
+format is compressed, power-of-two dimensions for the swizzle (or else a
+linear 2D bitmap), square cube maps, and every pixel its levels need. */
+boolean custom_edition_bitmap_drawable(
 	struct bitmap_data *bitmap)
 {
 	boolean linear = TEST_FLAG(bitmap->flags, _bitmap_linear_bit);
@@ -348,40 +352,11 @@ static boolean bitmap_readable(
 	return bitmap_verify(bitmap, FALSE) &&
 		bitmap_format_drawable(bitmap->format, linear) &&
 		(TEST_FLAG(bitmap->flags, _bitmap_compressed_bit) != 0) == compressed_format &&
+		(linear ?
+			bitmap->type == _bitmap_type_2d :
+			power_of_two(bitmap->width) && power_of_two(bitmap->height) && power_of_two(bitmap->depth)) &&
 		(bitmap->type != _bitmap_type_cube_map || bitmap->width == bitmap->height) &&
 		bitmap->pixels_size >= bitmap_get_pixel_data_size(bitmap);
-}
-
-/* whether the swizzle of rasterizer_xbox_bitmap_rebuild_hardware_format can
-be done on the bitmap's pixels: power-of-two sides, or else a linear 2D one */
-static boolean bitmap_swizzle_possible(
-	struct bitmap_data *bitmap)
-{
-	return TEST_FLAG(bitmap->flags, _bitmap_linear_bit) ?
-		bitmap->type == _bitmap_type_2d :
-		power_of_two(bitmap->width) && power_of_two(bitmap->height) && power_of_two(bitmap->depth);
-}
-
-/* Whether the existing Xbox rebuild can safely swizzle or pad this bitmap.
-Raw NPOT DXT is admitted separately by custom_edition_bitmap_raw_2d. */
-boolean custom_edition_bitmap_drawable(
-	struct bitmap_data *bitmap)
-{
-	return bitmap_readable(bitmap) && bitmap_swizzle_possible(bitmap);
-}
-
-/* Only single-level, block-aligned 2D DXT can use the Size-word descriptor.
-Other NPOT layouts still need a representation, not just relaxed admission. */
-boolean custom_edition_bitmap_raw_2d(struct bitmap_data const *bitmap)
-{
-	return bitmap->type == _bitmap_type_2d &&
-		bitmap->format >= _bitmap_format_dxt1 && bitmap->format <= _bitmap_format_dxt5 &&
-		TEST_FLAG(bitmap->flags, _bitmap_compressed_bit) &&
-		!TEST_FLAG(bitmap->flags, _bitmap_linear_bit) &&
-		bitmap->width > 0 && bitmap->width <= 4096 &&
-		bitmap->height > 0 && bitmap->height <= 4096 && bitmap->depth == 1 &&
-		!(bitmap->width & 3) && !(bitmap->height & 3) && bitmap->mipmap_count == 0 &&
-		(!power_of_two(bitmap->width) || !power_of_two(bitmap->height));
 }
 
 /* where bitmap `bitmap_index` of the tag `handle` names is in the list of
@@ -775,7 +750,6 @@ boolean custom_edition_bitmaps_verify(
 	struct bitmap_group *group;
 	int32_t tag_index = NONE;
 	long bitmap_count = 0;
-	long unswizzled_count = 0;
 
 	while ((group = custom_edition_cache_tag_next(tag_cache, loaded_bytes, BITMAP_GROUP_TAG, sizeof(*group), &tag_index)) != NULL)
 	{
@@ -785,12 +759,11 @@ boolean custom_edition_bitmaps_verify(
 		{
 			struct bitmap_data *bitmap = TAG_BLOCK_GET_ELEMENT(&group->bitmaps, bitmap_index, struct bitmap_data);
 
-			if (!custom_edition_bitmap_drawable(bitmap) &&
-				!(bitmap_readable(bitmap) && custom_edition_bitmap_raw_2d(bitmap)))
+			if (!custom_edition_bitmap_drawable(bitmap))
 			{
 				error(
 					_error_silent,
-					"custom edition: bitmap %ld of '%s' (type %d, format %d, %dx%dx%d, flags 0x%X) cannot be drawn (invalid pixels or unsupported layout, mip levels or dimensions)",
+					"custom edition: bitmap %ld of '%s' (type %d, format %d, %dx%dx%d, flags 0x%X) cannot be drawn by this build",
 					bitmap_index,
 					custom_edition_cache_tag_name(tag_cache, loaded_bytes, tag_index),
 					bitmap->type,
@@ -801,30 +774,8 @@ boolean custom_edition_bitmaps_verify(
 					bitmap->flags);
 				return FALSE;
 			}
-			if (!bitmap_swizzle_possible(bitmap))
-			{
-				/* Accepted raw DXT keeps its block layout and exact dimensions. */
-				if (unswizzled_count++ < 16)
-				{
-					error(
-						_error_silent,
-						"custom edition: bitmap %ld of '%s' (type %d, format %d, %dx%dx%d, flags 0x%X) is drawn from its pixels as the tag stores them",
-						bitmap_index,
-						custom_edition_cache_tag_name(tag_cache, loaded_bytes, tag_index),
-						bitmap->type,
-						bitmap->format,
-						bitmap->width,
-						bitmap->height,
-						bitmap->depth,
-						bitmap->flags);
-				}
-			}
 			bitmap_count++;
 		}
-	}
-	if (unswizzled_count)
-	{
-		error(_error_silent, "custom edition: %ld bitmaps are drawn from their pixels as the tag stores them", unswizzled_count);
 	}
 	error(
 		_error_silent,
@@ -931,8 +882,7 @@ void custom_edition_bitmap_pixels_arrived(
 					custom_edition_bitmaps_globals.reordered_bitmaps[reordered_index].channel_order :
 					_custom_edition_channels_xbox);
 			/* on failure it logs, and the texture shows the pixels as read */
-			if (custom_edition_bitmap_drawable(bitmap))
-				rasterizer_xbox_bitmap_rebuild_hardware_format(bitmap);
+			rasterizer_xbox_bitmap_rebuild_hardware_format(bitmap);
 			return;
 		}
 	}

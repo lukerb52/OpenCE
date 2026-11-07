@@ -2,9 +2,9 @@
 #ifndef MCC_PROTOCOL_H
 #define MCC_PROTOCOL_H
 
-/* OpenCE 41 owns messages through 95. MCC 64 adds advisory Workshop metadata
- * to the map name tail; gameplay messages remain above upstream voting. */
-#define MCC_PROTOCOL_VERSION 64
+/* OpenCE 41 owns messages through 95. MCC 62 moves its gameplay messages
+ * and admission envelope past upstream map voting, retaining MCC 61 inventory. */
+#define MCC_PROTOCOL_VERSION 62
 #define MCC_PROTOCOL_ADVERTISED_FLAG 0x08
 #define MCC_PROTOCOL_ADVERTISED_VERSION_OFFSET 4
 #define MCC_PROTOCOL_JOIN_KIND 100

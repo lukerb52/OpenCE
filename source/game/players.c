@@ -240,7 +240,6 @@ symbols in this file:
 #include "devices/devices.h"
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
 #include "bots.h" /* port: port/linux/game/bots.c */
-#include "mutator_scripts.h" /* port: port/linux/game/mutator_scripts.c */
 #include "cutscene/cinematics.h" /* port: network co-op's first spawns */
 #include "editor/editor_stubs.h"
 #include "effects/effects.h"
@@ -283,7 +282,6 @@ symbols in this file:
 #include "units/units.h"
 #include "units/vehicle_definitions.h"
 #include "units/vehicles.h"
-#include "third_person.h" /* port: replicated shoulder firing state */
 #include "mcc_seats.h" /* port: port/linux/game/mcc_seats.c */
 
 /* network_game_globals.c's */
@@ -4642,9 +4640,7 @@ static void player_examine_nearby_objects(
 
 				case _object_type_weapon:
 				case _object_type_equipment:
-					/* port: not a script's model, which is only drawn */
-					if (!mutator_scripts_object_local(object_indices[object_number]))
-						player_examine_nearby_item(player_index, object_indices[object_number]);
+					player_examine_nearby_item(player_index, object_indices[object_number]);
 					break;
 
 				case _object_type_control:
@@ -5078,10 +5074,6 @@ void players_update_before_game(
 						0x2E5,
 						(NONE == control_data.zoom_level) || ((control_data.zoom_level >= 0)));
 					unit_control(player->unit_index, &control_data);
-					/* port: keep camera state out of the stock unit input flags. */
-					SET_FLAG(unit->unit.control_flags, THIRD_PERSON_INPUT_BIT,
-						TEST_FLAG(action->control_flags, THIRD_PERSON_INPUT_BIT) &&
-						third_person_policy() != _third_person_forced_off);
 				}
 				else if (unit->unit.swarm_actor_index == NONE &&
 					unit->unit.actor_index == NONE)
@@ -5103,9 +5095,6 @@ void players_update_before_game(
 				}
 			}
 		}
-
-		/* port: a mutator's script's tick (port/linux/game/mutator_scripts.c) */
-		mutator_scripts_tick();
 
 		players_compute_combined_pvs(players_globals->combined_pvs_local, TRUE);
 		players_compute_combined_pvs(players_globals->combined_pvs, FALSE);

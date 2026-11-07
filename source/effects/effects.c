@@ -155,7 +155,6 @@ symbols in this file:
 #include "game/game.h"
 #include "game/players.h"
 #include "interface/first_person_weapons.h"
-#include "third_person.h" /* port: port/linux/game/third_person.c */
 #include "memory/data.h"
 #include "math/real_math.h"
 #include "game/game_globals.h"
@@ -173,7 +172,6 @@ symbols in this file:
 #include "tag_files/tag_groups.h"
 #include "units/bipeds.h"
 #include "units/units.h"
-#include "explosion_decals.h" /* port: port/linux/game/explosion_decals.c */
 #undef real_local_random
 
 /* ---------- constants */
@@ -1226,8 +1224,6 @@ static struct effect_location_datum *effect_location_get_next_instance(
 
 		if (camera_mode == _effect_camera_mode_first_person_only ||
 			(camera_mode == _effect_camera_mode_both &&
-			/* port: smoke and casings use the world weapon in shoulder view. */
-			!third_person_active(effect->local_player_index) &&
 			effect->local_player_index != NONE &&
 			local_player_count() == 1))
 		{
@@ -1761,9 +1757,6 @@ static void effect_generate_part(
 			damage.direction = *world_forward;
 
 			area_of_effect_cause_damage(&damage, NONE);
-			/* port: and the decal a mutator's [explosion] leaves, as big as
-			the damage reaches (port/linux/game/explosion_decals.c) */
-			explosion_decal(part_definition->reference.index, world_point, world_forward);
 			break;
 		}
 

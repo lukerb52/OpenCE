@@ -13,7 +13,6 @@ finger down (host_gesture_insets).
 #include "touch_gyro.h"
 #include "touch_menu.h"
 #include "port_config.h"
-#include "keyboard_prompts.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -127,12 +126,10 @@ void touch_input_event(unsigned int type, const SDL_TouchFingerEvent *finger)
 	switch (type)
 	{
 	case SDL_EVENT_FINGER_DOWN:
-		keyboard_prompt_touch();
 		refresh_zones(width, height);
 		touch_menu_down(&menu, finger->fingerID, x, y);
 		break;
 	case SDL_EVENT_FINGER_MOTION:
-		keyboard_prompt_touch();
 		touch_menu_move(&menu, finger->fingerID, x, y);
 		break;
 	case SDL_EVENT_FINGER_UP:
@@ -142,27 +139,6 @@ void touch_input_event(unsigned int type, const SDL_TouchFingerEvent *finger)
 		touch_menu_cancel(&menu);
 		break;
 	}
-}
-
-/* port/linux/game/network_chat.c: its on-screen keyboard is up, which
-takes the taps outside the menus; port/linux/game/mutator_share.c: its
-question about a host's script is up, which takes them in the menus too */
-extern short network_chat_controller(void);
-extern unsigned char mutator_share_prompt_open(void);
-
-/* the taps for that keyboard or that question since it last took them, and
-the latest's place (0 to 1 of the window) */
-static int chat_taps;
-static float chat_tap_x, chat_tap_y;
-
-static void chat_tap_add(int clicks, int x, int y)
-{
-	int width = 0, height = 0;
-
-	platform_video_drawable_size(&width, &height);
-	chat_taps += clicks;
-	chat_tap_x = width > 0 ? x / (float)width : 0.0f;
-	chat_tap_y = height > 0 ? y / (float)height : 0.0f;
 }
 
 void touch_input_cancel(void)
@@ -186,13 +162,6 @@ void touch_input_menu_read(struct platform_ui_pointer *pointer)
 
 	menu_setup();
 	touch_menu_read(&menu, &output);
-	/* (a tap answers the question about a host's script, drawn over the
-	menus, not a menu under it) */
-	if (output.clicks && mutator_share_prompt_open())
-	{
-		chat_tap_add(output.clicks, output.click_x, output.click_y);
-		output.clicks = 0;
-	}
 	pointer->x = output.x;
 	pointer->y = output.y;
 	pointer->click_x = output.click_x;
@@ -206,6 +175,15 @@ void touch_input_menu_read(struct platform_ui_pointer *pointer)
 	pointer->down_y = output.down_y;
 	pointer->touch = TRUE;
 }
+
+/* port/linux/game/network_chat.c: its on-screen keyboard is up, which
+takes the taps outside the menus */
+extern short network_chat_controller(void);
+
+/* the taps for that keyboard since it last took them, and the latest's
+place (0 to 1 of the window) */
+static int chat_taps;
+static float chat_tap_x, chat_tap_y;
 
 int touch_input_chat_taps(float *x, float *y)
 {
@@ -227,10 +205,16 @@ void touch_input_gamepad(XINPUT_GAMEPAD *pad)
 
 		menu_setup();
 		touch_menu_read(&menu, &output);
-		/* (or, while the text chat's on-screen keyboard is up, its keys, and
-		while the question about a host's script is, its answers) */
-		if (output.clicks && (network_chat_controller() == 0 || mutator_share_prompt_open()))
-			chat_tap_add(output.clicks, output.click_x, output.click_y);
+		/* (or, while the text chat's on-screen keyboard is up, its keys) */
+		if (output.clicks && (network_chat_controller() == 0))
+		{
+			int width = 0, height = 0;
+
+			platform_video_drawable_size(&width, &height);
+			chat_taps += output.clicks;
+			chat_tap_x = width > 0 ? output.click_x / (float)width : 0.0f;
+			chat_tap_y = height > 0 ? output.click_y / (float)height : 0.0f;
+		}
 		else if (output.clicks && touch_game_cinematic_skippable())
 		{
 			skip_polls = TOUCH_PRESS_POLLS;
@@ -345,9 +329,6 @@ void touch_input_controls(XINPUT_GAMEPAD *pad, int menus)
 		host_touch_bindings(bindings);
 	}
 	host_touch_read(state);
-	/* Touch controls keep the native HUD prompts, even with automatic detection. */
-	for (index = 0; index < 7; index++)
-		if (state[index]) { keyboard_prompt_touch(); break; }
 	/* the stick moves the player through the game's input state, whatever
 	the profile's sticks do (touch_input_move), not as the left stick */
 	move_x = state[0] / 32767.0f;
@@ -406,7 +387,6 @@ void touch_input_look(float scale, float *yaw, float *pitch, float *gyro_yaw, fl
 	float delta[4];
 
 	host_touch_look_read(delta);
-	if (delta[0] || delta[1]) keyboard_prompt_touch();
 	*yaw -= delta[0] * scale;
 	*pitch -= delta[1] * scale;
 	*gyro_yaw -= delta[2] * scale;

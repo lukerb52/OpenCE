@@ -26,13 +26,6 @@ does not run gameplay or alter network readiness, authority or map validation.
 
 ## Installation and menus
 
-The Xbox frontend has separate **MCC Campaigns** and **MCC Maps** entries.
-MCC Campaigns selects a profile, a campaign folder, a mission and a difficulty,
-using native Xbox-style cards and completion badges. Package previews and
-long-title handling also work in Modern, Classic PC and Stock menus. See
-[MCC menu images and badges](reading/mcc_level_previews.md) for the flow,
-metadata requirements and completion-record limits.
-
 Put the map in the game data root's `mcc_maps` directory, beside `maps` and
 `custom_maps`. For example:
 
@@ -88,118 +81,6 @@ complete map/required resource contents must match the host. Optional
 `.txt` descriptions remain beside the corresponding level. No manifest is
 required.
 
-A package from the Steam Workshop can say which item it is, so a joiner who
-cannot match the host's map is told what to do. The item is the package folder
-when Steam's own name (the item id, all digits) is kept, or a `workshop_id.txt`
-in the folder: the id on the first line and, optionally, the title on the
-second. The host sends the id and title in the map name's reserved tail
-(`mcc_workshop.c`). MCC protocol 64 versions this extension without changing
-the settings record's size; older MCC peers are refused. Xbox/CE retain
-OpenCE protocol 41. See the [wire contract](../port/linux/NETCODE.md#gulchce-crossplay-boundary).
-
-The item is advisory: the level filename and content fingerprint still decide
-admission. A known local item is recognized even if its older package lacks
-the requested level. A matching filename without an item id does not prove
-the item is installed. The refusal distinguishes an identified package that
-does not match from a package that cannot be identified locally. Both messages
-name the item and tell the player to copy the host's matching map and required
-resources into `mcc_maps`; a map with no item id gets the fingerprint text,
-naming the level file. A mismatch does not establish which player's copy is
-newer. This does not discover Steam libraries or synchronize manually copied
-packages; those require separate Workshop catalog integration.
-
-### Subscribed Steam Workshop items
-
-Installed packages can also supply [level previews](reading/mcc_level_previews.md).
-Keep their listed map/mission metadata and PNGs together. Modern, Classic PC,
-Stock and Xbox-style panels use `Images.Large`, then `Images.Thumbnail`, with
-the question mark as fallback. Pictures fit and clip to the existing thumbnail
-rectangle, and MCC titles/descriptions wrap within their text boxes. This also
-works for complete Android imports without Steam and does not enable sharing.
-
-With `game.workshop_maps = true` (`HALO_WORKSHOP_MAPS=1`), desktop builds list
-Halo CE maps from the Workshop items a player is subscribed to
-without copying anything into the data root. `steam_workshop.c` looks in Steam's
-libraries for `steamapps/workshop/content/976730/<item id>/`: the usual Steam
-folders (on Windows `%ProgramFiles(x86)%\Steam`; on Linux `~/.steam/steam`,
-`~/.local/share/Steam`, and the Flatpak and Snap places), the `paths.steam`
-setting (`HALO_STEAM_ROOT`), and every library their `libraryfolders.vdf`
-names. On Windows it also reads `SteamPath` from the current user's
-`Software\Valve\Steam` registry key and `InstallPath` from both the 32-bit and
-64-bit machine-wide views of that key. Thus an installation such as `C:\Steam`
-is discovered without editing the configuration or running Steam. The manual
-`paths.steam` root is checked first, followed by registered installations and
-standard folders; its copy of a duplicate item takes precedence. Missing,
-unreadable, non-string or oversized registry values are ignored. The detected
-path is not written to the configuration: an empty setting continues to use
-automatic discovery on the next scan.
-
-On Linux, after the manual override, discovery checks the literal absolute path
-in `STEAM_COMPAT_CLIENT_INSTALL_PATH` when the launch environment supplies it,
-then `$XDG_DATA_HOME/Steam`. It also keeps the home-folder fallbacks above and
-adds `~/.steam/debian-installation`. The existing `~/.steam/steam` and
-`~/.steam/root` links can point to an installation anywhere the user can read;
-each discovered root's library list can locate libraries on other drives.
-For example, `XDG_DATA_HOME=/mnt/data/player` finds
-`/mnt/data/player/Steam` with `paths.steam` empty. Missing, stale, relative,
-control-character or oversized environment hints do not prevent fallback
-discovery. Paths are not expanded as shell expressions or written to config.
-
-The location evidence is the [XDG base-directory specification](https://specifications.freedesktop.org/basedir/0.8/),
-Valve's use of the client-install hint in [Proton's launcher](https://github.com/ValveSoftware/Proton/blob/proton_10.0/proton),
-and the [Valve maintainer's description of Debian's installation folder](https://github.com/ValveSoftware/steam-for-linux/issues/9347).
-These are discovery hints, not an exhaustive drive search. An installation with
-no accessible hint, link or known location still needs `paths.steam`; sandbox
-filesystem permissions can also prevent discovery.
-
-An item is used when its `ModInfo.json` says `"Engine": "Halo1"`; each
-path in `GameModContents.MultiplayerMaps` is a map json whose `ScenarioFile`
-names the `.map` file in the item's `maps` folder, whose `Title.Neutral` is the
-map's title and whose `Images.Thumbnail` is its preview picture. Folder names
-inside an item are found without regard to case, as Steam's files are spelled
-by their makers. An item seen through two paths to one library is listed once.
-
-Discovery defaults to off. Android and web use installed `mcc_maps` packages;
-they do not search for Steam. Local package folders take precedence regardless
-of their letter case. The path translation hook is necessary because the shared
-file reader opens virtual Xbox paths; it handles only `mcc_maps` requests and
-leaves `maps` and `custom_maps` on their established paths.
-
-Each map is the level `mcc_maps\<item id>\<map name>`, so it is the same
-package identity as a folder named by the item id (above), and the host's item
-id and title and a joiner's refusal text work as for any such package. The path
-translation (`platform_translate_path`) opens `mcc_maps\<item id>\` as the
-item's `maps` folder in Steam's library. A package folder of that name in the
-data root's `mcc_maps` wins, so a player can still override an item by hand.
-The MCC menus show the map's Workshop title, and a package folder shows the
-item's title instead of its id. The resources a map needs (`bitmaps.map`,
-`sounds.map`) are chosen as for any package: beside the level, then the shared
-sets above.
-
-The catalog is read the first time MCC maps are needed, and again when a joiner
-cannot find the host's map (so an item subscribed just now is found). The json
-files are the item makers' text: one that is too large (256 KB), too deep, not
-an object, or that names a path leaving its item, refuses that item or map and
-nothing else.
-
-### Workshop collections
-
-Several Workshop items belong to a collection that their makers published as a
-set (a competitive pack, a social pack, a 2v2 set). `workshop_collections.c`
-holds a fixed, curated set of Halo CE collections as data: a name and the ids of
-its items. It does not query current Steam collection membership. Enable
-`game.mcc_collections` (`HALO_MCC_COLLECTIONS=1`, default off) and reopen the
-map list to use these groups. Imported packages can identify their collection
-through `workshop_id.txt`, without Steam. At the
-top of the MCC map menus a collection the player has an item of is a folder
-(`[PRO EDITION]`), before the package folders; it holds the maps of the
-player's items that are in it, by their Workshop titles. An item that is in two
-collections is in both folders; an item in none keeps the package folder of its
-own, named by its title. A collection with no subscribed item has no folder.
-Only the menu changes: levels are still `mcc_maps\<item id>\<map name>`, so
-a host's map and a joiner's messages do not depend on collections. A collection
-the table does not know is shown as its items' own folders.
-
 The two MCC categories show package folders first (alphabetically, in brackets),
 then loose maps. Open a folder to choose one of its levels; the rows omit the
 repeated package suffix, while the selected map's details retain its identity.
@@ -230,43 +111,9 @@ to gametypes. Split-screen multiplayer skips **MCC SINGLEPLAYER**, just as
 it skips the existing singleplayer categories. These
 are menu routes in the implementation; multiplayer interoperability and
 complete campaigns require gameplay testing.
-Without campaign metadata enabled, each selected MCC campaign map remains an
-independent scenario. Enable **CAMPAIGN MISSIONS** under Settings > Network
-Setup > Map Sharing > MCC Packages (`game.mcc_campaigns`, default false) to
-discover Workshop campaigns and use their authored mission order. The same
-screen exposes desktop Steam discovery and optional collection folders.
-
-`ModInfo.json` must identify `Halo1` and `GameModContents.HasCampaign = true`.
-`CampaignInfo.json` supplies an explicit `CampaignMaps` list; each referenced
-mission JSON supplies `ScenarioFile` and an optional `Title.Neutral`.
-The order in that list is authoritative, even when filenames sort differently.
-The last component of `ScenarioFile` names the compiled map, following the
-[public Excession format](https://learn.microsoft.com/en-us/halo-master-chief-collection/excession/creatingmodpackage/specifyingproperties).
-A package contains one campaign, whose mission list can be reordered in
-[Excession](https://learn.microsoft.com/en-us/halo-master-chief-collection/excession/creatingmodpackage/campaignmod).
-The bounded reader supports 1-64 missions, rejects duplicate paths or filenames,
-and accepts the default mission kind. Hub/flashback semantics and insertion-point
-selection are not implemented; missions start normally at their beginning.
-
-For local packages, keep `ModInfo.json`, `CampaignInfo.json` and the referenced
-mission metadata beside the flattened maps, retaining the metadata subfolders.
-The Android importer performs this layout conversion and preserves the Workshop
-ID in `workshop_id.txt`. Metadata never redirects loading to another package,
-Xbox or CE. A local override never borrows metadata from its Steam counterpart.
-Missing map binaries remain in the declared order: completion stops with a
-diagnostic instead of skipping a mission. Unlisted maps remain independently
-selectable and do not acquire an inferred next mission.
-
-Solo completion queues the next explicit MCC level with the current difficulty;
-the last mission returns to the menu. In co-op only the host chooses the next
-mission, using the existing round transition and content-admission messages.
-The lobby selects that mission; the final mission returns to the lobby without
-wrapping to the first. Clients need matching map/resource content, not identical
-metadata or package folder names. No network fields or agreement rules changed.
-The minimal `main_won_map_private` hook is necessary because the established
-completion table cannot represent MCC package identities; all selection logic
-remains in MCC modules, behind loaded-campaign and setting guards. Xbox and CE
-completion paths are preserved.
+Each selected MCC campaign map is treated as an independent scenario.
+Automatic progression through a package's campaign map sequence is not
+implemented; the MCC package manifest is not interpreted.
 
 MCC checkpoints retain the canonical `mcc_maps\[package\]<filename>` scenario
 identity, including when the original tag names an Xbox campaign level.
@@ -280,7 +127,7 @@ package name and separator. Deeper nesting, traversal and invalid names are
 rejected. Moving an existing loose map into a package changes its saved-game
 identity; keep it at its old location to continue an existing checkpoint. A description is optional;
 the default identifies the scenario type. MCC thumbnail sidecars, Workshop
-downloads and network transfer manifests are not implemented. There is no
+downloads and MCC package manifests are not implemented. There is no
 dependency on the Custom Edition setting or its resource directories.
 
 The loader opens source maps read-only. A rejected map reports the failing
@@ -427,35 +274,6 @@ and embedded widgets remain present. Scripts that explicitly open embedded
 widgets can still use the MCC callback adapter described below. The new
 pause labels and confirmation text are currently English; localization of
 these generated strings is not implemented.
-
-## Preliminary sharing restriction
-
-PR #94 supplies an MCC-owned eligibility helper only. MCC peer downloads are
-not enabled by it. The temporary policy covers hand-placed packages and excludes
-recognized Workshop content (numeric package folders or a valid
-`workshop_id.txt`), stock content, loose maps and `_shared`. Desktop players
-continue installing Workshop content through Steam or manually; Android players
-continue using the [package importer](../port/android/README.md#importing-mcc-packages).
-Steam is not required on Android. This is a scope restriction, not a claim that
-Workshop maps are unsafe or that manually copied maps are safe.
-
-The helper requires host opt-in, a known SHA-256 content identity and an explicit
-local classification of that exact content as custom. Unknown classification,
-unreadable sidecars and invalid enum values are refused. Folder names do not
-classify stock content: renaming a stock package cannot change an established
-stock classification, and a custom package may use a stock-looking name. A
-missing sidecar remains allowed under the original policy, but is not proof of
-origin or redistribution permission. Removing metadata is not a supported way
-to establish eligibility. The classification provider and transfer integration
-are future work; this phase does not automatically classify installed files.
-
-The additional-resource allowlist contains only `bitmaps.map` and `sounds.map`.
-It neither validates their contents nor authorizes reading global fallback
-resources. Campaign metadata and later mission files need a separate transfer
-contract. Eligibility and a matching hash must never bypass receiver-side map
-validation, path containment, bounded transfers or safe installation. See the
-[reader's guide](reading/maps_and_resources.md#preliminary-mcc-sharing-policy)
-for the API, trust boundaries and regression checks.
 
 ## Repository architecture and isolation
 
@@ -907,16 +725,11 @@ decoded texture storage to exceed the former single 512 MiB offset range.
   MCC virtual resources. Runtime tag windows must be free, 64 KiB-aligned,
   64 MiB allocations based between `0x42000000` and `0x70000000` inclusive.
   The observed MCC base is `0x50000000`.
-  Windows delay-loads `SDL3.dll` and reserves this address range at constructor
-  priority 101, before CE's settings read (priority 102) first calls SDL.
-  SDL retains ASLR; it is not patched to use a fixed address. Windows
+  Windows reserves this address range before renderer initialization and
   retains the reservation between maps. Pages are committed only during an
   MCC load and decommitted on unload; other accepted linked bases can replace
   only our inactive reservation. An occupied range is never overwritten.
   Allocation refusals report the address, size and OS error in `debug.txt`.
-  Early reservation failures are retained until `windows_startup` opens the
-  port log, then reported to stderr (normally `halo.log` for release builds).
-  The map loader still retries the reservation and refuses occupied memory.
   MCC network load failures schedule session teardown and a menu reload before
   the next frame's input update, rather than entering the fatal error screen.
   A player reported that disabling XFire and restarting GulchCE resolved this
@@ -924,13 +737,6 @@ decoded texture storage to exceed the former single 512 MiB offset range.
   but the specific allocation conflict has not been captured. Early reservation
   is not a guarantee of compatibility with XFire; disabling it and restarting
   remains the confirmed workaround for that report.
-  Separately, [issue 87's follow-up](https://github.com/chestahh/GulchCE/issues/87#issuecomment-6486929272)
-  records two launches with the unmodified SDL DLL inside the MCC window and
-  a successful launch with SDL's ASLR disabled locally. Those post-startup
-  snapshots do not establish which module first occupied the range. They do
-  demonstrate why a normal load-time SDL import can defeat any constructor.
-  Delay loading removes that SDL race; other eager or injected DLLs can still
-  prevent reservation and must not be overwritten.
 - There are at most 65,535 tags and 32 BSP references. Runtime conversion
   descriptors must fit below the lowest BSP in the tag window. Geometry
   currently admits at most 64 nodes per model, 22 palette nodes per part,
@@ -1532,9 +1338,8 @@ compatibility-version change is involved. This is an MCC-specific avoidance
 of the credits/cache interaction, not a general change to the movie player
 or background I/O. Xbox and CE completion remain unchanged.
 
-At the time of that fix, automatic MCC campaign progression was unsupported.
-Packages without an enabled explicit campaign manifest still require manual
-mission selection. An unrelated saved-map identity rejection is
+Automatic MCC campaign-package progression remains unsupported: after M0
+finishes, select M1 manually. An unrelated saved-map identity rejection is
 normal, and the map's equipment/grenade warnings are not suppressed here.
 
 Regression tests cover camera bounds, default and supported lenses, wide
@@ -2554,187 +2359,3 @@ Remaining limitations established during this investigation:
   verification. Android and web builds were attempted but their generated shell
   commands cannot run on this Windows host; WSL is absent. Platform integration
   must repeat those builds in a supported environment.
-
-## Issue 89 script extensions and animation recovery
-
-The supplied version-13 maps reproduce three separate admission failures:
-Ruined Halo `b30h3` at animation tag `ea4008cc`, Mission Z9 `z9` at
-`abs_integer`, and Halo RPG `halo_rpg` at `kill_thread` and
-`get_executing_running_thread`.
-
-`mcc_scripts.c` registers the three functions outside the native Xbox/CE
-function table. `abs_integer` takes and returns a 32-bit long; negation uses
-unsigned arithmetic, retaining `0x80000000` for the unrepresentable positive
-absolute value of `LONG_MIN`. This edge policy is explicit and tested; no
-observation of MCC's `LONG_MIN` result is claimed. The public
-[H1 script reference](https://c20.reclaimers.net/h1/scripting/#math)
-documents the ordinary integer signature. Z9 calls it on the difference
-between its marine count and `ai_living_count`.
-
-Halo RPG contains 40 compiled self-termination calls of the form
-`(kill_thread (get_executing_running_thread))`. The MCC runtime adapter
-returns the full salted thread handle and checks that handle before cancelling
-an invocation. It releases parameter-held object lists, clears the stack and
-marks a scenario thread terminated, so ordinary `wake` cannot resume it.
-Self-termination does not return through discarded frames. The native scheduler
-still owns deletion of its current console thread. Invalid, unsalted, deleted
-and stale handles do not cancel another thread. These operations add no external
-state: thread state retains its existing checkpoint, restart and unload lifetime.
-The previously supported named `sleep_forever` reset operation is unchanged.
-
-Ruined Halo's graph `reach\objects\vehicles\human\warthog\warthog`
-has 20 named nodes. Its root starts at suspension node 2, leaving cargo node 1
-and its descendants outside the root's child chain; several of those descendants
-also carry zero parent indices. All three objects referencing the graph point
-to a model with the same ordered names and a complete hierarchy. The MCC
-validator recovers incomplete chains only from agreeing associated models.
-Nonzero retained parents must match, siblings must belong to the same parent,
-children must belong to their stated parent, and cycles still fail. Zero parents
-are treated as omitted only in this incomplete-chain recovery path. Complete
-hierarchies are preserved. The recovered graph still passes full reachability
-and permutation checks; no animation or vertex indices are remapped.
-
-Mission Z9's `watch_land` writes `rasterizer_model_lighting_ambient` to
-`0.1`, then `0`. This is implemented by `mcc_campaign.c`, using the existing
-native lighting global and renderer. A positive value selects constant model
-ambient lighting; zero returns to ordinary model lighting. MCC captures the
-pre-load value, restores it on unload and script startup (including `map_reset`),
-and includes the live value in host-owned campaign snapshots. The existing
-`mcc_hs_threads_activate` lifecycle entry calls the MCC lighting reset; no new
-shared-engine hook or renderer branch is needed. Xbox/CE write permissions and
-loading paths are unchanged.
-
-Campaign state version 6 is 772 bytes, with the new real after the previous
-768-byte version 5. Older checkpoint states default the absent lighting value
-to the captured pre-load value. Snapshot validation rejects nonfinite and
-out-of-range values. MCC protocol 63 requires the larger snapshot on both peers;
-OpenCE's `HALO_PORT_NETWORK_VERSION` remains 41 because Xbox/CE retain the pinned
-upstream wire contract. This is an MCC-only peer-agreement change.
-
-`mcc_checkpoint.c` keeps the existing 768-byte campaign reservation and all
-thread/object-name arena addresses. Checkpoint footer version 3 uses four of
-its eight reserved bytes for the lighting extension and four for a footer CRC.
-It reassembles the full campaign snapshot for validation and restore. Versions
-1 and 2 retain their original layouts and checks. Increasing the reservation
-instead would invalidate pointers inside older saved thread stacks.
-
-A longer Ruined Halo run also exposed a later particle-system assertion:
-`particle_system_new_particle_jet` read constant index 2 from a two-entry block.
-The supplied map contains two-entry jet types in dirt, blood and water effects,
-and a needler type that selects jet creation in a later state. The pair contains
-velocity and spread; the January engine additionally reads a rotates-up switch.
-`mcc_particle_type_constants` preserves the pair and appends a false switch in
-bounded MCC-owned runtime tag storage. Existing three-entry blocks are unchanged.
-This is an explicit compatibility default, not a claim of verified MCC visual
-parity. The same third slot is also used as intensity if a later state switches
-to explosion creation; an absent slot defaults to zero there. Shorter required
-blocks, invalid extents and allocation failures are refused before runtime.
-The public [Invader particle-system schema](https://github.com/SnowyMouse/invader/blob/master/src/tag/hek/definition/particle_system.json)
-corroborates the block layouts and mode values; this implementation was written
-from the local engine consumer and inspected map data, without copied code.
-
-These changes remain in MCC-owned modules and their tests. The host continues
-to run campaign scripts. Regression tests exercise the real linker, evaluator,
-validator, campaign snapshot and checkpoint adapters: integer limits, argument
-shape, stale thread handles, object-list cleanup, malformed graph links, jet
-constants, lighting ownership and older checkpoints.
-
-Validation used a Windows debug portable build with PGO and LTO disabled, based
-on `origin/testing` at `75130bccc757a1448096b6a19d16507870f88b26`. The final
-executable SHA-256 was
-`debd6a358dbfb7dbecbe26e70746e5ef175a2759ebd813b15f7a3d28c9a94659`.
-
-- Final focused regressions: 535 passed, five skipped (four optional CE cache
-  fixtures were not configured; one socket test requires POSIX). The Windows
-  build passed, and documentation links and named symbols were checked.
-- All three original admission failures were reproduced before implementation.
-  Ruined Halo subsequently passed a 90-second hidden rendered run, advanced a
-  delayed 150-tick expression, reached gameplay beyond the particle assertion,
-  and exited normally. Captured frames were inspected. Its shader bitmap-type
-  warnings remain; this is not full visual parity or campaign completion.
-- Z9 loaded with the authored lighting writes enabled. A hidden live run verified
-  `abs_integer`, self-termination, lighting save/revert and restart, then Z9 ->
-  Xbox Blood Gulch -> CE Death Island -> Z9, with normal lighting at each
-  boundary and normal exit. This covers lifecycle behavior, not the full mission.
-- Two hidden Halo RPG peers ran for 100 seconds and exited normally. Read-only
-  inspection of the two test processes verified that host writes of `0.1` and
-  `0` reached the client's actual renderer variable. The client's console query
-  is deliberately blocked by the existing host-authority policy, which remains
-  unchanged. The full log comparison reported 21 seconds of aim differences
-  during the opening cinematic, also present in the earlier run before the
-  lighting-state changes. It reported no position drift. Comparing the 45
-  seconds after the intro (skip 25 seconds) passed with no mismatched seconds
-  and zero drift across 1,349 samples. This is a bounded native loopback check.
-- Android and web builds were attempted but those targets are unavailable in
-  this Windows build graph; WSL is absent. Browser transport tests remain
-  unverified: with the bundled Playwright resolved, `webrtc_native.mjs` fails
-  on its POSIX-style Windows file-URL path; `internet.mjs` additionally lacks
-  a built web site, the broker and Xvfb prerequisites. Repeat platform and
-  browser checks in a supported environment before integration.
-
-Final review retained MCC ownership and bounds checks, covered the missed
-restart reset, and removed the superseded narrow animation-tree recovery
-special case. No shared-engine implementation was changed. Useful logs and
-selected captures remain in `build/issue89`; inactive test saves are archived
-losslessly with original relative paths and verified SHA-256 manifests.
-Disposable map hardlinks, generated map caches, duplicate test binaries and
-harness build directories were removed. Original maps and saves were untouched.
-
-## Flamethrower particle-system views (issue #33)
-
-Ruby Rebalanced C20 attaches `defoliant` and `defoliant2` to the world-model
-`defoliant spawn` marker, with particle-type flags `0x10041` and `0x10001`.
-Its `fp_defoliant3` and `fp_defoliant2` attachments instead name `spawn fire`,
-which exists only on the first-person model, with flags `0x20041` and
-`0x20001`. These are inspected map fields, not filename-based special cases.
-The [public particle-system format](https://c20.reclaimers.net/h1/tags/particle_system/)
-identifies bits 16 and 17 as the first- and third-person drawing exclusions.
-
-The inherited particle-system emitter queries only world-model markers, and
-its renderer does not apply these exclusions. Thus the first-person stream
-has no emission marker while the lower world-model stream appears in the
-player's view. In a hidden Windows reproduction, the original firing effect
-and projectile markers both resolved; that did not establish that the
-separate attached particle systems were working.
-
-[mcc_particles.c](../port/linux/game/mcc_particles.c) supplies the missing
-MCC behavior. `mcc_particle_system_markers` uses the active local viewmodel's
-marker for first-person-only types; a missing marker, remote or holstered
-weapon, deleted handle or third-person camera does not fall back to the world
-origin. `mcc_particle_system_visible` applies the exclusions for each viewer,
-so another split-screen player can see the world stream without seeing the
-owner's first-person stream. Types without view exclusions retain their
-existing behavior. The two `port:` hooks in
-[particle_systems.c](../source/effects/particle_systems.c) are necessary because
-emission and drawing are private engine operations without registration
-interfaces. Xbox and Custom Edition retain the native queries and drawing.
-
-The adapter has no persistent state or allocations. Existing particle systems
-own their emitted particles and dispose them on map unload; orphaned
-first-person-only streams remain hidden. Weapon switching and camera changes
-are evaluated from current engine state. Projectile origins, damage, network
-messages and deterministic simulation are unchanged; the particle system
-uses the local visual random seed, so no network-version change is needed.
-
-`tools/test_mcc_particles.py` exercises the actual adapter functions, including
-marker failures, invalid attachments, view flags, split-screen ownership,
-weapon deletion, view changes and MCC-to-legacy activation transitions.
-Private before/after Windows captures of the same Ruby C20 fixture showed the
-missing barrel stream before and a stream leaving the barrel after the fix.
-The fixture changed only a starting profile's weapon to obtain the
-flamethrower, and used temporary stationary firing input; neither change is
-shipped. This is a bounded visual check, not full campaign completion.
-
-The final release/portable Windows build passed, as did 149 focused regression
-checks (two skipped: an optional MCC map fixture and a POSIX-only socket
-harness). Both changed translation units also compiled to Android guest ELF
-and web Wasm objects with the generated target flags. Full Android and web
-builds were attempted but remain unverified: their generated Unix shell
-commands and the Android NDK wrapper cannot run unchanged on this Windows
-host, which has no WSL. These object checks do not replace full platform
-builds, multiplayer testing or visual checks on those platforms.
-
-The final Windows binary also completed a single-process sequence from Ruby
-C20 to Xbox `a10`, to Custom Edition `deathisland`, then back to Ruby C20,
-with console responses after each load and a normal timed exit. This checks
-bounded loading and activation transitions, not full legacy visual parity.

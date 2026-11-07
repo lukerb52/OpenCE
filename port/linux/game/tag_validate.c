@@ -200,7 +200,7 @@ struct tag_validation
 
 /* ---------- globals */
 
-static struct tag_validate_globals
+static struct
 {
 	/* the tags last checked (tag_validate_tags), in a tag cache of
 	tag_cache_size bytes */
@@ -1643,51 +1643,42 @@ boolean tag_validate_custom_edition_tags(
 	return validate_tag_table(&validation, header->instances, header->tag_count);
 }
 
-/* tags checked apart from the map's: an add-on's (file_range), or a stock map's
-(no file_range, file_length bytes of file) */
-static boolean tag_validate_apart(
-	void *tag_header,
-	long size,
-	struct tag_validate_file_range const *file_range,
-	long file_length,
-	char const *name)
-{
-	/* (the map's, for its structure bsps' checks as they load, and the
-	claims of its tags) */
-	static unsigned long saved_claims[CLAIM_WORDS];
-	struct tag_validate_globals saved;
-	boolean valid;
-	long corrections;
-
-	memcpy(&saved, &tag_validate_globals, sizeof(saved));
-	memcpy(saved_claims, tag_validate_claims, sizeof(saved_claims));
-	valid = size >= 0 && (unsigned long)size <= TAG_VALIDATE_MAXIMUM_TAG_CACHE_SIZE && (file_range ?
-		tag_validate_custom_edition_tags(tag_header, size, (unsigned long)size, file_range, 1, name) :
-		tag_validate_tags(tag_header, size, file_length, name));
-	corrections = tag_validate_globals.corrections;
-	memcpy(&tag_validate_globals, &saved, sizeof(saved));
-	memcpy(tag_validate_claims, saved_claims, sizeof(saved_claims));
-	tag_validate_globals.corrections = corrections;
-
-	return valid;
-}
-
 boolean tag_validate_addon_tags(
 	void *tag_header,
 	long size,
 	struct tag_validate_file_range const *file_range,
 	char const *addon_name)
 {
-	return tag_validate_apart(tag_header, size, file_range, 0, addon_name);
-}
+	/* (the map's, for its structure bsps' checks as they load, and the
+	claims of its tags) */
+	static unsigned long saved_claims[CLAIM_WORDS];
+	struct tag_validate_globals_saved
+	{
+		struct tag_validate_header *header;
+		long tag_data_size;
+		unsigned long tag_cache_size;
+		struct tag_validate_file_range file_ranges[MAXIMUM_TAG_VALIDATE_FILE_RANGES];
+		short file_range_count;
+		boolean custom_edition;
+		char map_name[64];
+		long corrections;
+	} saved;
+	boolean valid;
+	long corrections;
 
-boolean tag_validate_stock_tags(
-	void *tag_header,
-	long size,
-	long file_length,
-	char const *map_name)
-{
-	return tag_validate_apart(tag_header, size, NULL, file_length, map_name);
+	typedef char verify_saved_size[sizeof(saved) == sizeof(tag_validate_globals) ? 1 : -1];
+
+	(void)sizeof(verify_saved_size);
+	memcpy(&saved, &tag_validate_globals, sizeof(saved));
+	memcpy(saved_claims, tag_validate_claims, sizeof(saved_claims));
+	valid = size >= 0 && (unsigned long)size <= TAG_VALIDATE_MAXIMUM_TAG_CACHE_SIZE &&
+		tag_validate_custom_edition_tags(tag_header, size, (unsigned long)size, file_range, 1, addon_name);
+	corrections = tag_validate_globals.corrections;
+	memcpy(&tag_validate_globals, &saved, sizeof(saved));
+	memcpy(tag_validate_claims, saved_claims, sizeof(saved_claims));
+	tag_validate_globals.corrections = corrections;
+
+	return valid;
 }
 
 boolean tag_validate_structure_bsp(

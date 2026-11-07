@@ -301,45 +301,32 @@ $('folder-input').addEventListener('change', (event) => {
   if (files.length) importData({ type: 'folder', files });
 });
 
-// ---------- mods and mutators (mods-worker.js): /data/mods, all of them
-// played unless the game's main menu's Mods turns them off
-// (port/linux/src/port_mods.c); /data/mutators, those the game's Mods >
-// MUTATORS or Server Setup's MUTATOR OPTIONS turns on
-// (port/linux/src/port_mutators.c)
+// ---------- mods (mods-worker.js): /data/mods, all of them played unless
+// the game's main menu's Mods turns them off (port/linux/src/port_mods.c)
 
-// each kind of folder: its file of settings, its storage's folder, and the
-// page's elements of its panel
-const FOLDERS = {
-  mods: { toml: 'mod.toml', what: 'mod', status: 'mods-status', list: 'mods-list', label: 'mod-label',
-    input: 'mod-input', summary: 'summary-mods' },
-  mutators: { toml: 'mutator.toml', what: 'mutator', status: 'mutators-status', list: 'mutators-list',
-    label: 'mutator-label', input: 'mutator-input', summary: 'summary-mutators' },
-};
-
-// the name a mod's mod.toml (a mutator's mutator.toml) gives it, else its folder's
-async function folderName(directory, folder, toml) {
+// the name a mod's mod.toml gives it, else its folder's
+async function modName(directory, folder) {
   try {
-    const text = await (await (await directory.getFileHandle(toml)).getFile()).text();
+    const text = await (await (await directory.getFileHandle('mod.toml')).getFile()).text();
     const match = /^\s*name\s*=\s*"([^"\n]*)"/m.exec(text);
     if (match && match[1].trim()) return match[1].trim();
   } catch {
-    // (none: not one the game plays)
+    // (none: not a mod the game plays)
   }
   return folder;
 }
 
-async function refreshFolders(kind) {
-  const panel = FOLDERS[kind];
-  const list = $(panel.list);
+async function refreshMods() {
+  const list = $('mods-list');
   const found = [];
   try {
     const root = await navigator.storage.getDirectory();
-    const folders = await root.getDirectoryHandle(kind);
-    for await (const [folder, handle] of folders.entries()) {
-      if (handle.kind === 'directory') found.push({ folder, name: await folderName(handle, folder, panel.toml) });
+    const mods = await root.getDirectoryHandle('mods');
+    for await (const [folder, handle] of mods.entries()) {
+      if (handle.kind === 'directory') found.push({ folder, name: await modName(handle, folder) });
     }
   } catch {
-    // no such folder yet
+    // no mods folder yet
   }
   // (as the game orders them by default: their folders' names, whatever the
   // case of their A to Z, port_mods.c's names_compare)
@@ -357,60 +344,49 @@ async function refreshFolders(kind) {
     remove.textContent = 'Remove';
     remove.className = 'danger';
     remove.addEventListener('click', () => {
-      if (confirm(`Remove the ${panel.what} ${name} from this browser?`)) {
-        folderTask(kind, { type: 'remove', name: folder });
-      }
+      if (confirm(`Remove the mod ${name} from this browser?`)) modTask({ type: 'remove', name: folder });
     });
     item.append(label, remove);
     return item;
   }));
-  const count = `${found.length} ${panel.what}${found.length === 1 ? '' : 's'}`;
-  $(panel.status).textContent = found.length ? `${count} in this browser.` : `No ${panel.what}s yet.`;
-  summarize(panel.summary, null, found.length ? count : 'None yet');
+  $('mods-status').textContent = found.length ? `${found.length} mod${found.length === 1 ? '' : 's'} in this browser.` :
+    'No mods yet.';
+  summarize('summary-mods', null, found.length ? `${found.length} mod${found.length === 1 ? '' : 's'}` : 'None yet');
   await refreshStorage();
 }
 
-async function refreshMods() {
-  await refreshFolders('mods');
-  await refreshFolders('mutators');
-}
-
-function folderTask(kind, message) {
-  const panel = FOLDERS[kind];
+function modTask(message) {
   const worker = new Worker('mods-worker.js');
-  const busy = (on) => {
-    $(panel.label).classList.toggle('disabled', on);
-    $(panel.input).disabled = on;
-  };
-  busy(true);
+  $('mod-label').classList.add('disabled');
+  $('mod-input').disabled = true;
   worker.onmessage = async (event) => {
     const data = event.data;
     if (data.type === 'progress') {
-      $(panel.status).textContent = `Copying ${data.file}: ${formatBytes(data.done)} of ${formatBytes(data.total)}`;
+      $('mods-status').textContent = `Copying ${data.file}: ${formatBytes(data.done)} of ${formatBytes(data.total)}`;
       return;
     }
     worker.terminate();
-    busy(false);
-    await refreshFolders(kind);
-    if (data.type === 'error') $(panel.status).textContent = data.message;
-    else if (message.type === 'add') logLine(`${kind}: ${data.name}, ${data.files} files, ${data.bytes} bytes`);
+    $('mod-label').classList.remove('disabled');
+    $('mod-input').disabled = false;
+    await refreshMods();
+    if (data.type === 'error') $('mods-status').textContent = data.message;
+    else if (message.type === 'add') logLine(`mods: ${data.name}, ${data.files} files, ${data.bytes} bytes`);
   };
   worker.onerror = async (event) => {
     worker.terminate();
-    busy(false);
-    await refreshFolders(kind);
-    $(panel.status).textContent = 'The copy failed: ' + event.message;
+    $('mod-label').classList.remove('disabled');
+    $('mod-input').disabled = false;
+    await refreshMods();
+    $('mods-status').textContent = 'The copy failed: ' + event.message;
   };
-  worker.postMessage({ ...message, kind });
+  worker.postMessage(message);
 }
 
-for (const kind of Object.keys(FOLDERS)) {
-  $(FOLDERS[kind].input).addEventListener('change', (event) => {
-    const files = [...event.target.files];
-    event.target.value = '';
-    if (files.length) folderTask(kind, { type: 'add', files });
-  });
-}
+$('mod-input').addEventListener('change', (event) => {
+  const files = [...event.target.files];
+  event.target.value = '';
+  if (files.length) modTask({ type: 'add', files });
+});
 
 $('delete-data').addEventListener('click', async () => {
   if (!confirm('Delete the maps copied into this browser? Saved games stay.')) return;

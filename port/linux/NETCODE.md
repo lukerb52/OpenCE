@@ -84,20 +84,6 @@ with ideas from VALORANT's netcode articles, keeping the 30 Hz tick:
   threads' wake times along with it. The object, device and name syncs
   bring the clients up to date.
 
-  In GulchCE Third Person sessions, checkpoint loading retains the host's current session
-  roster (`network_coop_restore_players`), before rebuilding view and input
-  caches. Saved players who left lose their restored units and remain quit;
-  current players missing from the save are created in their authoritative
-  slots and use the normal co-op spawn rules. The machine-to-player table
-  is rebuilt too: it lives outside the checkpoint, whose datum identifiers
-  may differ. This fixes restores after reconnects, with either camera perspective.
-  OpenCE Crossplay retains the upstream checkpoint behavior.
-  If an authoritative sample says a unit is alive but the client's copy is
-  dead, the client requests the existing full object description, with the
-  existing retry backoff and host rate limit. A validated create replaces
-  that dead co-op copy instead of reusing it. This also handles a restored
-  object keeping its checkpoint handle; no client decides to resurrect it.
-
   The host's EXTRA ENEMIES (`coop_enemies.c`, `network.coop_enemies_mode`)
   give each squad of enemies a level places more of itself: PER PLAYER, a
   percentage of itself for each player past the first, to 8 times its size
@@ -219,29 +205,7 @@ names and synchronized its opening sequence; the short run did not provide
 enough on-foot samples for the comparator's full drift verdict. These checks
 do not establish full campaign or public internet transport compatibility.
 
-MCC sessions use separate MCC protocol version 64. Version 64 reserves bytes
-64-127 of the 128-byte MCC map name for advisory Workshop metadata. Valid MCC
-paths occupy at most 63 characters plus their NUL. The tail contains `WS`,
-record version 1, a 1-20 digit item id and NUL, then an ASCII title and NUL;
-the remaining bytes are zero. The title is at most 39 characters. Missing or
-malformed metadata falls back to the fingerprint diagnostic. The metadata
-never substitutes for the level filename or SHA-256 admission checks.
-
-Only `mcc_identity_host_settings` writes this tail in the outgoing MCC copy;
-the host's original settings and Xbox/CE settings are untouched. The record's
-size is unchanged, but its transmitted meaning is new, so MCC 63 peers are
-rejected by the existing version gates. Xbox/CE retain OpenCE protocol 41.
-`tools/test_mcc_workshop.py` checks the bounded record and sidecar reads;
-`tools/test_mcc_identity.py` checks host publication, refusal classification
-and lifecycle; `tools/test_mcc_protocol.py` checks admission and legacy layout.
-These harness checks do not establish full runtime or browser compatibility.
-
-Version 63 extends campaign
-snapshots from 768 to 772 bytes (state version 6) to replicate the host's
-`rasterizer_model_lighting_ambient` value for Mission Z9. Older MCC peers are
-rejected. Xbox/Custom Edition retain the pinned upstream 41 contract and
-`HALO_PORT_NETWORK_VERSION`; the MCC-only version carries this agreement change.
-Version 62 retains OpenCE
+MCC sessions use separate MCC protocol version 62. Version 62 retains OpenCE
 41 map-vote messages 94-95 and moves MCC gameplay messages to 96-99 and its
 join envelope to 100. Its bounded buffer grows to 512 bytes to carry upstream
 41 link credentials, including the local host connection. Older MCC peers are rejected; Xbox and Custom Edition
@@ -253,7 +217,8 @@ still owns equipment changes and replicates them through existing messages;
 packet layouts and the then-current Xbox/Custom Edition protocol 39 were unchanged.
 Version 60 moves MCC
 gameplay messages to 94-97 and the join envelope to 98, reserving message 93
-for OpenCE 39's optional client fire origins. At that revision Xbox and Custom Edition retained OpenCE protocol 39.
+for OpenCE 39's optional client fire origins. The upstream protocol remains
+39 for Xbox and Custom Edition crossplay; older MCC peers are rejected.
 Version 59 moved the MCC
 capability to flag `0x08`, gameplay messages to 93-96 and the join envelope to
 97, leaving OpenCE 39's dedicated flag `0x04` and client-build message 92 intact.
@@ -283,7 +248,7 @@ It also corrects named sleep_forever resets and online cooperative script querie
 It retains signed/vector damage impulses from version 48 and initialized
 three-point boat controls from version 47. Packet sizes are unchanged.
 At version 52, Xbox/Custom Edition retained OpenCE protocol 32; the current
-baseline and this camera branch's separate protocol are described above.
+protocol baseline is described above.
 Discovery advertises the selected map family's protocol and, separately,
 the host's MCC capability version. A GulchCE client sends a bounded reliable join
 envelope only to a host advertising the same MCC capability. The envelope wraps
@@ -483,53 +448,24 @@ game's flags also tell its clients whether the host is a dedicated server
 (`_network_game_cooperative_dedicated_bit`: its loading zones then ask for
 most of the living players).
 
-Then version 49 adds the mutators (`docs/mutators.md`), made beside the
-versions above as 39 to 48 of their own; each step is told here by that
-number. Version 39 sends the host's mutators (distributed
-message 112, `network_mutators.c`, `docs/mutators.md`) to each client as it
-is ready, which the client plays instead of its own. Then version 40 sends
-before them the host's mutators' tag edits (distributed message 113,
-`mutator_tags.c`): their bytes in pieces of 4000, in order, which the client
-takes only from the host and only where the last piece ended, and makes in
-its map's tags once it has them all. Then version 41 lets the edits set more fields
-(a weapon's heat, age and camouflage, a trigger's rates of fire and times, a
-projectile's speeds and damage ranges, a damage effect's damage): a build of
-40 would refuse a host's edits of them, and play the stock tags. Then version
-42 lets them set a weapon's magazines (its rounds and chamber time) and a
-projectile's gravity, which a build of 41 would refuse. Then version 43 adds
-the add-ons of the mutators on (`docs/addons.md`) to the map's tags as it
-loads, after its own: an add-on's vehicle is named in messages by its index
-there, and a build of 42 has no add-ons, so the tables differ. The messages
-are unchanged; each machine adds the add-ons of its own mutators, so until
-the host sends its add-ons, every machine of a game must have the same ones
-on. Then version 44 adds weapon add-ons (`.ceweapon`), which the host spawns
-as the map's netgame equipment, and gives the gametype's options a custom
-loadout's add-on weapons (from 16 in its weapons' bytes) and a custom
-vehicle set's counts of the first two add-on vehicles (in two of its spare
-bytes); the weapon sets of one kind leave the add-ons' out, and version 49's
-vehicle sets of one kind place them. A
-build of 43 would read those options otherwise. Then version 45 gives Custom
-Edition maps the add-ons of the mutators on, and the stock tags those and the
-tag edits name that such a map lacks (`docs/mutators.md`, "Stock tags"), and
-places a vehicle add-on with no place on a map beside the map's vehicles, after
-the game's other objects (`docs/addons.md`): the messages are unchanged, but the
-tables and the objects are not a build of 44's. The host's keys also name its
-mutators' Lua scripts (`script.` and digits of their SHA-256), which each machine
-runs for itself (`docs/mutators.md`, "Scripts"). Messages 114 to 117 list the host's
-mutators' files, and map sharing's connections carry them (`_frame_mutator_request`,
-`_frame_mutator_block`). Then version 46 sends the buttons of those scripts: a client's
-in the pad of its input's action, and the host's relayed actions have a byte of them,
-so that a script's `tick()` moves a player alike on every machine. What a host's
-script sends a client's player is noted as a throw is
-(`distributed_note_script_velocity`), so that the host takes that client's prediction
-of it. Then version 47 takes the big head out of the game: the host's tag
-edits carry poses (`object_pose.c`), a node of objects scaled and moved, and a big
-head is one of them; the host's keys name no effects, which a build of 46 would play.
-Then version 48 sends a relayed action's script buttons only when one is set (bit 7 of
-its parts), so that a game without a mutator's script sends what it did before them.
-Version 49's tag edits also carry a kind for a unit's death (`object_death.c`), the
-decals' fields and the `all` element, and a vehicle set of one kind places the
-add-ons' vehicles; a mutator's options scale the host's edits before they are sent.
+Then version 42 adds mutators (`docs/mutators.md`). The host sends its
+mutators to each client as it is ready, which the client plays instead of
+its own: each effect's and parameter's key and value (distributed message
+112, `network_mutators.c`), and before them its tag edits (distributed
+message 113, `mutator_tags.c`), their bytes in pieces of 4000, in order,
+which the client takes only from the host and only where the last piece
+ended, and makes in its map's tags once it has them all (a weapon's heat,
+age, camouflage and magazines, a trigger's rates of fire and times, a
+projectile's speeds, damage ranges and gravity, a damage effect's damage).
+The add-ons of the mutators on (`docs/addons.md`, vehicles and weapons) are
+added to the map's tags as it loads, after its own: an add-on's vehicle or
+weapon is named in messages by its index there, and the host spawns an
+add-on's weapons as the map's netgame equipment. The gametype's options
+(the game settings record's) carry a custom loadout's add-on weapons (from
+16 in its weapons' bytes) and a custom vehicle set's counts of the first two
+add-on vehicles (in two of its spare bytes). Each machine adds the add-ons
+of its own mutators, so until the host sends its add-ons, every machine of a
+game must have the same ones on.
 
 `port/linux/network_format.txt` records the wire format of the current
 version (`tools/network_format.py`): `test_linux_port.py` fails when the
@@ -1325,50 +1261,9 @@ Unity's Netcode for Entities, lightyear, netfox and the Ares source):
 
 ## Testing
 
-In GulchCE Third Person sessions, the host's camera policy travels in the reliable game settings
-record (bits 3-4 of `network_game.cooperative_flags`), for every transport
-and game type. Zero allows player choice, one forces third person, and two
-disables it. Receivers reject the reserved value and unknown flag bits.
-Pregame edits are host-only; late joiners receive the same record. Camera
-preferences are never written by receipt of a policy. The experimental camera
-protocol prevents stock OpenCE clients, which cannot enforce this rule,
-from joining. It also carries the current shoulder state in each
-player input and host relay. It is a state, never accumulated with earlier
-button presses. The host masks unknown input bits and Forced Off clears it.
-Scoped, dead and seated units retain stock firing. Each simulation computes
-the muzzle and cover correction from world markers. The camera feature does
-not send muzzle positions. The separate upstream `network.fire_origins`
-option retains its existing host controls and validation.
-Damage still uses the existing validated hit reports. The host records its
-own shoulder muzzle in visibility history, alongside the existing eye route,
-so a legitimate shot from beside cover is not judged only from the head.
-Both the eye-to-muzzle and muzzle-to-impact routes must be clear; weapon
-ownership, rate, target history and damage limits still apply. Scoped, dead,
-seated, Forced Off and ordinary first-person paths do not add this history.
-These rules, current-roster checkpoint restoration and immediate host object
-refresh after a restore use experimental
-camera agreement versions 32712/32713. The latter changes simulation agreement, so older
-camera builds are excluded too; it adds no packet fields or client authority.
-The host independently excludes weapon-authored following cameras from the
-shoulder solver; stale or forged input bits cannot override that priority.
-The relay rejects non-boolean shoulder values and truncated messages.
-
-Add `--combat` to the session runner below to exercise real bot firing on
-both peers, including 100 ms receive delay and 5 percent packet loss. Muzzle
-diagnostics identify shooters on each peer; this does not visually verify
-effects or exercise the public internet transport.
-
-`tools/camera_policy_sessions.py --binary build/windows/halo.exe --maps
-dist/halo-windows-release/maps --output build/camera-policy-sessions` runs
-two headless Windows instances with isolated saves over loopback. Add
-`--saves <profile-folder>` to copy a preselected profile for unattended startup;
-the source saves are never changed. Use a new output folder for every run. It checks
-all policies, an opposing client host preference, a late join and co-op.
-The supplied map directory must contain ui, carousel, bloodgulch and a30.
-The policy, saved preference, effective setting and active shoulder view
-are included in `debug.network_test`'s per-second logs.
-
-`debug.network_test` (`port/linux/game/network_test.c`) hosts or joins a
+`debug.network_test` (`port/linux/game/network_test.c`) waits for the menu's
+filesystem/profile initialization before launching, as normal menu input does.
+It then hosts or joins a
 game without the menus (in a team game the joining player takes the other
 team; `local:<map>` plays a local split screen game instead, which the
 bots of `bots.count` join), and `debug.test_input` plays controller 1 with a scripted bot (or,
@@ -1422,27 +1317,9 @@ action button where the host has nothing for them to pick up, with where it
 has them and the nearest item: a client that sees a pickup the host does
 not.
 
-The host's Session Compatibility selector defaults to OpenCE Crossplay.
-Xbox/CE use the exact pinned OpenCE 41 contract; MCC remains independently
-versioned at 64. In this mode the optional shoulder camera, its input and
-muzzle behavior, and its checkpoint recovery extensions do not execute.
-GulchCE Third Person instead advertises camera agreement 32712 (Xbox/CE) or
-32713 (MCC), requires a kind 101 envelope before admission and adds the
-shoulder byte to relayed actions. The envelope's bound is 520 bytes, including
-MCC's optional 512-byte inner envelope and upstream account-link credentials.
-Its header carries revision 1, camera base version 32712 and zero reserved
-bytes. Ordinary authorization and map-family checks still apply.
-
-Session mode is selected before opening the lobby and locked until disposal,
-including across rounds. The client binds camera permission to the selected
-host's exact advertised version and clears it on disconnect. Unknown versions
-are rejected; settings cannot grant capability. Player preferences are not
-rewritten. All platforms and transports share this path. Common internet
-listings use the base discovery format; admission establishes compatibility.
-See [the camera guide](../../docs/reading/third_person.md) for lifecycle details.
-Asset-free checks exercise both relay formats, malformed envelopes, host locks,
-policy enforcement and the pinned upstream contract. Actual crossplay and
-browser gameplay must also be tested against the resulting build.
+MCC protocol version 52 reserves OpenCE text chat (87-89) and aim assist (90),
+with MCC data messages at 91-94. Ordinary Xbox and Custom Edition sessions
+use upstream version 32.
 
 ### Comparing two builds
 

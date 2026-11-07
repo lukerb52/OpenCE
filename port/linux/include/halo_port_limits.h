@@ -66,11 +66,7 @@ is newer (network_client_manager.c). A host advertises it, with its netcode,
 in its game's advertisement's reserved bytes (network_server_message_handler.c),
 which hosts built before there was a version send as zeros: version 0.
 Raise it with any change to what the machines send each other. */
-/* The mutators' version: what they send changes the wire, so this build's
-Xbox and Custom Edition games do not play with OpenCE's or GulchCE's main
-(on 41). Camera sessions use separate revisions declared in
-third_person_protocol.h. */
-#define HALO_PORT_NETWORK_VERSION 49
+#define HALO_PORT_NETWORK_VERSION 42
 /* ... the advertisement's reserved bytes: the version (a little-endian word),
 then flags, then the game's kind (an OpenCE gametype's mode, and Hardcore:
 port/linux/game/game_modes.h's game_modes_kind), for the server browser */

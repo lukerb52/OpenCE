@@ -36,7 +36,6 @@ static void flying_camera_update(void) {}
 static void editor_camera_update(void) {}
 static void orbiting_camera_update(void) {}
 static void first_person_camera_update(void) {}
-static void third_person_camera_update(void) {}
 static void following_camera_update(void) {}
 static struct director camera;
 static struct gamepad_state pad;
@@ -57,7 +56,6 @@ static struct gamepad_state const *input_get_gamepad_state(short port) { return 
 static struct mouse_state const *input_get_mouse_state(void) { return NULL; }
 static boolean input_key_is_down(int key) { return FALSE; }
 static boolean passenger_camera_enabled(short local) { return FALSE; }
-static boolean mutator_view_active(short local) { return FALSE; }
 static int controller_remap_camera(short local, int available, int controlling,
     unsigned int *out_held, unsigned int *out_pressed)
 {

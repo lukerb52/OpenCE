@@ -166,45 +166,6 @@ review guidance. Those standards do not relax the isolation rules.
 - Apply the required platform, networking and regression checks to the
   affected paths. Report what was verified and any remaining limits.
 
-### Systemic fixes and content-specific exceptions
-
-- Fix the underlying engine or format behavior for the affected class of
-  inputs. A valid new map using the same semantics should benefit without
-  requiring registration by name, checksum, tag path or asset fingerprint.
-  Do not use content identity as a substitute for diagnosing a defect.
-- Establish whether the problem is an engine defect, a map-family format
-  difference, unsupported or malformed content, or a dependency on historical
-  behavior. State the intended behavior and supporting evidence before
-  choosing the implementation boundary.
-- Systemic does not mean globally identical. Correct general engine defects
-  in the responsible implementation; implement format-specific semantics
-  in the corresponding compatibility modules. Preserve the established
-  Xbox, Custom Edition and MCC boundaries, loading paths and lifecycle.
-  These requirements do not relax the isolation rules.
-- Prefer validated format information, authored flags, tag structure and
-  usage context when selecting behavior. Do not replace a map whitelist
-  with an unexplained texture-name check, dimensional threshold or pixel
-  heuristic. A selector must have a demonstrated connection to the required
-  semantics and checks against false matches.
-- A content-specific compatibility exception is permitted only when evidence
-  explains why the general engine or format rules cannot safely determine
-  the required behavior. Keep it narrowly scoped in the owning compatibility
-  module. Record the affected content, rationale, evidence, activation and
-  cleanup, regression coverage, and what would permit its removal or why it
-  remains necessary. Convenience or one successful map test is insufficient.
-- Existing exception tables are compatibility evidence to investigate, not
-  authority for adding more exceptions or removing them wholesale. Replace
-  an exception only after verifying its intended behavior through the new
-  implementation and checking relevant unaffected cases. Preserve provenance
-  and meaningful regression coverage.
-- Correct interpretation of supported content must not require a player to
-  enable an accessibility or cosmetic option. Keep those optional departures
-  separate, with stock defaults under the Settings requirements.
-- Apply this policy within the authorized assignment. It does not authorize
-  a repository-wide rewrite, changes to original map files, expanded format
-  support or unrelated removal of existing compatibility behavior. Follow
-  CODINGSTANDARDS.md for investigation, regression checks and reporting.
-
 ### Implementation reviews and completion
 
 - Review design and maintainability before substantial implementation and
@@ -537,7 +498,7 @@ The decompilation's upstream, punpckhdq/halo, is AGPL 3.0 from 17 October
 | [docs/dedicated_server.md](docs/dedicated_server.md) | The dedicated server: its command line, exit codes, commands, HTTP API, RCON, events and files |
 | [docs/master_protocol.md](docs/master_protocol.md) | The master servers' protocol: publishing, the probe, the signed list |
 | [docs/mods.md](docs/mods.md) | Mods: folders of Halo PC tag files whose sounds, bitmaps, text and models play over a map's on one machine |
-| [docs/mutators.md](docs/mutators.md) | Mutators: tag edits, poses, add-ons and Lua scripts that change a game's rules, set by data files and played alike on every machine |
+| [docs/mutators.md](docs/mutators.md) | Mutators: built-in effects and tag edits that change a game's rules, set by data files and played alike on every machine |
 | [docs/addons.md](docs/addons.md) | Add-ons: a vehicle and its tags, built from a Custom Edition map into a .cevehicle that a mutator adds to the maps it plays on |
 | [port/assets/text_filter/README.md](port/assets/text_filter/README.md) | Streamer mode's words: Surge AI's list, the review, the allowed words |
 | [port/assets/menus/README.md](port/assets/menus/README.md) | The menu files' format and how to write them again |

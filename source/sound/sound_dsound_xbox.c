@@ -1943,11 +1943,10 @@ void dsound_port_set_channel_stereo_position(
 	real distance_fade,
 	real occlusion,
 	real obstruction,
-	boolean attenuate_direct_path,
-	real approach)
+	boolean attenuate_direct_path)
 {
 	extern void dsound_sdl_stream_set_stereo_position(IDirectSoundStream *stream, BOOL positioned, float pan,
-		float distance, float minimum_distance, float distance_fade, float approach);
+		float distance, float minimum_distance, float distance_fade);
 	short channel_index= dsound_virtual_touch(virtual_channel_index);
 
 	if (channel_index!=NONE)
@@ -1968,7 +1967,7 @@ void dsound_port_set_channel_stereo_position(
 				dsound_channel_set_I3DL2_properties(channel_index);
 			}
 			dsound_sdl_stream_set_stereo_position(channel->stream, positioned, pan,
-				distance, minimum_distance, distance_fade, approach);
+				distance, minimum_distance, distance_fade);
 		}
 	}
 

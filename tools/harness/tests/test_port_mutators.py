@@ -32,15 +32,9 @@ STUBS = (
                    'static char const *platform_data_root(void) { return "/data"; }\n'),
     ('port_config.h', 'static struct { char path[256]; char *text; } files_written[16];\n'
                       'static int file_writes, files_unwritable;\n'
-                      '/* (game.mutator_options a setting of its own; the rest game.mutators) */\n'
-                      'static char option_setting[300];\n'
-                      'static char const *config_string(char const *name)\n'
-                      '{ return !strcmp(name, "game.mutator_options") ? option_setting : setting; }\n'
-                      'static int config_boolean(char const *name) { (void)name; return 1; }\n'
+                      'static char const *config_string(char const *name) { (void)name; return setting; }\n'
                       'static int config_write(char const *name, char const *value)\n'
-                      '{ if (!strcmp(name, "game.mutator_options"))\n'
-                      '  { snprintf(option_setting, sizeof(option_setting), "%s", value); return 1; }\n'
-                      '  snprintf(written, sizeof(written), "%s", value);\n'
+                      '{ (void)name; snprintf(written, sizeof(written), "%s", value);\n'
                       '  snprintf(setting, sizeof(setting), "%s", value); return 1; }\n'
                       'static char *config_file_read(char const *path, size_t *size)\n'
                       '{\n\tint index;\n\tfor (index = 0; index < 16; index++)\n\t{\n'
@@ -168,7 +162,7 @@ def generated(fault=None):
                     ('port_mutators_source.inc', source))
 
 
-@pytest.mark.parametrize('case', ['stock', 'stock_unwritable', 'folders', 'scripts', 'addons', 'weapons', 'ids', 'menu'])
+@pytest.mark.parametrize('case', ['stock', 'stock_unwritable', 'folders', 'addons', 'weapons', 'ids', 'menu'])
 def test_case(case):
     status, output = run(build('port_mutators', generated()), case)
     assert status == 0, output

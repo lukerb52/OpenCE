@@ -1,0 +1,1 @@
+{"id":"86c5a277","scope":"project","tags":["build","git","sandbox"],"text":"In the agentty sandbox, .git/index, HEAD and config are read-only and new binaries can't be executed: fetch with `git -c core.fsync=none fetch --no-write-fetch-head`, do merges in a workspace worktree, and ninja fails (sigpending), so compile from `ninja -t commands`.","ts":1793967245}

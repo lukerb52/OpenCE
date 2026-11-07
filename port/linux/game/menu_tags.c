@@ -42,12 +42,9 @@ menu gets FRIENDLY FIRE too.
 #include "rasterizer/xbox/rasterizer_xbox_hardware_bitmaps.h"
 
 #include "halo_menus.h"
-#include "frontend_menu.h"
 #include "mcc_ui.h"
 #include "mcc_cache.h"
-#include "mcc_menu_preview.h"
 #include "custom_edition_cache.h"
-#include "stock_tags.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -373,9 +370,6 @@ static char const *const port_function_names[] =
 	"port map list back",
 	"port mcc solo folder back",
 	"port mcc host folder back",
-	"port mcc xbox init", "port mcc xbox open", "port mcc xbox choose", "port mcc xbox back",
-	"port mcc xbox left", "port mcc xbox right", "port mcc xbox card",
-	"port mcc xbox profile",
 	"port pause end game", "port coop friendly fire",
 	"port coop begin", "port coop player 2 list initialize", "port coop player 2",
 	"port lobby open", "port lobby add player", "port lobby join", "port lobby leave",
@@ -408,25 +402,18 @@ static char const *const port_function_names[] =
 	/* (the main menu's Mods: menu_functions.c) */
 	"port mods init", "port mods close", "port mods toggle", "port mods move up", "port mods move down",
 	"port mods save",
-	/* (its MUTATORS and MODS: the rows the mutators', or the mods' again) */
-	"port mods switch",
-	/* (Server Setup's MUTATOR OPTIONS: the Mods screen's rows, the mutators') */
-	"port mutators init", "port mutators save",
-	/* (MUTATOR OPTIONS' SETTINGS: the mutators' options) */
-	"port mutator settings init", "port mutator settings left", "port mutator settings right",
-	"port mutator settings save",
 	"port changelog init", "port changelog up", "port changelog down",
 	"port gulch build label",
 	"port changelog corner focus", "port changelog main focus",
 	"port controller init", "port controller close", "port controller defaults",
 	"port controller save", "port controller bind", "port controller left", "port controller right",
 	"port controller clear", "port controller cancel",
-	"port bots init", "port bots command", "port bots host entry", "port bots settings save",
-	"port frontend apply", "port frontend cancel",
-	"port frontend init", "port frontend defaults",
-	"port frontend back", "port frontend page", "port frontend next tab", "port frontend editor",
-	"port frontend navigation init",
 	"port map vote open", "port map vote choose",
+	"port bots init", "port bots command", "port bots host entry", "port bots settings save",
+	/* (its MUTATORS and MODS: the rows the mutators', or the mods' again) */
+	"port mods switch",
+	/* (Server Setup's MUTATOR OPTIONS: the Mods screen's rows, the mutators') */
+	"port mutators init", "port mutators save",
 };
 
 /* the PC version's game data functions that the Xbox's have not, from
@@ -439,7 +426,7 @@ static char const *const port_game_data_input_names[] =
 	"server settings update", "audio menu update", "mp prof vehicles update", "solo map list update",
 	"mp map list update", "gt select list update", "gt edit list update", "load game list update",
 	"direct ip connect update", "network settings update",
-	"port frontend update", "port frontend navigation update", "port frontend multiplayer update", "port settings help", "color picker update", "3wide player profile list update", "port lobby update",
+	"port settings help", "color picker update", "3wide player profile list update", "port lobby update",
 	"port lobby preview update", "port join4 update",
 	/* (the gametype editor's: the Xbox's stops the game on the buttons'
 	row; the Xbox's read only player_ui's gametype, not Server Setup's) */
@@ -457,8 +444,6 @@ static char const *const port_game_data_input_names[] =
 	/* (the gametype editor's description, with OPENCE OPTIONS' row) */
 	"port playlist edit desc",
 	"port controller update",
-	/* (MUTATOR SETTINGS' rows: menu_functions.c's mutator_settings_show) */
-	"port mutator settings update",
 	/* (a dedicated server's map vote's screen) */
 	"port map vote update",
 	/* (HDR Calibration's patterns, drawn by the renderer) */
@@ -2525,10 +2510,6 @@ void menu_tags_loaded(
 	boolean game_map = strcmp(map_name, "ui") != 0;
 	boolean campaign = game_map && full_screen_campaign_map();
 	boolean coop = game_map && network_coop_campaign_map();
-	boolean frontend;
-
-	frontend_menu_map_loaded(map_name, mcc_cache_tags_loaded());
-	frontend = frontend_menu_requested();
 
 	/* MCC owns its pause menus and uses these native Settings screens.
 	Do not patch embedded MCC campaign widgets. */
@@ -2545,12 +2526,12 @@ void menu_tags_loaded(
 	campaign's too, single player's or network co-op's, which also gets
 	FRIENDLY FIRE) */
 	if ((game_map && tag_loaded('Soul', MULTIPLAYER_COLLECTION) == NONE && !campaign) ||
-		(!menus_pc_chosen() && !frontend))
+		!menus_pc_chosen())
 	{
 		return;
 	}
 mcc_settings:
-	menus = frontend ? frontend_menu_files_load() : halo_menus_load();
+	menus = halo_menus_load();
 	if (!menus)
 		return;
 	memset(&build, 0, sizeof(build));
@@ -2703,26 +2684,8 @@ done:
 void menu_tags_unloaded(
 	void)
 {
-	/* (the stock tags added after these go first: stock_tags.c) */
-	stock_tags_menus_unloading();
-	mcc_menu_preview_clear();
-	frontend_menu_unloaded();
 	if (menu_tags.loaded || menu_tags.block_count)
 		menu_tags_release();
-}
-
-/* the index the menus' tags begin at: the count of the tags before them,
-every machine's alike (the table's whole count if they were not added) */
-long menu_tags_first_index(
-	void)
-{
-	long count;
-
-	if (menu_tags.original_instances)
-		return menu_tags.original_count;
-	cache_files_tag_instances(&count);
-
-	return count;
 }
 
 char const *pc_menus_root_name(

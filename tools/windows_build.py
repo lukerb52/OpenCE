@@ -22,7 +22,7 @@ import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .linux_build import (LUA_DIR, LUA_SOURCES, LINUX_PROFILE, MINIUPNPC_DIR, OPTIMISATION, STB_VORBIS_SOURCE, WINDOWS_PROFILE, XDK_INCLUDE,
+from .linux_build import (LINUX_PROFILE, MINIUPNPC_DIR, OPTIMISATION, STB_VORBIS_SOURCE, WINDOWS_PROFILE, XDK_INCLUDE,
                           build_repository,
                           lto_mode, march_flag, miniupnpc_sources, pgo_mode, compile_launcher, configuration_defines,
                           game_defines_and_includes, game_sources, musl_math_cflags, musl_math_sources, opus_cflags,
@@ -365,10 +365,6 @@ def generate_windows_build(n: Writer, sln: Any) -> None:
         "--target=i686-pc-windows-msvc",
         "-fuse-ld=lld",
         "-g",
-        # Reserve the MCC tag window before SDL's ASLR placement. Keep the
-        # shipped DLL unchanged; the first SDL call loads it after reservation.
-        "-Wl,/DELAYLOAD:SDL3.dll",
-        "-ldelayimp",
         # the Xbox memory window is at 0x80000000, in the upper half of the
         # 32-bit address space
         "-Wl,/LARGEADDRESSAWARE",
@@ -466,9 +462,7 @@ def generate_windows_build(n: Writer, sln: Any) -> None:
         for source in sorted(linux_platform.glob("*.c")):
             if source.name in replaced:
                 continue
-            if source.name == "posix_mcc_preview.c":
-                add_object(source, win32_cflags)
-            elif source.name == "posix_dtls.c":
+            if source.name == "posix_dtls.c":
                 # (Mbed TLS sees the Windows SDK, as the win32_*.c do)
                 add_object(source, f"{win32_cflags} {mbedtls_include}")
             elif source.name in ("updater.c", "server_mode.c"):
@@ -515,9 +509,6 @@ def generate_windows_build(n: Writer, sln: Any) -> None:
         # the port's zlib
         for name in ZLIB_SOURCES:
             add_object(ZLIB_DIR / name, " ".join([abi, "-std=gnu11", *ZLIB_DEFINES, "-w"]))
-        # (port/third_party/lua; mutator_scripts.c)
-        for name in LUA_SOURCES:
-            add_object(LUA_DIR / name, " ".join([abi, "-std=gnu11", "-w"]))
         # the game's sin, pow and the rest, the same on every port
         # (port/include/halo_math.h)
         for source in musl_math_sources():

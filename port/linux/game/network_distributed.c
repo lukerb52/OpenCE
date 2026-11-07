@@ -88,7 +88,6 @@ machine (their datum identifiers need not be).
 #include "network_shield_effects.h"
 #include "network_mutators.h"
 #include "mutators.h"
-#include "mutator_scripts.h"
 #include "map_share.h"
 #include "network_afk.h"
 #include "network_map_vote.h"
@@ -100,8 +99,6 @@ machine (their datum identifiers need not be).
 #include <stdio.h>
 #include <time.h>
 #include <math.h>
-#include "third_person.h"
-#include "third_person_protocol.h"
 
 /* network_game_globals.c's and network_server_message_handler.c's */
 boolean network_distributed_client_send(void *message, word size);
@@ -407,7 +404,6 @@ the tick after (distributed_relayed_action_write) */
 struct distributed_relayed_action
 {
 	byte player_index;
-	byte shoulder;
 	signed char desired_weapon_index;
 	signed char desired_grenade_index;
 	signed char desired_zoom_level;
@@ -419,17 +415,12 @@ struct distributed_relayed_action
 	signed char throttle_i;
 	signed char throttle_j;
 	byte primary_trigger;
-	/* a mutator's script's (mutator_scripts_player_buttons) */
-	byte script_buttons;
 };
 
 /* a relayed action's parts on the wire: which of the ticks' buttons before
 the latest it has (bit h - 1 for tick h), the others those of the tick
-after; and whether it has its scripts' buttons (none: none set, as in every
-game without a mutator's script) */
-#define DISTRIBUTED_RELAYED_ACTION_SCRIPT_BUTTONS_BIT 7
-typedef char distributed_relayed_action_parts_assert[
-	DISTRIBUTED_INPUT_HISTORY - 1 <= DISTRIBUTED_RELAYED_ACTION_SCRIPT_BUTTONS_BIT ? 1 : -1];
+after */
+typedef char distributed_relayed_action_parts_assert[DISTRIBUTED_INPUT_HISTORY - 1 <= 8 ? 1 : -1];
 
 enum
 {
@@ -440,7 +431,7 @@ enum
 	DISTRIBUTED_UNIT_STATE_MAXIMUM_SIZE = 3 + 4 + (4 + 2) + (12 + 3 * 6) + 2 + 2 * 2 + 4 * 2 +
 		2 * NUMBER_OF_PLAYER_POWERUPS + 2 + 1,
 	DISTRIBUTED_RELAYED_ACTION_MINIMUM_SIZE = 14,
-	DISTRIBUTED_RELAYED_ACTION_MAXIMUM_SIZE = 15 + 2 * (DISTRIBUTED_INPUT_HISTORY - 1),
+	DISTRIBUTED_RELAYED_ACTION_MAXIMUM_SIZE = 14 + 2 * (DISTRIBUTED_INPUT_HISTORY - 1),
 };
 
 struct distributed_pickup
@@ -2363,36 +2354,6 @@ static void distributed_on_foot_bound(
 		bound->rise = UNIT_WORLD_BOUND;
 }
 
-/* (the host) a mutator's script has sent a player's unit at this velocity
-(port/linux/game/mutator_scripts.c): a throw its own tick gave it, noted as
-that is, without taking off what the client said it had, and from where it now
-is, as a script's pull goes on rising where a throw falls. What it adds to the
-speed the client last said is all its script's; a client can go faster only by
-holding its script's button, and no more than MAXIMUM_PREDICTED_SPEED. */
-void distributed_note_script_velocity(
-	short player_index,
-	long unit_index,
-	real_vector3d const *velocity)
-{
-	struct distributed_host_speed *noted;
-	struct object_datum *object;
-	real speed;
-
-	if (player_index < 0 || player_index >= MAXIMUM_TRACKED_PLAYERS)
-		return;
-	noted = &distributed_host_speeds[player_index];
-	if (noted->unit_index != unit_index)
-		return;
-	object = object_get(unit_index);
-	speed = (real)sqrt(velocity->i * velocity->i + velocity->j * velocity->j + velocity->k * velocity->k);
-	if (speed > noted->speeds[0])
-		noted->speeds[0] = speed;
-	if (velocity->k > noted->rises[0])
-		noted->rises[0] = velocity->k;
-	noted->ground_height = object->object.position.z;
-	noted->ground_time = game_time_get();
-}
-
 /* (the host) how fast a client's player's unit on foot may fall at a
 height (world units a tick): as fast as it goes across, and as fast as a
 fall from the highest the host has had it since it was on the ground, no
@@ -2699,7 +2660,6 @@ static void distributed_handle_unit_state(
 	}
 	if (state->player_index < MAXIMUM_TRACKED_PLAYERS)
 		distributed_deaths[state->player_index].dead_since = NONE;
-	network_objects_expect_live_unit(state->unit_index);
 	/* spawned on the host: the host's unit is the player's here too, once
 	this machine has it (network_objects.c) */
 	if (state->unit_index == NONE || !network_objects_client_has(state->unit_index) ||
@@ -2836,9 +2796,6 @@ static void distributed_client_send_inputs(
 		if (!update_client_distributed_input(local_player_index, &input->tick, &input->action, input->control_flags))
 			continue;
 		input->player_index = distributed_player_to_byte(player_index);
-		/* (a mutator's script's buttons, in the action's pad; the first local
-		player's are all there are) */
-		input->action.pad = local_player_index == 0 ? mutator_scripts_local_buttons() : 0;
 		input->structure_bsp_index = (byte)global_structure_bsp_index_get();
 		input->coop_no_friendly_fire = network_coop_active() && !network_coop_own_friendly_fire();
 		input->host_time = distributed_host_time;
@@ -2908,13 +2865,6 @@ static void distributed_handle_inputs(
 			continue;
 		/* (the sticks and the trigger no further than a controller's) */
 		action = input->action;
-		/* (only bits: a client that sets them all has held every button) */
-		mutator_scripts_note_buttons(input->player_index, (byte)action.pad);
-		action.pad = 0;
-		/* Only the defined input bits are accepted; forced-off wins. */
-		action.control_flags &= 0x1FFFFUL;
-		if (third_person_policy() == _third_person_forced_off)
-			SET_FLAG(action.control_flags, THIRD_PERSON_INPUT_BIT, FALSE);
 		action.throttle.i = PIN(action.throttle.i, -1.0f, 1.0f);
 		action.throttle.j = PIN(action.throttle.j, -1.0f, 1.0f);
 		action.primary_trigger = PIN(action.primary_trigger, 0.0f, 1.0f);
@@ -3008,7 +2958,6 @@ static boolean distributed_relayed_action_from(
 
 	csmemset(relayed, 0, sizeof(*relayed));
 	relayed->player_index = (byte)player_index;
-	relayed->shoulder = TEST_FLAG(action->control_flags, THIRD_PERSON_INPUT_BIT) != 0;
 	relayed->desired_weapon_index = (signed char)action->desired_weapon_index;
 	relayed->desired_grenade_index = (signed char)action->desired_grenade_index;
 	relayed->desired_zoom_level = (signed char)MIN(action->desired_zoom_level, 127);
@@ -3019,7 +2968,6 @@ static boolean distributed_relayed_action_from(
 
 		relayed->control_flags[history] = past ? (unsigned short)past->control_flags : 0;
 		if (history > 0 && (!past || relayed->control_flags[history] != relayed->control_flags[history - 1] ||
-			TEST_FLAG(past->control_flags ^ action->control_flags, THIRD_PERSON_INPUT_BIT) ||
 			past->desired_weapon_index != action->desired_weapon_index ||
 			past->desired_grenade_index != action->desired_grenade_index ||
 			past->desired_zoom_level != action->desired_zoom_level))
@@ -3032,19 +2980,6 @@ static boolean distributed_relayed_action_from(
 	relayed->throttle_i = (signed char)(long)floor(throttle_i * 127.0f + 0.5f);
 	relayed->throttle_j = (signed char)(long)floor(throttle_j * 127.0f + 0.5f);
 	relayed->primary_trigger = (byte)(long)floor(trigger * 255.0f + 0.5f);
-	/* (a script's button held, or let go lately, as a button changing is: a
-	player far off pulled along by one is seen on every tick of it) */
-	{
-		static byte sent_buttons[MAXIMUM_TRACKED_PLAYERS];
-		static long buttons_time[MAXIMUM_TRACKED_PLAYERS];
-
-		relayed->script_buttons = mutator_scripts_player_buttons(player_index);
-		if (relayed->script_buttons || relayed->script_buttons != sent_buttons[player_index])
-			buttons_time[player_index] = game_time_get();
-		sent_buttons[player_index] = relayed->script_buttons;
-		if (game_time_get() - buttons_time[player_index] < DISTRIBUTED_INPUT_HISTORY)
-			changed = TRUE;
-	}
 	return changed;
 }
 
@@ -3061,8 +2996,6 @@ static word distributed_relayed_action_write(
 	byte *cursor = buffer + 2;
 	short history;
 
-	if (third_person_session_active())
-		cursor = distributed_put(cursor, &relayed->shoulder, sizeof(relayed->shoulder));
 	cursor = distributed_put(cursor, &relayed->desired_weapon_index, sizeof(relayed->desired_weapon_index));
 	cursor = distributed_put(cursor, &relayed->desired_grenade_index, sizeof(relayed->desired_grenade_index));
 	cursor = distributed_put(cursor, &relayed->desired_zoom_level, sizeof(relayed->desired_zoom_level));
@@ -3071,11 +3004,6 @@ static word distributed_relayed_action_write(
 	cursor = distributed_put(cursor, &relayed->throttle_i, sizeof(relayed->throttle_i));
 	cursor = distributed_put(cursor, &relayed->throttle_j, sizeof(relayed->throttle_j));
 	cursor = distributed_put(cursor, &relayed->primary_trigger, sizeof(relayed->primary_trigger));
-	if (relayed->script_buttons)
-	{
-		SET_FLAG(parts, DISTRIBUTED_RELAYED_ACTION_SCRIPT_BUTTONS_BIT, TRUE);
-		cursor = distributed_put(cursor, &relayed->script_buttons, sizeof(relayed->script_buttons));
-	}
 	cursor = distributed_put(cursor, &relayed->control_flags[0], sizeof(relayed->control_flags[0]));
 	for (history = 1; history < DISTRIBUTED_INPUT_HISTORY; history++)
 	{
@@ -3104,8 +3032,6 @@ static word distributed_relayed_action_read(
 	csmemset(relayed, 0, sizeof(*relayed));
 	if (!distributed_take(&cursor, end, &relayed->player_index, sizeof(relayed->player_index)) ||
 		!distributed_take(&cursor, end, &parts, sizeof(parts)) ||
-		(third_person_session_active() && (!distributed_take(&cursor, end, &relayed->shoulder, sizeof(relayed->shoulder)) ||
-			relayed->shoulder > 1)) ||
 		!distributed_take(&cursor, end, &relayed->desired_weapon_index, sizeof(relayed->desired_weapon_index)) ||
 		!distributed_take(&cursor, end, &relayed->desired_grenade_index, sizeof(relayed->desired_grenade_index)) ||
 		!distributed_take(&cursor, end, &relayed->desired_zoom_level, sizeof(relayed->desired_zoom_level)) ||
@@ -3114,8 +3040,6 @@ static word distributed_relayed_action_read(
 		!distributed_take(&cursor, end, &relayed->throttle_i, sizeof(relayed->throttle_i)) ||
 		!distributed_take(&cursor, end, &relayed->throttle_j, sizeof(relayed->throttle_j)) ||
 		!distributed_take(&cursor, end, &relayed->primary_trigger, sizeof(relayed->primary_trigger)) ||
-		(TEST_FLAG(parts, DISTRIBUTED_RELAYED_ACTION_SCRIPT_BUTTONS_BIT) &&
-		!distributed_take(&cursor, end, &relayed->script_buttons, sizeof(relayed->script_buttons))) ||
 		!distributed_take(&cursor, end, &relayed->control_flags[0], sizeof(relayed->control_flags[0])))
 	{
 		return 0;
@@ -3379,7 +3303,7 @@ static void distributed_host_send_players(
 			&distributed_host_update_number, sizeof(distributed_host_update_number));
 		for (player_index = 0; player_index < MAXIMUM_TRACKED_PLAYERS; player_index++)
 		{
-			byte entry[DISTRIBUTED_RELAYED_ACTION_MAXIMUM_SIZE + 1]; /* optional camera byte */
+			byte entry[DISTRIBUTED_RELAYED_ACTION_MAXIMUM_SIZE];
 
 			if (TEST_FLAG(distributed_sends[machine_index][player_index], _distributed_send_action_bit))
 			{
@@ -3427,7 +3351,6 @@ static void distributed_handle_actions(
 		data += size;
 		csmemset(&action, 0, sizeof(action));
 		action.control_flags = relayed.control_flags[0];
-		SET_FLAG(action.control_flags, THIRD_PERSON_INPUT_BIT, relayed.shoulder);
 		action.desired_facing.yaw = distributed_angle_unpack(relayed.yaw, FALSE);
 		action.desired_facing.pitch = distributed_angle_unpack(relayed.pitch, TRUE);
 		action.throttle.i = PIN((real)relayed.throttle_i / 127.0f, -1.0f, 1.0f);
@@ -3436,7 +3359,6 @@ static void distributed_handle_actions(
 		action.desired_weapon_index = relayed.desired_weapon_index;
 		action.desired_grenade_index = relayed.desired_grenade_index;
 		action.desired_zoom_level = relayed.desired_zoom_level;
-		mutator_scripts_note_buttons(relayed.player_index, relayed.script_buttons);
 		update_client_handle_relayed_action(relayed.player_index, update_number, &action,
 			relayed.control_flags, DISTRIBUTED_INPUT_HISTORY);
 	}
@@ -3923,10 +3845,10 @@ void network_distributed_new_game(
 	network_aim_assist_reset();
 	network_shield_effects_reset();
 	network_votekick_new_game();
-	/* (a client's wait for the host's: network_mutators.c) */
-	mutators_new_game();
 	network_afk_new_game();
 	network_map_vote_reset();
+	/* (a client's wait for the host's: network_mutators.c) */
+	mutators_new_game();
 }
 
 /* after each tick (game_time.c) */

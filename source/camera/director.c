@@ -129,7 +129,6 @@ symbols in this file:
 #include "flying_camera.h"
 #include "following_camera.h"
 #include "passenger_camera.h" /* port: port/linux/game/passenger_camera.c */
-#include "mutator_scripts.h" /* port: port/linux/game/mutator_scripts.c */
 #include "observer.h"
 #include "orbiting_camera.h"
 
@@ -149,7 +148,6 @@ extern real_euler_angles2d player_control_port_debug_facing[];
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
-#include "third_person.h" /* port: port/linux/game/third_person_director.c */
 
 /* ---------- constants */
 
@@ -269,7 +267,6 @@ void director_dispose_from_old_map(
 	short local_player_index;
 
 	controller_remap_reset(); /* port: release held actions and camera context between maps */
-	sound_listener_motion_reset(NONE); /* port: discard motion across map unload */
 
 	for (local_player_index = 0; local_player_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS; local_player_index++)
 	{
@@ -310,32 +307,6 @@ boolean director_inhibited_input(
 	return director_get(local_player_index)->inhibited_input;
 }
 
-/* port: expose camera identity without exposing mutable director state. */
-boolean director_camera_is(short local_player_index, director_camera_update_proc camera_proc)
-{
-	return local_player_index >= 0 && local_player_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS &&
-		director_get(local_player_index)->camera_proc == camera_proc;
-}
-
-/* port: the unit whose motion the camera follows: the player's own in first
-person or behind it, the one a dead player watches; NONE for a scripted,
-editor or flying camera. For the sounds' Doppler effect (sound_manager.c). */
-long director_get_followed_unit(
-	short local_player_index)
-{
-	struct director *director = director_get(local_player_index);
-
-	if (*director_camera_scripted)
-		return NONE;
-	if (director->camera_proc == (director_camera_update_proc)first_person_camera_update ||
-		director->camera_proc == third_person_camera_update || /* port: shoulder camera follows the same unit */
-		director->camera_proc == (director_camera_update_proc)following_camera_update)
-		return player_control_get_unit_index(local_player_index);
-	if (director->camera_proc == (director_camera_update_proc)dead_camera_update)
-		return ((struct dead_camera *)director->camera_data)->unit_index;
-	return NONE;
-}
-
 director_perspective director_get_perspective(
 	short local_player_index)
 {
@@ -347,13 +318,6 @@ director_perspective director_get_perspective(
 	{
 		if (camera->camera_change_pause == 0.f)
 			camera->perspective = 0;
-	}
-	/* port: report the resolved shoulder view, including collision fallback. */
-	else if (camera->camera_proc == third_person_camera_update)
-	{
-		camera->perspective = third_person_active(local_player_index) &&
-			third_person_available(local_player_index) ?
-			_director_perspective_third_person : _director_perspective_first_person;
 	}
 	else if (camera->camera_proc == following_camera_update)
 	{
@@ -478,7 +442,6 @@ static void director_set_camera(
 	struct director *director = director_get(local_player_index);
 
 	director->camera_proc = camera_proc;
-	sound_listener_motion_reset(local_player_index); /* port: camera selection is not listener motion */
 	director->debug_input_scale = 1.f;
 	director->debug_controls = FALSE;
 	if (interpolate)
@@ -684,17 +647,12 @@ static void director_choose_game_perspective(
 {
 	/* port: remember only local display choices, never a shared seat flag */
 	static boolean passenger_views[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
-	boolean passenger;
+	boolean passenger = passenger_camera_enabled(local_player_index);
 	director_perspective perspective;
 	short following;
 	long unit_index;
 	struct director *director = director_get(local_player_index);
 
-	/* port: and the view a mutator's script asks for, as local as that one
-	(port/linux/game/mutator_scripts.c) */
-	mutator_scripts_update(local_player_index);
-	passenger = passenger_camera_enabled(local_player_index) ||
-		mutator_view_active(local_player_index);
 	unit_index = player_control_get_unit_index(local_player_index);
 	following = director_desired_perspective(unit_index, &perspective);
 	/* port: the local passenger view must not change the deterministic
@@ -702,26 +660,6 @@ static void director_choose_game_perspective(
 	when the seat's enter/exit state has not changed. */
 	if (passenger)
 		following = TRUE;
-	/* port: select the feature-owned on-foot camera without replacing seats,
-	   scripts or debug cameras. Its eye uses the first-person camera data. */
-	if (!following && third_person_available(local_player_index) &&
-		(force || director->camera_proc == (director_camera_update_proc)first_person_camera_update ||
-		 director->camera_proc == third_person_camera_update))
-	{
-		if (director->camera_proc != third_person_camera_update)
-		{
-			first_person_camera_new((struct first_person_camera *)director->camera_data);
-			director_set_camera(local_player_index, third_person_camera_update, FALSE);
-			director->camera_change_pause = 0.f;
-		}
-		director->seat_state = perspective;
-		return;
-	}
-	if (director->camera_proc == third_person_camera_update)
-	{
-		director_set_camera(local_player_index, (director_camera_update_proc)first_person_camera_update, FALSE);
-		director->camera_change_pause = 0.f;
-	}
 	if (force || director->seat_state != perspective ||
 		passenger != passenger_views[local_player_index])
 	{
@@ -951,8 +889,6 @@ static boolean director_update_controls(
 		if (remapped) switch_camera = controller_remap_camera_cycle((short)player_index, director_camera_switch_fast);
 		if (director->camera_proc !=
 				(director_camera_update_proc)first_person_camera_update &&
-			/* port: shoulder view uses gameplay controls, never debug controls. */
-			director->camera_proc != third_person_camera_update &&
 			director->camera_proc !=
 				(director_camera_update_proc)following_camera_update)
 		{
@@ -1009,11 +945,8 @@ static boolean director_update_controls(
 
 		switch_camera = input_key_is_down(_key_backspace) == TRUE;
 		/* port: the passenger follows their aim, never the debug mouse orbit */
-		if (!passenger_camera_enabled(local_player_index) &&
-			!mutator_view_active(local_player_index) && ((director->camera_proc !=
+		if (!passenger_camera_enabled(local_player_index) && ((director->camera_proc !=
 				(director_camera_update_proc)first_person_camera_update &&
-			/* port: right mouse remains gameplay input in shoulder view. */
-			director->camera_proc != third_person_camera_update &&
 			mouse->buttons[1]) || input_key_is_down(_key_tab)))
 		{
 			SET_FLAG(control_flags, _camera_control_forward_bit,
@@ -1121,7 +1054,6 @@ void director_initialize_for_new_map(
 {
 	short local_player_index;
 
-	sound_listener_motion_reset(NONE); /* port: also called when restoring a saved game */
 	controller_remap_reset(); /* port: release held actions and camera context between maps */
 
 	director_globals.game_mode = game_in_editor() ? _director_mode_editor : _director_mode_game;

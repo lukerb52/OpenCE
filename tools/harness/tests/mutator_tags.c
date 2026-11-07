@@ -37,14 +37,7 @@ enum
 	EFFECT_DEFINITION_TAG = 'effe',
 	DAMAGE_EFFECT_DEFINITION_TAG = 'jpt!',
 	HUD_GROUP_TAG = 'wphi',
-	DECAL_GROUP_TAG = 'deca',
-	BITMAP_GROUP_TAG = 'bitm',
-	MODELS_GROUP_TAG = 'mode',
 };
-#ifndef MAX
-#define MAX(a, b) ((a) > (b) ? (a) : (b))
-#endif
-typedef struct { real red, green, blue; } real_rgb_color;
 struct real_orientation;
 
 /* the tags' structures: the fields mutator_tags.c sets, by the game's names */
@@ -80,7 +73,6 @@ struct weapon_trigger_definition
 	real runtime_rate_of_fire_deceleration_time;
 	real runtime_error_acceleration_time;
 	real runtime_error_deceleration_time;
-	struct tag_reference projectile;
 };
 struct weapon_definition
 {
@@ -119,7 +111,6 @@ struct projectile_material_response_definition
 };
 struct projectile_definition
 {
-	struct { struct tag_reference model; } object;
 	struct
 	{
 		real maximum_range;
@@ -160,8 +151,7 @@ struct hud_screen_effect_definition { word mask_flags; word pad; struct tag_refe
 enum
 {
 	_tag_rifle, _tag_bullet, _tag_rifle_hud, _tag_pistol_hud, _tag_zoom_in, _tag_zoom_out, _tag_stone, _tag_hollow,
-	_tag_thin, _tag_thick, _tag_ice, _tag_plasma, _tag_bolt, _tag_bolt_damage, _tag_plasma_hud, _tag_splat, _tag_glow,
-	_tag_teleport, _tag_splotch, _tag_sign, _tag_ball, NUMBER_OF_TAGS
+	_tag_thin, _tag_thick, _tag_ice, _tag_plasma, _tag_bolt, _tag_bolt_damage, _tag_plasma_hud, NUMBER_OF_TAGS
 };
 #define TAG_INDEX(index) ((long)(0xE1740000UL | (unsigned long)(index)))
 static struct { unsigned long group_tag; char name[80]; void *data; int present; } tags[NUMBER_OF_TAGS];
@@ -182,25 +172,6 @@ static struct projectile_material_response_definition bolt_responses[NUMBER_OF_M
 static struct damage_effect_definition bolt_damage;
 static struct weapon_hud_interface_definition plasma_hud;
 static byte plasma_crosshairs[2][CROSSHAIR_BYTES];
-
-/* cache_files.h's iterator over the map's tags of a group */
-struct tag_iterator { unsigned long group_tag; int next; };
-static void tag_iterator_new(struct tag_iterator *iterator, long group_tag)
-{
-	iterator->group_tag = (unsigned long)group_tag;
-	iterator->next = 0;
-}
-static long tag_iterator_next(struct tag_iterator *iterator)
-{
-	while (iterator->next < NUMBER_OF_TAGS)
-	{
-		int index = iterator->next++;
-
-		if (tags[index].present && tags[index].group_tag == iterator->group_tag)
-			return TAG_INDEX(index);
-	}
-	return NONE;
-}
 
 static long tag_loaded(long group_tag, char const *name)
 {
@@ -236,100 +207,9 @@ static int file_count;
 static int folder_count, listed, reads, logged;
 static char setting[300], written[300];
 
-/* the stock maps (stock_tags.c): the zoom sound, when one has it, and what was asked */
-static int stock_has_zoom, stock_finds, stock_finishes;
-static long stock_tags_find(long group_tag, char const *name)
-{
-	stock_finds++;
-	if (stock_has_zoom && group_tag == (long)tags[_tag_zoom_in].group_tag && !strcasecmp(tags[_tag_zoom_in].name, name))
-	{
-		tags[_tag_zoom_in].present = 1;
-		return TAG_INDEX(_tag_zoom_in);
-	}
-	return NONE;
-}
-static void stock_tags_finish(void)
-{
-	stock_finishes++;
-}
-
-/* object_pose.c's (test_mutators.py tests it): the groups a pose names, and
-the poses made */
-#include "object_pose_header.inc"
-static struct { long group_tag; char tag[80]; char node[40]; real scale; real_vector3d offset; } poses[8];
-static int pose_count, pose_clears;
-static long object_pose_group_tag(char const *name)
-{
-	return !strcmp(name, "biped") ? 'bipd' : !strcmp(name, "unit") ? 'unit' : NONE;
-}
-static void object_pose_clear(void)
-{
-	pose_clears++;
-	pose_count = 0;
-}
-static boolean object_pose_add(long group_tag, char const *tag_name, char const *node_name, real scale,
-	real_vector3d const *offset, char *reason, unsigned long size)
-{
-	/* (no model of the map has a tail) */
-	if (!strcmp(node_name, "tail"))
-	{
-		snprintf(reason, size, "no model has a node tail");
-		return FALSE;
-	}
-	if (pose_count < 8)
-	{
-		poses[pose_count].group_tag = group_tag;
-		snprintf(poses[pose_count].tag, sizeof(poses[pose_count].tag), "%s", tag_name);
-		snprintf(poses[pose_count].node, sizeof(poses[pose_count].node), "%s", node_name);
-		poses[pose_count].scale = scale;
-		poses[pose_count++].offset = *offset;
-	}
-	return TRUE;
-}
-
-/* explosion_decals.c's: the decal every explosion leaves */
-static long explosion_decal_index = NONE;
-static real explosion_decal_radius;
-static int explosion_clears;
-static void explosion_decal_clear(void)
-{
-	explosion_clears++;
-	explosion_decal_index = NONE;
-}
-static void explosion_decal_add(long decal_index, real decal_radius)
-{
-	explosion_decal_index = decal_index;
-	explosion_decal_radius = decal_radius;
-}
-
-/* object_death.c's: the deaths made */
-static struct { long group_tag; long effect_index; boolean vanish; } deaths[4];
-static int death_count, death_clears;
-static void object_death_clear(void)
-{
-	death_clears++;
-	death_count = 0;
-}
-static boolean object_death_add(long group_tag, long effect_index, boolean vanish, char *reason, unsigned long size)
-{
-	(void)reason;
-	(void)size;
-	if (death_count < 4)
-	{
-		deaths[death_count].group_tag = group_tag;
-		deaths[death_count].effect_index = effect_index;
-		deaths[death_count++].vanish = vanish;
-	}
-	return TRUE;
-}
-
 #include "mutators_header.inc"
 #include "mutator_tags.inc"
 #include "port_mutators_source.inc"
-
-/* the grunt's blood splat and a painted sign (mutator_tags.c's own layout
-of a decal's) */
-static struct mutator_decal_definition splat, sign;
 
 static void tag(int index, unsigned long group_tag, char const *name, void *data)
 {
@@ -361,9 +241,6 @@ static void world(void)
 	triggers[0].projectile_error_angle_lower_bound = 0.0349066f;
 	triggers[0].projectile_error_angle_upper_bound = 0.113446f;
 	triggers[0].rounds_between_tracers = 3;
-	/* (the rifle fires its bullet; the plasma rifle, here, nothing) */
-	triggers[0].projectile.index = TAG_INDEX(_tag_bullet);
-	triggers[1].projectile.index = NONE;
 	rifle.weapon.zoom_magnification_minimum = 1.f;
 	rifle.weapon.zoom_in_sound.index = NONE;
 	rifle.weapon.zoom_out_sound.index = NONE;
@@ -380,7 +257,6 @@ static void world(void)
 		responses[index].potential_effect.index = NONE;
 	}
 	responses[_material_grunt].default_response = _projectile_material_response_overpenetrate;
-	bullet.object.model.index = NONE;
 	bullet.projectile.maximum_range = 40.f;
 	bullet.projectile.air_gravity_scale = 1.f;
 	bullet.projectile.water_gravity_scale = 1.f;
@@ -421,12 +297,10 @@ static void world(void)
 	plasma.weapon.triggers.count = 1;
 	plasma.weapon.triggers.address = plasma_triggers;
 	plasma_triggers[0].error_acceleration_time = 2.5f;
-	plasma_triggers[0].projectile.index = NONE;
 	plasma_triggers[0].runtime_error_acceleration_time = 1.f / 75.f;
 	plasma_triggers[0].runtime_error_deceleration_time = 1.f;
 	plasma_triggers[0].projectile_error_angle_lower_bound = 0.01f;
 	memset(&bolt, 0, sizeof(bolt));
-	bolt.object.model.index = NONE;
 	memset(bolt_responses, 0, sizeof(bolt_responses));
 	bolt_responses[_material_hunter_shield].default_response = _projectile_material_response_reflect;
 	bolt.projectile.initial_velocity = 50.f / 30.f;
@@ -445,24 +319,6 @@ static void world(void)
 	tag(_tag_bolt, PROJECTILE_DEFINITION_TAG, "weapons\\plasma rifle\\bolt", &bolt);
 	tag(_tag_bolt_damage, DAMAGE_EFFECT_DEFINITION_TAG, "weapons\\plasma rifle\\bolt", &bolt_damage);
 	tag(_tag_plasma_hud, HUD_GROUP_TAG, "weapons\\plasma rifle\\plasma rifle", &plasma_hud);
-	memset(&splat, 0, sizeof(splat));
-	splat.flags = 1 << 3;
-	splat.radius_lower_bound = 0.1f;
-	splat.radius_upper_bound = 0.2f;
-	splat.framebuffer_blend_function = 1;
-	splat.map.index = NONE;
-	tag(_tag_splat, DECAL_GROUP_TAG, "effects\\decals\\blood splats\\blood grunt splat", &splat);
-	splat.type = 1;
-	memset(&sign, 0, sizeof(sign));
-	sign.type = 3;
-	sign.framebuffer_blend_function = 1;
-	sign.map.index = NONE;
-	tag(_tag_sign, DECAL_GROUP_TAG, "levels\\test\\bloodgulch\\decals\\red base", &sign);
-	tag(_tag_ball, MODELS_GROUP_TAG, "powerups\\active camoflage\\active camoflage", &other_tag_data);
-	tag(_tag_glow, BITMAP_GROUP_TAG, "effects\\decals\\blood splats\\bitmaps\\blood splat hunter glow",
-		&other_tag_data);
-	tag(_tag_teleport, EFFECT_DEFINITION_TAG, "effects\\coop teleport", &other_tag_data);
-	tag(_tag_splotch, EFFECT_DEFINITION_TAG, "weapons\\assault rifle\\effects\\impact grunt", &other_tag_data);
 	mutator_tags_loaded();
 }
 
@@ -765,30 +621,6 @@ int main(int argc, char **argv)
 		rifle.weapon.triggers.count = 2;
 		CHECK(mutator_tags_play(edits, size) && triggers[1].rounds_between_tracers == 9, "the second trigger");
 	}
-	else if (!strcmp(case_name, "stock"))
-	{
-		/* a map with every tag: the stock maps not asked for any */
-		size = edits_of("accurized_ma5b", edits, sizeof(edits));
-		CHECK(mutator_tags_play(edits, size) && !stock_finds && mutator_tags.passed_over == 0, "asked of a whole map");
-		/* a tag only named, which a stock map has: added, the edit made, and the
-		stock map let go of */
-		mutator_tags_undo();
-		world();
-		tags[_tag_zoom_in].present = 0;
-		stock_has_zoom = 1;
-		stock_finishes = 0;
-		CHECK(mutator_tags_play(edits, size) && mutator_tags.passed_over == 0, "passed over %d", mutator_tags.passed_over);
-		CHECK(stock_finds == 1 && rifle.weapon.zoom_in_sound.index == TAG_INDEX(_tag_zoom_in), "the sound of a stock map");
-		CHECK(stock_finishes == 1, "the stock map kept");
-		/* a tag edited, which a stock map may have: only passed over */
-		mutator_tags_undo();
-		world();
-		tags[_tag_rifle].present = 0;
-		stock_finds = 0;
-		mutator_tags_play(edits, size);
-		CHECK(rifle.weapon.zoom_level_count == 0, "a tag the map has not edited");
-		CHECK(mutator_tags.passed_over > 0, "not passed over");
-	}
 	else if (!strcmp(case_name, "refused"))
 	{
 		static struct { char const *id; char const *text; char const *reason; } const cases[] =
@@ -816,7 +648,7 @@ int main(int argc, char **argv)
 				"crosshairs = { from = 'y', run = 'z' }\n", "not run" },
 			{ "nameless", "[[tags]]\ngroup = \"weapon\"\nzoom_level_count = 1\n", "names its group and its tag" },
 			{ "reference", "[[tags]]\ngroup = \"weapon\"\ntag = 'x'\nzoom_in_sound = 3\n", "a tag's name" },
-			{ "nothing", "name = \"Nothing\"\n", "edits no tag, poses nothing and adds nothing" },
+			{ "nothing", "name = \"Nothing\"\n", "no effect, edits no tag and adds nothing" },
 			{ "array", "[[tags]]\ngroup = \"damage_effect\"\ntag = 'x'\n[tags.material_modifiers]\nlava = 1\n",
 				"name one of material_modifiers" },
 			{ "array_range", "[[tags]]\ngroup = \"damage_effect\"\ntag = 'x'\n[tags.material_modifiers]\n"
@@ -833,7 +665,7 @@ int main(int argc, char **argv)
 				"reload_time = 1\n", "no field" },
 			{ "gravity_range", "[[tags]]\ngroup = \"projectile\"\ntag = 'x'\nair_gravity_scale = -1\n",
 				"from 0 to 10" },
-			{ "later", "format = 8\n[[tags]]\ngroup = \"weapon\"\ntag = 'x'\nzoom_level_count = 1\n", "later build" },
+			{ "later", "format = 5\n[[tags]]\ngroup = \"weapon\"\ntag = 'x'\nzoom_level_count = 1\n", "later build" },
 		};
 		for (index = 0; index < (int)NUMBEROF(cases); index++)
 			folder(cases[index].id, cases[index].text);
@@ -846,151 +678,6 @@ int main(int argc, char **argv)
 		}
 		CHECK(edits_of("group,field,range,enum,flags,copy,many,nothing", edits, sizeof(edits)) == 0,
 			"a refused mutator's edits played");
-	}
-	else if (!strcmp(case_name, "pose"))
-	{
-		static struct { char const *id; char const *text; char const *reason; } const cases[] =
-		{
-			{ "large", "[[pose]]\nobjects = \"biped\"\nnode = \"head\"\nscale = 5\n", "from 0.25 to 4" },
-			{ "nan", "[[pose]]\nobjects = \"biped\"\nnode = \"head\"\nscale = nan\n", "from 0.25 to 4" },
-			{ "far", "[[pose]]\nobjects = \"biped\"\nnode = \"head\"\noffset = [0, 1.5, 0]\n", "from -1 to 1" },
-			{ "farther", "[[pose]]\nobjects = \"biped\"\nnode = \"head\"\noffset = [0, 1e30, 0]\n", "from -1 to 1" },
-			{ "two", "[[pose]]\nobjects = \"biped\"\nnode = \"head\"\noffset = [0, 1]\n", "three numbers" },
-			{ "text", "[[pose]]\nobjects = \"biped\"\nnode = \"head\"\noffset = [0, 'up', 0]\n", "three numbers" },
-			{ "tree", "[[pose]]\nobjects = \"tree\"\nnode = \"head\"\n", "the group tree" },
-			{ "nodeless", "[[pose]]\nobjects = \"biped\"\nscale = 2\n", "a node" },
-			{ "key", "[[pose]]\nobjects = \"biped\"\nnode = \"head\"\nsize = 2\n", "no key size" },
-			{ "table", "pose = 3\n", "list of tables" },
-			{ "effect", "[effects.moon_gravity]\nscale = 0.2\n", "no effect" },
-		};
-		real_vector3d none = { 0.f, 0.f, 0.f };
-
-		/* (the stock big head: every biped's head) */
-		size = edits_of("big_head", edits, sizeof(edits));
-		CHECK(port_mutators_status(find("big_head"), NULL, 0) == _port_mutator_fine && size > 0, "%s",
-			refusal("big_head"));
-		CHECK(mutator_tags_play(edits, size) && mutator_tags.made == 1 && pose_count == 1 &&
-			poses[0].group_tag == 'bipd' && !poses[0].tag[0] && !strcmp(poses[0].node, "head") &&
-			poses[0].scale == 2.5f && !memcmp(&poses[0].offset, &none, sizeof(none)), "the big head's pose");
-		CHECK(unchanged(&stock), "a pose edited a tag");
-		/* (a pose of one tag, moved; one the map has no node for, passed over) */
-		folder("long_arms", "[[pose]]\nobjects = \"unit\"\ntag = 'characters\\cyborg\\cyborg'\n"
-			"node = \"bip01 l upperarm\"\nscale = 1.35\noffset = [0.01, 0, -0.08]\n"
-			"[[pose]]\nobjects = \"biped\"\nnode = \"tail\"\nscale = 0.5\n");
-		size = edits_of("long_arms", edits, sizeof(edits));
-		CHECK(port_mutators_status(find("long_arms"), NULL, 0) == _port_mutator_fine, "%s", refusal("long_arms"));
-		CHECK(mutator_tags_play(edits, size) && pose_count == 1 && mutator_tags.passed_over == 1, "the poses made");
-		CHECK(poses[0].group_tag == 'unit' && !strcmp(poses[0].tag, "characters\\cyborg\\cyborg") &&
-			!strcmp(poses[0].node, "bip01 l upperarm") && poses[0].scale == 1.35f && poses[0].offset.i == 0.01f &&
-			poses[0].offset.j == 0.f && poses[0].offset.k == -0.08f, "the arm's pose");
-		CHECK(port_mutators_details(find("long_arms"), (char *)edits, sizeof(edits)) &&
-			strstr((char const *)edits, "Poses: 2") && !strstr((char const *)edits, "Tag edits"), "%s", edits);
-		/* (each game's poses made again: the last undone) */
-		index = pose_clears;
-		mutator_tags_undo();
-		CHECK(pose_clears == index + 1 && pose_count == 0, "the poses kept past their game");
-		mutator_tags_loaded();
-		CHECK(pose_clears == index + 2, "the poses kept past their map");
-		for (index = 0; index < (int)NUMBEROF(cases); index++)
-			folder(cases[index].id, cases[index].text);
-		port_mutators_scan();
-		for (index = 0; index < (int)NUMBEROF(cases); index++)
-		{
-			CHECK(port_mutators_status(find(cases[index].id), NULL, 0) == _port_mutator_unplayable &&
-				strstr(refusal(cases[index].id), cases[index].reason), "%s: %s", cases[index].id,
-				refusal(cases[index].id));
-		}
-	}
-	else if (!strcmp(case_name, "paintball"))
-	{
-		static struct { char const *id; char const *text; char const *reason; } const cases[] =
-		{
-			{ "fast", "[[option]]\nid = \"speed\"\nname = \"S\"\nminimum = 25\nmaximum = 200\n[[tags]]\n"
-				"group = \"projectile\"\ntag = 'x'\ninitial_velocity = { value = 2000, option = \"speed\" }\n", "at 200%" },
-			{ "unnamed", "[[tags]]\ngroup = \"projectile\"\ntag = 'x'\ninitial_velocity = { value = 20, option = \"pace\" }\n",
-				"not one of its [[option]]s" },
-			{ "between", "[[option]]\nid = \"speed\"\nname = \"S\"\ndefault = 110\nminimum = 25\nmaximum = 200\n"
-				"step = 25\n", "whole percents" },
-			{ "trees", "[death]\nobjects = \"scenery\"\n", "units" },
-			{ "melts", "[death]\nobjects = \"biped\"\nbody = \"melts\"\n", "vanish or stays" },
-			{ "bright", "[[tags]]\ngroup = \"decal\"\ntag = 'x'\n[tags.color_lower_bound]\nred = 2\n", "from 0 to 1" },
-			{ "wherever", "[[tags]]\ngroup = \"decal\"\ntag = '*'\nwhere = { type = [\"sticker\"] }\nradius_lower_bound = 1\n",
-				"in a where is one of" },
-			{ "whereof", "[[tags]]\ngroup = \"decal\"\ntag = 'x'\nwhere = { type = [\"burn\"] }\nradius_lower_bound = 1\n",
-				"of tag = '*'" },
-			{ "boom", "[explosion]\ndecal = 'x'\nsize = 2\n", "[explosion] has a decal" },
-			{ "firedecal", "[[tags]]\ngroup = \"decal\"\ntag = '*'\nwhere = { fired = true }\nradius_lower_bound = 1\n",
-				"of projectiles" },
-		};
-
-		folder("paint", "format = 7\n"
-			"[[option]]\nid = \"speed\"\nname = \"SPEED\"\nminimum = 25\nmaximum = 200\nstep = 25\n"
-			"[[tags]]\ngroup = \"decal\"\ntag = '*'\nwhere = { type = [\"scratch\", \"splatter\", \"burn\"] }\n"
-			"map = 'effects\\decals\\blood splats\\bitmaps\\blood splat hunter glow'\n"
-			"framebuffer_blend_function = \"add\"\nflags = [\"color_interpolate_in_hsv\"]\n"
-			"[tags.color_upper_bound]\nblue = 0.5\n"
-			"[[tags]]\ngroup = \"projectile\"\ntag = 'weapons\\assault rifle\\bullet'\n"
-			"initial_velocity = { value = 45, option = \"speed\" }\n"
-			"[tags.material_responses.all]\ndefault_effect = 'weapons\\assault rifle\\effects\\impact grunt'\n"
-			"[[tags]]\ngroup = \"projectile\"\ntag = '*'\nwhere = { fired = true }\n"
-			"model = 'powerups\\active camoflage\\active camoflage'\n"
-			"[[tags]]\ngroup = \"projectile\"\ntag = '*'\nmaximum_range = 500\n"
-			"[explosion]\ndecal = 'effects\\decals\\blood splats\\blood grunt splat'\n"
-			"[death]\nobjects = \"biped\"\neffect = 'effects\\coop teleport'\nbody = \"vanish\"\n");
-		size = edits_of("paint", edits, sizeof(edits));
-		CHECK(port_mutators_status(find("paint"), NULL, 0) == _port_mutator_fine && size > 0, "%s", refusal("paint"));
-		CHECK(mutator_tags_play(edits, size) && !mutator_tags.passed_over, "passed over %d", mutator_tags.passed_over);
-		CHECK(splat.framebuffer_blend_function == 3 && splat.flags == 2 && splat.map.index == TAG_INDEX(_tag_glow) &&
-			splat.color_upper_bound.blue == 0.5f && splat.radius_upper_bound == 0.2f, "the splat's edits");
-		/* (every decal of the types where names: not the map's painted sign) */
-		CHECK(sign.framebuffer_blend_function == 1 && sign.map.index == NONE, "a painted sign edited");
-		/* (every projectile a weapon fires: the rifle's bullet, not the bolt
-		no trigger here fires) */
-		CHECK(bullet.object.model.index == TAG_INDEX(_tag_ball) && bolt.object.model.index == NONE,
-			"the fired projectiles' model");
-		CHECK(bullet.projectile.maximum_range == 500.f && bolt.projectile.maximum_range == 500.f,
-			"every projectile's range");
-		CHECK(explosion_decal_index == TAG_INDEX(_tag_splat) && explosion_decal_radius == 0.2f,
-			"the explosion's decal, and its radius");
-		/* (every element the block has: an "all") */
-		for (index = 0; index < NUMBER_OF_MATERIAL_TYPES + 1; index++)
-		{
-			CHECK((responses[index].default_effect.index == TAG_INDEX(_tag_splotch)) == (index < NUMBER_OF_MATERIAL_TYPES),
-				"material %d's effect", index);
-		}
-		CHECK(bullet.projectile.initial_velocity == 45.f / TICKS_PER_SECOND, "the speed at 100%%");
-		CHECK(death_count == 1 && deaths[0].group_tag == 'bipd' && deaths[0].effect_index == TAG_INDEX(_tag_teleport) &&
-			deaths[0].vanish, "the death");
-		/* (its option: a step at a time, kept as it differs from its default) */
-		{
-			char name[32];
-			long value, minimum, maximum, step;
-
-			CHECK(port_mutators_option_count() == 1 &&
-				port_mutators_option(0, name, sizeof(name), &value, &minimum, &maximum, &step) &&
-				!strcmp(name, "SPEED") && value == 100 && minimum == 25 && maximum == 200 && step == 25, "the option");
-			CHECK(!port_mutators_option_set(0, 110) && !port_mutators_option_set(0, 225), "a percent not a step");
-			CHECK(port_mutators_option_set(0, 200) && !strcmp(option_setting, "paint.speed=200"), "%s", option_setting);
-			size = port_mutators_tag_edits(edits, sizeof(edits));
-			CHECK(mutator_tags_play(edits, size) && bullet.projectile.initial_velocity == 90.f / TICKS_PER_SECOND,
-				"the speed at 200%%");
-			CHECK(port_mutators_option_set(0, 100) && !option_setting[0], "the default kept: %s", option_setting);
-		}
-		/* (each game's undone: the map's own again, and no death) */
-		index = death_clears;
-		mutator_tags_undo();
-		CHECK(splat.framebuffer_blend_function == 1 && splat.flags == 8 && splat.map.index == NONE &&
-			responses[0].default_effect.index == NONE && death_clears == index + 1 && !death_count &&
-			bullet.object.model.index == NONE && explosion_decal_index == NONE && explosion_clears > 0, "undone");
-		for (index = 0; index < (int)NUMBEROF(cases); index++)
-			folder(cases[index].id, cases[index].text);
-		port_mutators_scan();
-		for (index = 0; index < (int)NUMBEROF(cases); index++)
-		{
-			CHECK(port_mutators_status(find(cases[index].id), NULL, 0) == _port_mutator_unplayable &&
-				strstr(refusal(cases[index].id), cases[index].reason), "%s: %s", cases[index].id,
-				refusal(cases[index].id));
-		}
 	}
 	else if (!strcmp(case_name, "bytes"))
 	{

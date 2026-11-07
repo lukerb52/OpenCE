@@ -95,22 +95,19 @@ symbols in this file:
 /* ---------- headers */
 
 #include "cseries.h"
-#include "dualsense_game.h" /* port: port/linux/game/dualsense_game.c */
 #include "cseries_windows.h"
 #include "cseries/errors.h"
 #include "real_math.h"
 #include "console.h"
 #include "game_state.h"
 #include "coop_vehicles.h" /* port: preserve replacement-vehicle homes across reverts */
-#include "mutator_scripts.h" /* port: port/linux/game/mutator_scripts.c */
-#include "network_coop.h" /* port: checkpoint roster restoration and host team-wipe policy */
+#include "network_coop.h" /* port: checkpoint membership for host team-wipe reverts */
 #include "game.h"
 #include "tag_files.h"
 #include "cache_files.h"
 #include "scenario.h"
 #include "main.h"
 #include "objects.h"
-#include "objects/widgets/lightning.h" /* port: reset render seeds after a load */
 #include "game_sound.h"
 #include "sound_manager.h"
 #include "observer.h"
@@ -129,7 +126,6 @@ symbols in this file:
 #include "cluster_partitions.h"
 #include "mcc_cache.h"
 #include "mcc_checkpoint.h"
-#include "third_person.h" /* port: port/linux/game/third_person.c */
 /* port: object_bounds_cache.c's */
 void object_bounds_cache_invalidate(void);
 
@@ -191,13 +187,10 @@ static game_state_before_save_proc before_save_procs[] =
 	dummy,
 	/* port: the host's vehicle home table follows the saved object handles. */
 	coop_vehicles_before_save,
-	/* port: a mutator's script's models, which are not saved */
-	mutator_scripts_before_save,
 };
 
 static game_state_before_load_proc before_load_procs[] =
 {
-	dualsense_game_reset, /* port: cancel feedback before restoring object identities */
 	game_sound_clear,
 	/* port: where the cluster lists' references are, which the game state
 	being loaded does not hold */
@@ -211,16 +204,10 @@ static game_state_before_load_proc before_load_procs[] =
 
 static game_state_after_load_proc after_load_procs[] =
 {
-	/* port: restored lightning slots and times must not reuse discarded seeds. */
-	lightnings_reset_render_state,
 	scenario_reload_structure_bsp_if_necessary,
-	/* port: the session roster is not part of a gameplay checkpoint. */
-	network_coop_restore_players,
 	sound_stop_all,
 	game_sound_restore,
 	observer_initialize_for_new_map,
-	/* port: camera smoothing and free look are not stored in checkpoints. */
-	third_person_reset,
 	update_queues_reset_and_fill_with_lies,
 	rasterizer_decals_update_function_pointers,
 	recorded_animations_clear_debug_storage,
@@ -231,9 +218,7 @@ static game_state_after_load_proc after_load_procs[] =
 	director_initialize_for_saved_game,
 	scripted_hud_messages_clear,
 	/* port: restore matching homes or forget an unrelated disk/core load. */
-	coop_vehicles_after_load,
-	/* port: (none of the objects loaded is a script's model) */
-	mutator_scripts_after_load
+	coop_vehicles_after_load
 };
 
 /* ---------- public code */

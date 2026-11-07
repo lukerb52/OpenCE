@@ -63,9 +63,8 @@ OBJECTS.C
 void object_bounds_cache_update(long object_index, real_point3d const *center, real radius);
 /* port: port/linux/game/first_person_legs.c's */
 void first_person_legs_reset(void);
-/* port: port/linux/game/object_pose.c's */
-real object_pose_bounding_radius(long object_index, real bounding_radius);
-#include "third_person.h" /* port: port/linux/game/third_person.c */
+/* port: port/linux/game/mutator_big_head.c's */
+real mutator_big_head_bounding_radius(long object_index, real bounding_radius);
 
 /* ---------- constants */
 
@@ -187,8 +186,6 @@ long network_objects_new_object_index(void);
 boolean network_objects_creating_host_object(void);
 boolean network_objects_may_delete(long object_index);
 boolean network_objects_client_deleting(void);
-/* port/linux/game/mutator_scripts.c's: a script's model, made as its tag is */
-boolean mutator_scripts_creating_model(void);
 /* port/linux/game/network_coop.c's: the scripts' attaching, on co-op's clients */
 void network_coop_note_attach(long parent_index, char const *parent_marker_name, long child_index,
 	char const *child_marker_name);
@@ -1119,11 +1116,7 @@ void objects_initialize_for_new_map(
 	widgets_initialize_for_new_map();
 	object_types_initialize_for_new_map();
 	lights_initialize_for_new_map();
-	/* port: the last map's waist and mesh forgotten
-	(port/linux/game/first_person_legs.c) */
-	first_person_legs_reset();
-	/* port: reset the shoulder camera across map loads. */
-	third_person_reset();
+	first_person_legs_reset(); /* port: (the last map's legs forgotten) */
 	
 	data_make_valid(object_header_data);
 	object_name_list_clear();
@@ -1487,27 +1480,6 @@ void object_get_velocities(
 	{
 		*angular_velocity = ultimate_parent->object.angular_velocity;
 	}
-
-	return;
-}
-
-/* port: the velocity of a point on an object: its ultimate parent's motion
-and spin (v + w x r about the parent's position, as physics.c works out its
-mass points' velocities), in world units a tick. For the sounds' Doppler
-effect (game_sound.c, sound_manager.c): a sound on a turning vehicle and the
-ear of whoever rides it move as their points do, and cancel. */
-void object_get_point_velocity(
-	long object_index,
-	real_point3d const *point,
-	real_vector3d *velocity)
-{
-	struct object_datum *ultimate_parent = object_get(object_get_ultimate_parent(object_index));
-	real_vector3d radius;
-	real_vector3d spin;
-
-	vector_from_points3d(&ultimate_parent->object.position, point, &radius);
-	cross_product3d(&ultimate_parent->object.angular_velocity, &radius, &spin);
-	add_vectors3d(&ultimate_parent->object.translational_velocity, &spin, velocity);
 
 	return;
 }
@@ -3126,8 +3098,8 @@ void object_compute_node_matrices(
 	{
 		object->object.bounding_sphere_radius *= object->object.scale;
 	}
-	/* port: grown to hold the nodes a mutator's poses moved */
-	object->object.bounding_sphere_radius = object_pose_bounding_radius(object_index,
+	/* port: grown to hold a head the big head mutator scaled */
+	object->object.bounding_sphere_radius = mutator_big_head_bounding_radius(object_index,
 		object->object.bounding_sphere_radius);
 	/* port: (and in the packed copy collision reads: object_bounds_cache.c) */
 	object_bounds_cache_update(object_index, &object->object.bounding_sphere_center, object->object.bounding_sphere_radius);
@@ -3630,8 +3602,6 @@ long object_new(
 	if (game_engine_running() && definition_index!=NONE
 		/* (the host's object, which the host made as the game type has it) */
 		&& !network_objects_creating_host_object()
-		/* port: (a script's model, which only shows what its script does) */
-		&& !mutator_scripts_creating_model()
 		)
 	{
 		definition_index = game_engine_remap_object_definition(definition_index);
@@ -3975,18 +3945,9 @@ void object_attach_to_node(
 	return;
 }
 
-/* port: muzzle shots must exclude their shooter during the safety check. */
 boolean object_force_inside_bsp(
 	long object_index,
 	real_point3d const *known_good_point)
-{
-	return object_force_inside_bsp_ignoring(object_index, known_good_point, NONE);
-}
-
-boolean object_force_inside_bsp_ignoring(
-	long object_index,
-	real_point3d const *known_good_point,
-	long ignore_object_index)
 {
 	struct collision_result collision;
 
@@ -3996,7 +3957,7 @@ boolean object_force_inside_bsp_ignoring(
 	match_assert("c:\\halo\\SOURCE\\objects\\objects.c", 2365, global_current_collision_user_depth < MAXIMUM_COLLISION_USER_STACK_DEPTH);
 	global_current_collision_users[global_current_collision_user_depth++] = 19;
 	
-	if (collision_test_line(_collision_test_for_projectiles_flags, known_good_point, &object->object.position, ignore_object_index, &collision) ||
+	if (collision_test_line(_collision_test_for_projectiles_flags, known_good_point, &object->object.position, NONE, &collision) ||
 		object->object.location.cluster_index==NONE)
 	{
 		if (collision.location.cluster_index!=NONE)

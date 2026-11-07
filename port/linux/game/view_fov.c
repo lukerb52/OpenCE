@@ -13,7 +13,6 @@ that draw the first-person weapon (rasterizer and render sources).
 
 #include "cseries.h"
 #include "view_fov.h"
-#include "third_person.h"
 #include "camera/director.h"
 #include "cutscene/cinematics.h"
 #include "game/players.h"
@@ -261,7 +260,7 @@ boolean viewmodel_is_visible(void)
 		initialized = TRUE;
 		read_at = changes;
 	}
-	return visible && !third_person_active(render.local_player_index);
+	return visible;
 }
 
 boolean viewmodel_draws_geometry(boolean first_person)

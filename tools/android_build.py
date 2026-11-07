@@ -26,7 +26,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .linux_build import (LUA_DIR, LUA_SOURCES, LINUX_PROFILE, MINIUPNPC_DEFINES, MINIUPNPC_DIR, MUSL_MATH_DIR, STB_VORBIS_SOURCE, XDK_INCLUDE,
+from .linux_build import (LINUX_PROFILE, MINIUPNPC_DEFINES, MINIUPNPC_DIR, MUSL_MATH_DIR, STB_VORBIS_SOURCE, XDK_INCLUDE,
                           compile_launcher, configuration_defines, game_defines_and_includes, game_sources,
                           miniupnpc_sources, musl_math_sources, opus_cflags, opus_sources, pgo_mode, pgo_profile,
                           profile_use_flags, updater_defines, xdk_headers)
@@ -71,10 +71,10 @@ ANDROID_API = 28
 # devices. Its existing engine hooks link to dynamic_lighting_disabled.c;
 # none of the added light pools, traces, textures or shader emitters are built.
 DYNAMIC_LIGHTING_GAME_SOURCES = {
-    "plasma_lighting.c", "plasma_falloff.c", "plasma_occlusion.c", "plasma_collision.c", "plasma_collision_scene.c", "plasma_collision_models.c",
+    "plasma_lighting.c", "plasma_falloff.c", "plasma_occlusion.c", "plasma_collision.c",
     "rocket_lighting.c", "muzzle_lighting.c", "covenant_lighting.c",
     "covenant_emitter_lighting.c", "ammo_counter_lighting.c", "ammo_counter_falloff.c",
-    "needler_lighting.c", "authored_emitter_lighting.c", "ambient_emitter_lighting.c", "shield_glow.c", "lighting_config.c",
+    "needler_lighting.c", "shield_glow.c",
 }
 DYNAMIC_LIGHTING_PLATFORM_SOURCES = {"plasma_model_shader.c", "plasma_occlusion_gl.c"}
 
@@ -518,9 +518,6 @@ def generate_android_build(n: Writer, sln: Any) -> None:
     # library
     for source in opus_sources():
         objects.append(guest_object(source, " ".join([opus_cflags(guest_abi), *libc_includes])))
-    # (port/third_party/lua; mutator_scripts.c)
-    for name in LUA_SOURCES:
-        objects.append(guest_object(LUA_DIR / name, platform_cflags))
     # internet play's signatures, for public games' listings
     # (port/third_party/monocypher; p2p_crypto.c)
     for name in ("monocypher.c", "monocypher-ed25519.c"):
@@ -613,7 +610,6 @@ def generate_android_build(n: Writer, sln: Any) -> None:
     ])
     host_sources = sorted((PORT_DIR / "host").glob("*.c")) + [
         LINUX_DIR / "src" / "posix_files.c", LINUX_DIR / "src" / "posix_net.c",
-        LINUX_DIR / "src" / "posix_mcc_preview.c",
         # the app reads debug.sample_seconds from config.toml (host_main.c)
         TOML_DIR / "tomlc17.c",
     ]

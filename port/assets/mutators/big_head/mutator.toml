@@ -1,11 +1,8 @@
 name = "Big head"
 id = "big_head"
-version = "2"
+version = "1"
 description = "Every biped's head, the players' and the AI's, is drawn and hit at two and a half times its size."
-format = 6
+format = 1
 
-# every biped's head node ("head": whatever its model names it), scaled
-[[pose]]
-objects = "biped"
-node = "head"
+[effects.big_head]
 scale = 2.5
