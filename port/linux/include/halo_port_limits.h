@@ -67,7 +67,8 @@ in its game's advertisement's reserved bytes (network_server_message_handler.c),
 which hosts built before there was a version send as zeros: version 0.
 Raise it with any change to what the machines send each other. */
 /* Version 50 combines MCC admission, sharing and checkpoint agreement with
-mutator tag tables, scripts and add-on variant options. */
+mutator tag tables, scripts and add-on variant options. MCC per-axis damage
+impulses follow the damage direction. */
 #define HALO_PORT_NETWORK_VERSION 50
 /* ... the advertisement's reserved bytes: the version (a little-endian word),
 then flags, then the game's kind (an OpenCE gametype's mode, and Hardcore:
