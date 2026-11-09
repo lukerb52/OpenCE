@@ -389,6 +389,13 @@ its parts), so that a game without a mutator's script sends what it did before t
 Version 49's tag edits also carry a kind for a unit's death (`object_death.c`), the
 decals' fields and the `all` element, and a vehicle set of one kind places the
 add-ons' vehicles; a mutator's options scale the host's edits before they are sent.
+OpenCE network version 42 adds MCC package identity, admission and host-only
+sharing to the shared agreement. Join requests carry this version explicitly;
+settings carry a zero MCC identity for Xbox/CE. Checkpoint epochs, recovery,
+scripted poses and shared boat/console fixes require matching peers.
+
+Version 50 combines the MCC agreement above with the mutator protocol and
+add-on variant options; peers built with either earlier protocol cannot join.
 
 `port/linux/network_format.txt` records the wire format of the current
 version (`tools/network_format.py`): `test_linux_port.py` fails when the
