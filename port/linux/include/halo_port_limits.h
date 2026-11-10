@@ -94,7 +94,7 @@ header included; the per-tick update of 128 players is 3,857 */
 update of 128 players decodes to 0x1010 bytes */
 #define HALO_PORT_NETWORK_PACKET_SIZE 0x1100
 
-/* the game settings record (HALO_PORT_NETWORK_GAME_SIZE, 13,136 bytes at 128
+/* the game settings record (HALO_PORT_NETWORK_GAME_SIZE, 13,200 bytes at 128
 machines and players) does not fit one message; it is sent in pieces of
 this many bytes (4 pieces), each 3,594 bytes on the wire */
 #define HALO_PORT_NETWORK_GAME_SETTINGS_FRAGMENT_SIZE 0xE00
