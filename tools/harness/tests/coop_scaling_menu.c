@@ -1,4 +1,5 @@
 #include "harness.h"
+#define MIN(a,b) ((a)<(b)?(a):(b))
 enum { _cooperative_enemies_per_player=0, _cooperative_enemies_multiplier=1, _loadout_custom=1 };
 struct widget_instance {
  char const *name; short type,vertical_offset; boolean visible;
@@ -27,13 +28,14 @@ none here, every item a spinner's own */
 static short ui_widget_spinner_extra_description(struct widget_instance *s,short item){(void)s;(void)item;return NONE;}
 static short ui_widget_spinner_own_item_count(struct widget_instance *s){return s->parameters.list.number_of_items;}
 #include "under_test.inc"
-#define ROWS 8
+#define ROWS 10
 static char const *rows[]={"op_coop_friendly_fire","op_coop_extra_enemies","op_coop_extra_pickups","op_coop_extra_vehicles",
- "op_coop_enemies_multiplier","op_coop_enemies_per_player","op_coop_player_collisions","op_coop_ally_friendly_fire"};
+ "op_coop_enemies_multiplier","op_coop_enemies_per_player","op_coop_player_collisions","op_coop_ally_friendly_fire",
+ "op_coop_team_wipe","op_coop_vehicle_riding"};
 static char const *spinners[]={"coop_friendly_fire_spinner","coop_extra_enemies_spinner","coop_extra_pickups_spinner","coop_extra_vehicles_spinner",
  "coop_enemies_multiplier_spinner","coop_enemies_per_player_spinner","coop_player_collisions_spinner",
- "coop_ally_friendly_fire_spinner"};
-static short counts[]={4,3,3,3,5,5,2,2};
+ "coop_ally_friendly_fire_spinner","coop_team_wipe_spinner","coop_vehicle_riding_spinner"};
+static short counts[]={4,3,3,3,5,5,2,2,3,2};
 static struct widget_instance list,help,row[ROWS],label[ROWS],spinner[ROWS],clone[ROWS];
 static void setup(void)
 {
@@ -58,14 +60,18 @@ int main(int argc,char **argv)
    list.focused_child=&row[1];gametype_option_help(&list);short y=73;
    CHECK(row[5].visible==(mode==0||pickups==0||vehicles==0),"per-player visibility");
    CHECK(row[4].visible==(mode==1||pickups==1||vehicles==1),"multiplier visibility");
-   CHECK(list.focused_child==&row[1],"focus changed");
-   for(int i=0;i<ROWS;i++){
-    if(row[i].visible){CHECK(row[i].vertical_offset==y,"gap or overlap at %s",rows[i]);y+=30;}
+    CHECK(list.focused_child==&row[1],"focus changed");
+    int visible=0;for(int i=0;i<ROWS;i++)visible+=row[i].visible;
+    short spacing=visible==10?26:visible==9?29:30;
+    CHECK(row[9].visible,"riding row hidden");
+    for(int i=0;i<ROWS;i++){
+     if(row[i].visible){CHECK(row[i].vertical_offset==y,"gap or overlap at %s",rows[i]);
+      CHECK(row[i].vertical_offset+28<=340,"rows overlap help area");y+=spacing;}
     CHECK(label[i].vertical_offset==4&&spinner[i].vertical_offset==1&&clone[i].vertical_offset==2,
      "relative descendant positions %s",rows[i]);
     CHECK(row[i].next==(i<ROWS-1?&row[i+1]:NULL),"row order changed");
    }
-   CHECK(y-30+28<=341,"rows overlap help area");
+    CHECK(row[9].vertical_offset==y-spacing,"riding row not last");
   }
  } else CASE("help") {
   for(int mode=0;mode<3;mode++)for(int pickups=0;pickups<3;pickups++)for(int vehicles=0;vehicles<3;vehicles++){
