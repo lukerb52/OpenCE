@@ -10,8 +10,6 @@
 #define FALSE 0
 #define WINAPI
 typedef unsigned char byte;
-typedef long HRESULT;
-#define E_OUTOFMEMORY ((HRESULT)0x8007000EL)
 typedef void *LPDIRECTSOUND, *LPDIRECTSOUNDBUFFER, *LPUNKNOWN;
 typedef struct {
     unsigned short wFormatTag, nChannels;
