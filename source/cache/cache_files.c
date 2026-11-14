@@ -1270,19 +1270,26 @@ long scenario_tags_load(
 		cache_file_globals.tag_header = mcc_cache_tags_load(scenario_name, &cache_file_globals.header);
 		if (cache_file_globals.tag_header)
 		{
+			extern void addons_tags_loaded(char const *map_name, long scenario_index);
 			extern void menu_tags_loaded(char const *map_name);
 			extern void mods_tags_loaded(char const *map_name);
+			extern void mutator_tags_loaded(void);
+
 			global_tag_instances = cache_file_globals.tag_header->tag_instances;
 			global_tag_count = cache_file_globals.tag_header->tag_count;
 			cache_file_globals.tags_loaded = TRUE;
-			menu_tags_loaded(scenario_name);
+			/* Add-ons extend the map tag table and therefore must load before
+			 * per-machine menu tags, exactly as they do for CE and Xbox maps. */
+			addons_tags_loaded(stripped_scenario_name, cache_file_globals.tag_header->scenario_tag_index);
+			menu_tags_loaded(cache_file_globals.header.name);
 			if (!mcc_pause_runtime_load())
 			{
 				scenario_tags_unload();
 				return NONE;
 			}
-			/* port: clear prior mods; MCC resources remain authored. */
+			/* MCC resources remain authored; mods overlay them after menus. */
 			mods_tags_loaded(scenario_name);
+			mutator_tags_loaded();
 			result = cache_file_globals.tag_header->scenario_tag_index;
 		}
 		else
