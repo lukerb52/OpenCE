@@ -191,6 +191,8 @@ short mutator_scripts_keys(char keys[][32], short maximum)
 	return index;
 }
 
+static volatile int admission_failures;
+static void mutator_share_fail(char const *reason) { (void)reason; admission_failures++; }
 #include "mutators.inc"
 #include "network_mutators.inc"
 #include "object_pose.inc"

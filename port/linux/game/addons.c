@@ -56,6 +56,7 @@ map's are (addons_bitmap_contains).
 #include "rasterizer/rasterizer_swizzle.h"
 #include "addon_file.h"
 #include "addons.h"
+#include "mutator_share.h"
 #include "cache_file_formats.h"
 #include "custom_edition_cache.h"
 #include "stock_tags.h"
@@ -1987,6 +1988,7 @@ static void addons_tags_load(
 			}
 		}
 		error(_error_silent, "add-ons: %s is not added to %s", addon->name, map_name);
+		mutator_share_fail("A required addon failed validation or conversion. Ask the host for a compatible, repaired addon and reconnect.");
 		addon_dispose(addon);
 	}
 	if (!addons_globals.count)
@@ -1998,6 +2000,7 @@ static void addons_tags_load(
 	if (!addons_globals.instances)
 	{
 		error(_error_silent, "add-ons: out of memory for the tag table");
+		mutator_share_fail("Not enough memory for required addons. Free memory and reconnect.");
 		for (addon_index = 0; addon_index < addons_globals.count; addon_index++)
 			addon_dispose(&addons_globals.addons[addon_index]);
 		addons_globals.count = 0;

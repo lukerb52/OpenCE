@@ -34,6 +34,7 @@ static int halo_chat_taps(float *x, float *y)
 
 static void port_mutators_share_script_allow(struct port_mutator_share const *entry) { (void)entry; allowed++; }
 static void client_next_file(void) { next_files++; }
+static void mutator_share_fail(char const *reason) { (void)reason; mutator_share.state = _share_failed; }
 
 /* a question asked at 1000 milliseconds, and a tap at the time, where */
 static int answer(unsigned long at, float x, int tapped)
@@ -59,8 +60,8 @@ int main(int argc, char **argv)
 	{
 		CHECK(answer(4000, 0.25f, 1) == _share_asking && mutator_share.script_allowed[0] && allowed == 1 &&
 			next_files == 1, "a tap on the left: yes");
-		CHECK(answer(4000, 0.75f, 1) == _share_asking && !mutator_share.script_allowed[0] && allowed == 1 &&
-			next_files == 2, "a tap on the right: no");
+		CHECK(answer(4000, 0.75f, 1) == _share_failed && !mutator_share.script_allowed[0] && allowed == 1 &&
+			next_files == 1, "a tap on the right: no");
 		CHECK(answer(4000, 0.25f, 0) == _share_prompting, "no tap, no answer");
 		/* (one while it is read is no answer, and is taken: no answer later from it) */
 		CHECK(answer(1200, 0.25f, 1) == _share_prompting && !taps, "a tap while it is read");
@@ -75,7 +76,7 @@ int main(int argc, char **argv)
 		buttons = 1UL << HALO_CHAT_PAD_A;
 		client_prompt_update();
 		CHECK(mutator_share.state == _share_asking && mutator_share.script_allowed[0], "A: yes");
-		CHECK(answer(1000 + 31000, 0.f, 0) == _share_asking && !mutator_share.script_allowed[0], "no after the wait");
+		CHECK(answer(1000 + 31000, 0.f, 0) == _share_failed && !mutator_share.script_allowed[0], "no after the wait");
 	}
 	else
 	{

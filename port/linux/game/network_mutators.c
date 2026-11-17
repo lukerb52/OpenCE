@@ -25,6 +25,7 @@ has them all; edits that are not this build's leave none played.
 #include "network_distributed.h"
 #include "network_mutators.h"
 #include "mutators.h"
+#include "mutator_share.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -129,7 +130,7 @@ static void network_mutators_handle_tag_edits(
 	if (network_mutator_tag_edits.received == network_mutator_tag_edits.size)
 	{
 		if (!mutators_set_host_tag_edits(network_mutator_tag_edits.bytes, network_mutator_tag_edits.size))
-			error(_error_log, "mutators: the host's tag edits are not this build's: none played");
+			mutator_share_fail("The host's tag edits are incompatible with this build. Update to the host's version and reconnect.");
 		network_mutator_tag_edits.received = 0;
 		network_mutator_tag_edits.size = 0;
 	}
@@ -205,7 +206,7 @@ void network_mutators_handle_message(
 		message.header.count < 1 || message.header.count > MAXIMUM_MUTATOR_KEYS ||
 		size != sizeof(message.header) + message.header.count * sizeof(struct distributed_mutator_entry))
 	{
-		error(_error_log, "mutators: the host's message is not one of mutators: passed over");
+		mutator_share_fail("The host sent an invalid mutator list. Update to the host's version and reconnect.");
 		return;
 	}
 	for (index = 0; index < message.header.count; index++)
@@ -214,5 +215,5 @@ void network_mutators_handle_message(
 		values[index] = message.entries[index].value;
 	}
 	if (!mutators_set_host(keys, values, message.header.count))
-		error(_error_log, "mutators: the host's keys or values are not mutators': passed over");
+		mutator_share_fail("The host's mutator keys or values are incompatible. Install its exact mutators and update to its build, then reconnect.");
 }

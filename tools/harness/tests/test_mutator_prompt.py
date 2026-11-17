@@ -29,6 +29,7 @@ def generated(fault=None):
     text += re.search(r"^static struct\n\{\n\tshort state;.*?^\} mutator_share;\n", share, re.S | re.M).group(0)
     text += "static void port_mutators_share_script_allow(struct port_mutator_share const *entry);\n"
     text += "static void client_next_file(void);\n"
+    text += "static void mutator_share_fail(char const *reason);\n"
     code = function(share, "client_prompt_update")
     if fault:
         code = mutated(code, *fault)

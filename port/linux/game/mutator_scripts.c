@@ -24,6 +24,7 @@ host moves other objects. Private programs have no file or engine-script access.
 #include "units/units.h"
 #include "halo_keyboard.h"
 #include "mutator_scripts.h"
+#include "mutator_share.h"
 
 
 #include "mutator_hs.h"
@@ -1356,6 +1357,7 @@ static void script_failed(
 	char const *message = script->result.error;
 
 	error(_error_silent, "mutator scripts: %s %s, and is stopped: %s", script->key, when, message);
+	mutator_share_fail("A required host script failed compilation or execution. Ask the host to repair its script or use a compatible build, then reconnect.");
 	script->failed = TRUE;
 	script_models_delete((short)(script - mutator_scripts.scripts));
 	scripts_count();

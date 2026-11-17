@@ -4,6 +4,8 @@
 
 /* whether this client is still finding out or fetching the host's mutators' files:
 its game does not load until it is not */
+/* Abort admission and keep the load barrier until the game has left. */
+void mutator_share_fail(char const *reason);
 boolean mutator_share_busy(void);
 /* whether a client of this host is fetching them */
 boolean mutator_share_machine_fetching(long machine_index);

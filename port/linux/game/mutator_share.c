@@ -25,8 +25,8 @@ A script runs code on this machine, so a player is asked before the first time o
 is fetched (network.mutator_host_scripts: "ask"): A or Enter for yes, B or Esc for
 no, and no after PROMPT_TIMEOUT. Asked once for a mutator, by its SHA-256: a yes is
 kept beside its files. A script the player has already, in their own folders, is
-not asked about. One that is refused is not fetched, if its mutator is only that; a
-mutator with an add-on too needs it to be checked, so it is fetched, and not run.
+not asked about. A refused required script aborts admission; no partial set of
+host mutators is played.
 */
 
 #include "cseries.h"
@@ -74,6 +74,7 @@ enum
 	_share_prompting,
 	_share_fetching,
 	_share_done,
+	_share_failed,
 };
 
 /* ---------- structures */
@@ -189,25 +190,60 @@ static void client_send(
 	network_distributed_client_send_reliably(&header, (word)sizeof(header));
 }
 
-/* the mutators listed played, as far as this machine has them */
+/* A failed admission remains a load barrier until the abort has completed. */
+void mutator_share_fail(
+	char const *reason)
+{
+	wchar_t text[512];
+	char message[512];
+	short index;
+
+	if (!share_client_game() || mutator_share.state == _share_failed)
+		return;
+	snprintf(message, sizeof(message), "Cannot join: required host mutators are unavailable.\r\n\r\n%s", reason);
+	for (index = 0; message[index] && index < NUMBEROF(text) - 1; index++)
+		text[index] = (wchar_t)(unsigned char)message[index];
+	text[index] = 0;
+	error(_error_log, "mutators: %s", message);
+	if (mutator_share.bytes)
+		free(mutator_share.bytes);
+	mutator_share.bytes = NULL;
+	port_mutators_host_clear();
+	mutator_share.state = _share_failed;
+	display_error_text_when_main_menu_loaded(text);
+	network_game_abort();
+}
+
+/* Every listed mutator must be validated and installed before admission. */
 static void client_finish(
 	void)
 {
 	long index;
 	long played = 0;
 
+	if (mutator_share.received != mutator_share.total)
+	{
+		mutator_share_fail("The host's mutator list is incomplete. Reconnect or ask the host to check its mutators.");
+		return;
+	}
 	port_mutators_host_begin();
 	for (index = 0; index < mutator_share.received && index < MAXIMUM_SHARED_MUTATORS; index++)
 	{
-		if (port_mutators_host_add(&mutator_share.entries[index], mutator_share.script_allowed[index]))
+		if (port_mutators_share_valid(&mutator_share.entries[index]) &&
+			port_mutators_share_has(&mutator_share.entries[index]) &&
+			(!port_mutators_share_has_script(&mutator_share.entries[index]) || mutator_share.script_allowed[index]) &&
+			port_mutators_host_add(&mutator_share.entries[index], mutator_share.script_allowed[index]))
 		{
 			played++;
 		}
 		else
 		{
-			error(_error_log, "mutators: the host's %s is not played here: this game cannot play as the host's does",
+			char reason[256];
+
+			snprintf(reason, sizeof(reason), "Required mutator %s could not be validated. Install the host's exact files or enable mutator downloads and reconnect.",
 				mutator_share.entries[index].id);
-			console_warning("The host's mutator %s is not played here", mutator_share.entries[index].id);
+			mutator_share_fail(reason);
+			return;
 		}
 	}
 	if (mutator_share.bytes)
@@ -219,13 +255,6 @@ static void client_finish(
 		error(_error_silent, "mutators: %ld of the host's %ld mutators with files played", played, mutator_share.total);
 	mutator_share.state = _share_done;
 	client_send(_distributed_message_mutator_share_done);
-}
-
-/* whether a mutator has only a script to it, beside its mutator.toml */
-static boolean entry_script_only(
-	struct port_mutator_share const *entry)
-{
-	return entry->file_count == 2 && port_mutators_share_has_script(entry);
 }
 
 /* the next script to ask about, each decided by the setting or what is known: FALSE
@@ -271,11 +300,23 @@ static void client_next_file(
 	{
 		struct port_mutator_share const *entry = &mutator_share.entries[mutator_share.mutator];
 
-		if (port_mutators_share_has(entry) || !port_mutators_share_valid(entry))
+		if (!port_mutators_share_valid(entry))
+		{
+			mutator_share_fail("The host advertised an invalid required mutator. Ask the host to repair its mutators.");
+			return;
+		}
+		if (port_mutators_share_has_script(entry) && !mutator_share.script_allowed[mutator_share.mutator])
+		{
+			mutator_share_fail("A required host script was refused. Allow the script only if you trust the host, then reconnect.");
+			return;
+		}
+		if (port_mutators_share_has(entry))
 			continue;
-		/* (a script refused, which is all there is to fetch) */
-		if (!mutator_share.script_allowed[mutator_share.mutator] && entry_script_only(entry))
-			continue;
+		if (!config_boolean("network.mutator_download"))
+		{
+			mutator_share_fail("Required mutator files are missing. Enable network.mutator_download or install the host's exact mutators, then reconnect.");
+			return;
+		}
 		for (; mutator_share.file < entry->file_count; mutator_share.file++)
 		{
 			if (port_mutators_share_file_has(entry, mutator_share.file))
@@ -283,8 +324,8 @@ static void client_next_file(
 			mutator_share.bytes = malloc(entry->files[mutator_share.file].size + 1);
 			if (!mutator_share.bytes)
 			{
-				error(_error_log, "mutators: no memory for the host's %s", entry->files[mutator_share.file].name);
-				continue;
+				mutator_share_fail("Not enough memory for required mutator files. Free memory and reconnect.");
+				return;
 			}
 			mutator_share.arrived = 0;
 			mutator_share.asked = FALSE;
@@ -340,6 +381,11 @@ static void client_prompt_update(
 		return;
 	error(_error_log, "mutators: the player %s the script of the host's %s", yes ? "allowed" : "refused", entry->id);
 	mutator_share.script_allowed[mutator_share.prompt] = yes;
+	if (!yes)
+	{
+		mutator_share_fail("A required host script was refused. Allow it only if you trust the host, then reconnect.");
+		return;
+	}
 	if (yes)
 		port_mutators_share_script_allow(entry);
 	mutator_share.prompt++;
@@ -362,15 +408,11 @@ static void client_update(
 		}
 		return;
 	}
+	if (mutator_share.state == _share_failed)
+		return;
 	if (mutator_share.state == _share_none || mutator_share.games_played != game->number_of_games_played)
 	{
 		client_reset();
-		if (!config_boolean("network.mutator_download"))
-		{
-			mutator_share.state = _share_done;
-			mutator_share.games_played = game->number_of_games_played;
-			return;
-		}
 		mutator_share.games_played = game->number_of_games_played;
 		mutator_share.state = _share_asking;
 		mutator_share.heard_at = system_milliseconds();
@@ -399,9 +441,7 @@ static void client_update(
 	if ((mutator_share.state == _share_asking || mutator_share.state == _share_fetching) &&
 		system_milliseconds() - mutator_share.heard_at > ANSWER_TIMEOUT)
 	{
-		error(_error_log, "mutators: the host stopped answering for its mutators' files");
-		mutator_share.received = MIN(mutator_share.received, mutator_share.total);
-		client_finish();
+		mutator_share_fail("The host stopped sending required mutator content. Reconnect or ask the host to check sharing settings.");
 	}
 }
 
@@ -442,10 +482,12 @@ boolean mutator_share_busy(
 	if (!game || !game->map.name[0])
 		return FALSE;
 	/* (a game this client has not asked about: asked now) */
+	if (mutator_share.state == _share_failed)
+		return TRUE;
 	if (mutator_share.state == _share_none || mutator_share.games_played != game->number_of_games_played)
 		client_update();
 	return mutator_share.state == _share_asking || mutator_share.state == _share_prompting ||
-		mutator_share.state == _share_fetching;
+		mutator_share.state == _share_fetching || mutator_share.state == _share_failed;
 }
 
 boolean mutator_share_holds_players(
@@ -499,8 +541,8 @@ void mutator_share_block(
 	mutator_share.heard_at = system_milliseconds();
 	if (size <= 0 || (unsigned long)size > file_size - mutator_share.arrived)
 	{
-		error(_error_log, "mutators: the host's block of %s is not of it", entry->id);
-		mutator_share.arrived = file_size;
+		mutator_share_fail("The host sent an invalid mutator file block. Reconnect or ask the host to repair its files.");
+		return;
 	}
 	else
 	{
@@ -511,8 +553,10 @@ void mutator_share_block(
 		return;
 	/* (kept only if it is what the host's list said: port_mutators.c's check) */
 	if (!port_mutators_share_store(entry, mutator_share.file, mutator_share.bytes, file_size))
-		error(_error_log, "mutators: %s of the host's %s is not what its list said", entry->files[mutator_share.file].name,
-			entry->id);
+	{
+		mutator_share_fail("A required mutator file failed its checksum or could not be saved. Check free disk space and reconnect.");
+		return;
+	}
 	else
 		error(_error_silent, "mutators: fetched %s of the host's %s", entry->files[mutator_share.file].name, entry->id);
 	free(mutator_share.bytes);
@@ -587,7 +631,10 @@ void mutator_share_handle_message(
 			return;
 		csmemcpy(&entry, message, sizeof(entry));
 		if (entry.total < 0 || entry.total > MAXIMUM_SHARED_MUTATORS)
+		{
+			mutator_share_fail("The host's required mutator list is invalid. Ask the host to repair its configuration.");
 			return;
+		}
 		mutator_share.total = entry.total;
 		mutator_share.in_progress = entry.in_progress != 0;
 		mutator_share.heard_at = system_milliseconds();

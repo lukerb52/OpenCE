@@ -2411,6 +2411,7 @@ static int share_read_mutator(const struct port_mutator_share *entry, struct por
 /* this machine's own mutator of the digest, or NULL */
 static struct port_mutator *share_own_mutator(const struct port_mutator_share *entry)
 {
+	static struct port_mutator checked;
 	long index;
 
 	if (!port_mutators.scans)
@@ -2418,9 +2419,23 @@ static struct port_mutator *share_own_mutator(const struct port_mutator_share *e
 	for (index = 0; index < port_mutators.count; index++)
 	{
 		struct port_mutator *mutator = &port_mutators.mutators[index];
+		const char *payload = mutator->addon_path[0] ? mutator->addon_path : mutator->script_path;
+		const char *slash = strrchr(payload, '/');
+		char path[MAXIMUM_PATH_LENGTH];
+		size_t size = 0;
+		char *text;
 
-		if (!mutator->refusal[0] && mutator_digest(mutator) && !memcmp(mutator->digest, entry->digest, SHA256_SIZE))
-			return mutator;
+		if (mutator->refusal[0] || !slash || (size_t)(slash - payload) + sizeof("/mutator.toml") > sizeof(path))
+			continue;
+		snprintf(path, sizeof(path), "%.*s/mutator.toml", (int)(slash - payload), payload);
+		text = config_file_read(path, &size);
+		if (!text)
+			continue;
+		memset(&checked, 0, sizeof(checked));
+		mutator_read(&checked, mutator->folder, text, size, path);
+		free(text);
+		if (!checked.refusal[0] && mutator_digest(&checked) && !memcmp(checked.digest, entry->digest, SHA256_SIZE))
+			return &checked;
 	}
 	return NULL;
 }

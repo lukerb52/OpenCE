@@ -653,15 +653,22 @@ it.
   for, each file against its SHA-256 and the files against the mutator's, and the
   mutator is then read as any is. An add-on goes through the validator, and a script
   runs in its sandbox.
-- `network.mutator_download` false fetches none: the host's add-ons this machine
-  lacks are not played, and what it sees of them is not the host's.
+- `network.mutator_download` false fetches none: joining requires every host
+  mutator already installed with its exact validated files. Otherwise admission
+  fails with a message to install the files or enable downloads and reconnect.
+- Allowed downloads keep the existing map-sharing transport and hold the game's
+  load until the complete required set has been checked and installed. An incomplete
+  list, transfer timeout, checksum/storage failure, incompatible mutator values,
+  invalid addon, or script compilation failure aborts the connection; no partial
+  or divergent missing-addon view is played.
 - The first time a host's script would be fetched, the player is asked: A or Enter
   for yes, B or Esc for no (on a touchscreen, a tap on the left half of the screen for
   yes, on the right for no), and no after 30 seconds, with the game held for it (a press
   or tap in its first second and a half is no answer). A yes
   is kept for that script, by its SHA-256. A script in the player's own folders is not
-  asked about. One refused is not fetched, if its mutator is only that; a mutator with
-  an add-on too needs the script to be checked, so it is fetched and not run.
+  asked about. Refusing a required script (including a timed-out prompt or the
+  `"never"` policy) aborts joining; neither script-only nor addon-plus-script mutators
+  may be silently skipped.
   `network.mutator_host_scripts` is `"ask"`, `"always"` or `"never"`.
 - They play on Custom Edition maps too, with the stock tags
   those lack ("Stock tags", above), whose indices every machine's tags must
