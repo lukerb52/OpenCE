@@ -110,7 +110,7 @@ def mutator_entry(folder: Path) -> Dict[str, Any]:
         script = text(section, "file", "", where)
         if not script.endswith(".hsc") or "/" in script or "\\" in script or script.startswith("."):
             raise RefusedError(f"{where}: its script is a .hsc file's name, with no folder")
-        files.append(file_entry(folder, script, 0x40000))
+        files.append(file_entry(folder, script, 32767))
     authors = table.get("authors", [])
     if isinstance(authors, str):
         authors = [authors]

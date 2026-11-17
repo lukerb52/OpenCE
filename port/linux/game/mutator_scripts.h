@@ -96,5 +96,7 @@ void mutator_scripts_after_load(void);
 struct mutator_hs_result;
 boolean mutator_scripts_validate_source(const char *source, long length,
     struct mutator_hs_result *result);
+/* halo --check-script <file.hsc>: 0 when the text compiles, else 1 */
+int mutator_scripts_check_text(const char *name, const char *source, long length);
 
 #endif

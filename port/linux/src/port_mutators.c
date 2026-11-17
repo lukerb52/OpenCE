@@ -71,7 +71,8 @@ played instead (port/linux/game/network_mutators.c).
 placements; 4: a weapon's; 6: poses; 7: decals, "all" elements, options and
 [death]) */
 #define MUTATORS_FORMAT 7
-#define MAXIMUM_SCRIPT_FILE_SIZE 0x40000UL
+/* a script's file: what mutator_hs_program_compile takes (port/linux/game/mutator_hs.c) */
+#define MAXIMUM_SCRIPT_FILE_SIZE 32767UL
 
 #define MAXIMUM_MUTATORS 64
 #define MAXIMUM_MUTATOR_FOLDER_LENGTH 64
@@ -1179,7 +1180,7 @@ static void script_read(struct port_mutator *mutator, const char *path, const ch
 	if (posix_stat(mutator->script_path, &information) != 0)
 		refuse(mutator, path, "its script's file is not there");
 	else if (information.size_high || information.size_low > MAXIMUM_SCRIPT_FILE_SIZE)
-		refuse(mutator, path, "its script's file is larger than 256 KB");
+		refuse(mutator, path, "its script's file is larger than 32767 bytes");
 }
 
 static void mutator_read(struct port_mutator *mutator, const char *folder, const char *text, size_t size,

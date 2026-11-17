@@ -378,7 +378,7 @@ and a running script's `settings` change at once. DEFAULTS shows `[script]`'s.
 Scripts use Halo's native HS syntax, not a separate scripting language. The
 script file is compiled by `port/linux/game/mutator_hs.c` and run by
 `port/linux/game/mutator_scripts.c`. Script files must be beside `mutator.toml`,
-with a `.hsc` extension, and are limited to 256 KB.
+with a `.hsc` extension, and are limited to 32767 bytes.
 
 For example, a native script declaration is:
 
@@ -386,6 +386,17 @@ For example, a native script declaration is:
 (script static void frame
     (begin))
 ```
+
+The game compiles a script without starting, and says why it does not:
+
+    halo --check-script grappling_hook/main.hsc
+
+It exits 0 when the script compiles, 1 when it does not (`tools/test_mutator_scripts.py`).
+A quoted name is the global of that name if the script has one, as in a map's
+scripts: with `(global real speed 0)`, `(settings_real "speed")` is refused
+(the global, a real, where a string is wanted). Name globals apart from
+`[script]`'s keys. The host's functions come before the engine's, so
+`game_time` is the host's, the game's ticks.
 
 The runtime integration supplies the mutator's settings and game hooks. Use its
 registered HS functions rather than the retired dotted scripting API. Scripts

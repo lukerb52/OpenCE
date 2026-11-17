@@ -58,6 +58,8 @@ enum
 #define MAXIMUM_SCRIPT_VELOCITY 10.0f
 /* how far a ray goes (world units) */
 #define MAXIMUM_SCRIPT_RAY 1000.0f
+/* the longest script (mutator_hs_program_compile's own limit, bytes) */
+#define MAXIMUM_SCRIPT_SOURCE 32767
 
 /* ---------- structures */
 
@@ -1272,6 +1274,30 @@ boolean mutator_scripts_validate_source(const char *source, long length, struct 
 	if (program) mutator_hs_program_free(program);
 	free(context);
 	return program != NULL;
+}
+
+/* halo --check-script <file.hsc> (port/linux/src/server_mode.c reads it):
+compiles a mutator's script against the host API and says why it does not,
+for script authors and the tests; the process's code, 0 when it compiles */
+int mutator_scripts_check_text(const char *name, const char *source, long length)
+{
+	struct mutator_hs_result result;
+	boolean compiled;
+
+	if (length > MAXIMUM_SCRIPT_SOURCE)
+	{
+		fprintf(stderr, "%s: longer than %d bytes\n", name, MAXIMUM_SCRIPT_SOURCE);
+		return 1;
+	}
+	memset(&result, 0, sizeof(result));
+	compiled = mutator_scripts_validate_source(source, length, &result);
+	if (!compiled)
+	{
+		fprintf(stderr, "%s: %s\n", name, *result.error ? result.error : "does not compile");
+		return 1;
+	}
+	fprintf(stdout, "%s: compiles\n", name);
+	return 0;
 }
 #undef API0
 #undef API1

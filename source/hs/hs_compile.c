@@ -1407,12 +1407,14 @@ static void hs_parse_call_predicate(
 
 	if (predicate->type != _hs_function_name)
 	{
-		expression->function_index = hs_find_function_by_name(
-			hs_compile_globals.compiled_source + predicate->source_offset);
-		predicate->type = _hs_function_name;
-		if (hs_isolated_program && expression->function_index == NONE)
-			expression->function_index = mutator_hs_api_find(
+		/* port: a mutator's host API is found before the engine's functions, so
+		one of the same name (game_time) is the API's, not a refused engine one */
+		expression->function_index = hs_isolated_program ? mutator_hs_api_find(
+			hs_compile_globals.compiled_source + predicate->source_offset) : NONE;
+		if (expression->function_index == NONE)
+			expression->function_index = hs_find_function_by_name(
 				hs_compile_globals.compiled_source + predicate->source_offset);
+		predicate->type = _hs_function_name;
 		if (hs_isolated_compiling && expression->function_index != NONE &&
 			!hs_isolated_function_allowed(expression->function_index))
 		{
