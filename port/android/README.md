@@ -511,8 +511,8 @@ assembly of the port is necessary:
   address.
 - The symbol aliases in `guest/libc/src_include/features.h`. The Darwin
   target does not accept alias attributes.
-- `setjmp` and `longjmp` (`guest/runtime/guest_setjmp.c`), which Lua's
-  errors need (the mutators' scripts): musl's AArch64 ones, the guest's
+- `setjmp` and `longjmp` (`guest/runtime/guest_setjmp.c`), the C runtime's
+  nonlocal jumps: musl's AArch64 ones, the guest's
   32-bit buffer pointer zero-extended first. The musl of the guest does not
   build its own, which are assembly.
 

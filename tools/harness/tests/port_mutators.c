@@ -185,20 +185,20 @@ int main(int argc, char **argv)
 		char *script;
 		unsigned long size = 0;
 
-		folder("view", "format = 5\n[script]\nfile = \"main.lua\"\ndistance = 2.5\nkeyboard = \"F5\"\n"
+		folder("view", "format = 5\n[script]\nfile = \"main.hsc\"\ndistance = 2.5\nkeyboard = \"F5\"\n"
 			"[script.menu]\nkeyboard = \"THIRD PERSON\"\n");
-		file("/data/mutators/view/main.lua", "function frame() end");
-		folder("missing", "[script]\nfile = \"gone.lua\"\n");
-		folder("path", "[script]\nfile = \"../main.lua\"\n");
+		file("/data/mutators/view/main.hsc", "(script static void frame (begin))");
+		folder("missing", "[script]\nfile = \"gone.hsc\"\n");
+		folder("path", "[script]\nfile = \"../main.hsc\"\n");
 		folder("other", "[script]\nfile = \"main.txt\"\n");
 		folder("nofile", "[script]\ndistance = 2.5\n");
-		folder("notable", "script = \"main.lua\"\n");
-		folder("later", "format = 6\n[script]\nfile = \"main.lua\"\n");
+		folder("notable", "script = \"main.hsc\"\n");
+		folder("later", "format = 6\n[script]\nfile = \"main.hsc\"\n");
 		port_mutators_scan();
 		CHECK(port_mutators_status(find("view"), text, sizeof(text)) == _port_mutator_fine, "refused: %s", text);
 		CHECK(port_mutators_status(find("missing"), text, sizeof(text)) == _port_mutator_unplayable, "a script not there");
 		CHECK(port_mutators_status(find("path"), text, sizeof(text)) == _port_mutator_unplayable, "a script in another folder");
-		CHECK(port_mutators_status(find("other"), text, sizeof(text)) == _port_mutator_unplayable, "a script not .lua");
+		CHECK(port_mutators_status(find("other"), text, sizeof(text)) == _port_mutator_unplayable, "a script not .hsc");
 		CHECK(port_mutators_status(find("nofile"), text, sizeof(text)) == _port_mutator_unplayable, "no file named");
 		CHECK(port_mutators_status(find("notable"), text, sizeof(text)) == _port_mutator_unplayable, "not a table");
 		CHECK(port_mutators_status(find("later"), text, sizeof(text)) == _port_mutator_unplayable, "a later format");
@@ -206,7 +206,7 @@ int main(int argc, char **argv)
 		CHECK(port_mutators_keys(keys, values, 4) == 1 && !strncmp(keys[0], "script.", 7) && strlen(keys[0]) == 31,
 			"its key: %s", keys[0]);
 		script = port_mutators_script_read(keys[0], &size);
-		CHECK(script && size == 20 && !memcmp(script, "function", 8), "its file");
+		CHECK(script && size == strlen("(script static void frame (begin))") && !memcmp(script, "(script", 7), "its file");
 		port_mutators_script_free(script);
 		CHECK(!port_mutators_script_read("script.000000000000000000000000", &size), "another's key found");
 		/* a control's row, only while its mutator is on, and its value written */
@@ -226,16 +226,16 @@ int main(int argc, char **argv)
 			entry.file_count = 2;
 			strcpy(entry.files[0].name, "mutator.toml");
 			entry.files[0].size = 100;
-			strcpy(entry.files[1].name, "main.lua");
+			strcpy(entry.files[1].name, "main.hsc");
 			entry.files[1].size = 100;
 			CHECK(port_mutators_share_valid(&entry), "a mutator and its script");
-			strcpy(entry.files[1].name, "../../evil.lua");
+			strcpy(entry.files[1].name, "../../evil.hsc");
 			CHECK(!port_mutators_share_valid(&entry), "a name out of its folder");
-			strcpy(entry.files[1].name, "c:evil.lua");
+			strcpy(entry.files[1].name, "c:evil.hsc");
 			CHECK(!port_mutators_share_valid(&entry), "a name of a drive");
 			strcpy(entry.files[1].name, "evil.exe");
 			CHECK(!port_mutators_share_valid(&entry), "a file of another kind");
-			strcpy(entry.files[1].name, "main.lua");
+			strcpy(entry.files[1].name, "main.hsc");
 			entry.files[1].size = 0x40001;
 			CHECK(!port_mutators_share_valid(&entry), "a script too large");
 			entry.files[1].size = 100;
@@ -244,7 +244,7 @@ int main(int argc, char **argv)
 			strcpy(entry.files[0].name, "mutator.toml");
 			memset(entry.files[1].name, 'a', sizeof(entry.files[1].name));
 			CHECK(!port_mutators_share_valid(&entry), "a name not ended");
-			strcpy(entry.files[1].name, "main.lua");
+			strcpy(entry.files[1].name, "main.hsc");
 			entry.file_count = 4;
 			CHECK(!port_mutators_share_valid(&entry), "too many files");
 			entry.file_count = 2;

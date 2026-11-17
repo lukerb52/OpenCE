@@ -360,7 +360,7 @@ tag edits name that such a map lacks (`docs/mutators.md`, "Stock tags"), and
 places a vehicle add-on with no place on a map beside the map's vehicles, after
 the game's other objects (`docs/addons.md`): the messages are unchanged, but the
 tables and the objects are not a build of 44's. The host's keys also name its
-mutators' Lua scripts (`script.` and digits of their SHA-256), which each machine
+mutators' native HS scripts (`script.` and digits of their SHA-256), which each machine
 runs for itself (`docs/mutators.md`, "Scripts"). Messages 114 to 117 list the host's
 mutators' files, and map sharing's connections carry them (`_frame_mutator_request`,
 `_frame_mutator_block`). Then version 46 sends the buttons of those scripts: a client's

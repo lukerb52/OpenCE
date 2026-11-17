@@ -2,7 +2,7 @@
 MUTATOR_SHARE.C
 
 The host's mutators' files sent to its clients (docs/mutators.md, "Network games"):
-each mutator.toml, Lua script, .cevehicle and .ceweapon of the mutators it plays
+each mutator.toml, native HS script, .cevehicle and .ceweapon of the mutators it plays
 that have an add-on or a script. An effect's and a tag edit's values go as they did
 (network_mutators.c), as the game starts.
 
@@ -470,7 +470,7 @@ void mutator_share_prompt_text(
 {
 	unsigned long waited = system_milliseconds() - mutator_share.prompt_at;
 
-	snprintf(question, size, "The host's mutator %s runs a Lua script.", mutator_share.entries[mutator_share.prompt].id);
+	snprintf(question, size, "The host's mutator %s runs a native HS script.", mutator_share.entries[mutator_share.prompt].id);
 #if defined(HALO_ANDROID) || defined(HALO_WEB)
 	snprintf(answers, size, "Download and run it?  Tap left or A: yes   Tap right or B: no (%lu)",
 		waited < PROMPT_TIMEOUT ? (PROMPT_TIMEOUT - waited) / 1000 : 0UL);

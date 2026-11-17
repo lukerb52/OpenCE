@@ -182,7 +182,7 @@ struct port_mutator
 	struct port_mutator_option options[MAXIMUM_OPTIONS_PER_MUTATOR];
 	long scaled_edit_count;
 	struct port_mutator_scaled_edit scaled_edits[MAXIMUM_SCALED_EDITS_PER_MUTATOR];
-	/* its Lua script's file (docs/mutators.md, "Scripts"), else empty, and on a client,
+	/* its native HS script's file (docs/mutators.md, "Scripts"), else empty, and on a client,
 	whether its player refused to run a host's */
 	char script_path[MAXIMUM_PATH_LENGTH];
 	int script_refused;
@@ -1169,10 +1169,10 @@ static void script_read(struct port_mutator *mutator, const char *path, const ch
 	struct posix_file_information information;
 	size_t folder_length = strlen(path) - strlen("mutator.toml");
 
-	if (!name_ends(name, ".lua") || name[0] == '.' || strchr(name, '/') || strchr(name, '\\') ||
+	if (!name_ends(name, ".hsc") || name[0] == '.' || strchr(name, '/') || strchr(name, '\\') ||
 		folder_length + strlen(name) >= sizeof(mutator->script_path))
 	{
-		refuse(mutator, path, "its script is not a .lua file's name beside its mutator.toml");
+		refuse(mutator, path, "its script is not a .hsc file's name beside its mutator.toml");
 		return;
 	}
 	snprintf(mutator->script_path, sizeof(mutator->script_path), "%.*s%s", (int)folder_length, path, name);
@@ -2344,7 +2344,7 @@ int port_mutators_share_valid(const struct port_mutator_share *entry)
 				return 0;
 			maximum = MAXIMUM_MUTATOR_FILE_SIZE;
 		}
-		else if (name_ends(name, ".lua") && !script)
+		else if (name_ends(name, ".hsc") && !script)
 		{
 			script = 1;
 			maximum = MAXIMUM_SCRIPT_FILE_SIZE;
@@ -2485,7 +2485,7 @@ int port_mutators_share_has_script(const struct port_mutator_share *entry)
 
 	for (file = 1; file < entry->file_count && file < 3; file++)
 	{
-		if (name_ends(entry->files[file].name, ".lua"))
+		if (name_ends(entry->files[file].name, ".hsc"))
 			return 1;
 	}
 	return 0;
@@ -2523,7 +2523,7 @@ void port_mutators_share_script_allow(const struct port_mutator_share *entry)
 	share_allowed_path(entry, path, sizeof(path));
 	posix_make_directory(root);
 	posix_make_directory(folder);
-	config_file_write(path, "The player allowed this mutator's Lua script.\n");
+	config_file_write(path, "The player allowed this mutator's native HS script.\n");
 }
 
 int port_mutators_host_add(const struct port_mutator_share *entry, int script_allowed)

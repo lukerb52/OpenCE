@@ -699,12 +699,12 @@ static const struct config_setting config_settings[] =
 		"Playing in another's game: the most kilobytes a second this machine\n"
 		"sends of maps to other players (16 to 10240: 10 MB/s)." },
 	{ "network.mutator_download", _config_boolean, "true", "HALO_NET_MUTATOR_DOWNLOAD", _environment_value, _platform_all,
-		"Fetch the files of a host's mutators this machine lacks (mutator.toml, Lua\n"
+		"Fetch the files of a host's mutators this machine lacks (mutator.toml, native HS\n"
 		"scripts, .cevehicle, .ceweapon) into mutator_downloads, and play them in that\n"
 		"host's games." },
 	{ "network.mutator_host_scripts", _config_string, "\"ask\"", "HALO_NET_MUTATOR_HOST_SCRIPTS", _environment_value,
 		_platform_all,
-		"The Lua scripts of mutators a host sent, which run in their sandbox: \"ask\" the\n"
+		"The native HS scripts of mutators a host sent, which run in their sandbox: \"ask\" the\n"
 		"first time for each, \"always\" run them, or \"never\". This machine's own\n"
 		"mutators' scripts always run." },
 	{ "network.map_download", _config_boolean, "true", "HALO_NET_MAP_DOWNLOAD", _environment_value, _platform_all,

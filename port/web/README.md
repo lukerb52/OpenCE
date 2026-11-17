@@ -49,7 +49,7 @@ menu, Mods, orders them and turns them off. The game asks in a dialog of the
 page when mods say they cannot be played together (`web_js_ask`).
 
 Mutators (`docs/mutators.md`): under **Mutators**, **Add a mutator folder…**
-copies a mutator's `mutator.toml` and the files beside it (its Lua script,
+copies a mutator's `mutator.toml` and the files beside it (its native HS script,
 its add-on, its settings) into the browser's storage (`mutators/`, the data
 root's for the game), replacing one of the same folder's name, and
 **Remove** deletes one. The stock mutators are in the game already. They are

@@ -23,7 +23,7 @@ body vanish (`[death]`, below); its numbers can be scaled by options the host
 sets (`[[option]]`, below); it can add a vehicle (`format = 3`) or a weapon
 (`format = 4`), with every tag it uses, to the maps it is played on (an
 add-on: [addons.md](addons.md)), checked as a map's tags are; and it can run a
-Lua script (the scripts, below). The game refuses a mutator with a key, a
+native HS script (the scripts, below). The game refuses a mutator with a key, a
 group or a field that it does not have, or a value outside its range.
 
 The game has no mutator's rules built in. What it offers is general, a field
@@ -346,7 +346,7 @@ the host's.
 
 ## Scripts
 
-A mutator is still its `mutator.toml`. Its `[script]` table can call a Lua script
+A mutator is still its `mutator.toml`. Its `[script]` table can call a native HS script
 beside it, and gives the script its values (`format = 5`):
 
 ```toml
@@ -355,7 +355,7 @@ id = "third_person"
 format = 5
 
 [script]
-file = "main.lua"
+file = "main.hsc"
 distance = 2.5
 height = 0.25
 keyboard = "F5"
@@ -375,69 +375,22 @@ A row takes keys and mouse buttons, two at most (`"F5, G"`, which `input.held`
 takes as either). It writes to `settings.toml` beside the script, the player's own,
 and a running script's `settings` change at once. DEFAULTS shows `[script]`'s.
 
-The script runs on each machine that has the mutator, once as its game's mutators
-are set. Its global `frame()` is called once a frame for the first local player, and
-its global `tick()` once a game tick. The game's code is
-`port/linux/game/mutator_scripts.c`.
+Scripts use Halo's native HS syntax, not a separate scripting language. The
+script file is compiled by `port/linux/game/mutator_hs.c` and run by
+`port/linux/game/mutator_scripts.c`. Script files must be beside `mutator.toml`,
+with a `.hsc` extension, and are limited to 256 KB.
 
-`frame()` is what a machine does for itself. `tick()` moves the game: it runs on
-every machine, for every player, from the buttons `input.button` sets, which go with
-a player's input to the host and on to the others. So a client's player moves at
-once, as when it runs, and the host's word corrects it as it corrects any prediction.
-Only the host moves what is not a player. What a tick sends a client's player, the
-host lets that client say it did, as it does for an explosion's throw, up to the
-netcode's most a unit goes (2 world units a tick). A script's state is not in a saved
-game, so a script that keeps any should start again if `game.time()` goes back.
+For example, a native script declaration is:
 
-| Name | What it does |
-| --- | --- |
-| `input.held(name)` | Whether a key or mouse button (the names of `controls.*`), or `"DPad Up"`, `"DPad Down"`, `"DPad Left"`, `"DPad Right"`, is held in the game |
-| `input.jump()`, `input.crouch()` | Whether the first local player holds jump or crouch, whatever they are bound to, as their unit last took them |
-| `input.claim(name)` | Claims a control, by its name (`"DPad Up"`), this frame: the game's own uses of it leave it to the script (D-pad Up opens no text chat) |
-| `player.alive()`, `player.in_vehicle()` | The first local player's |
-| `camera.free()` | Whether no cinematic or script of the map's has the camera |
-| `camera.view{ distance, height, backward, crosshair }` | This frame's view, from the height above the eyes and the distance behind them (or with `backward`, in front, looking back at the player); `crosshair` false draws none |
-| `camera.first_person()` | Whether the first local player's view is their own eyes |
-| `input.button(n, down)` | Sets the first local player's button `n` (0 to 7), for `player.button` on every machine. Each mutator should use its own |
-| `game.time()`, `game.host()`, `game.players()` | The game's tick, whether this machine decides (a local game's does), and the index of each player |
-| `player.local_index()` | The first local player's index, or nil |
-| `player.button(index, n)` | Whether that player holds button `n` |
-| `player.unit(index)` | Their unit, or nil with none or dead |
-| `player.aim(index)`, `player.crouch(index)` | Their aiming vector (x, y, z), and how far crouched (0 to 1) |
-| `object.position(o)`, `object.velocity(o)` | x, y, z, in world units and world units a tick; nothing if it is gone |
-| `object.parent(o)`, `object.kind(o)`, `object.tag(o)`, `object.alive(o)`, `object.acceleration_scale(o)` | Its parent or nil, `"biped"`, `"vehicle"`, `"weapon"` and so on, its tag's name, whether it is undead, and its tag's acceleration scale |
-| `object.set_velocity(o, x, y, z)` | In a `tick()`: its velocity, at most 10 on each axis. On a client, only a player's unit |
-| `object.turn_around(o)` | In a host's `tick()`: faces it the other way |
-| `world.ray(x, y, z, dx, dy, dz, ignore)` | Where that vector (at most 1000 long) first hits the map or an object as a projectile does, not stopping at water: x, y, z and the object or nil; nothing with no hit. `ignore` is an object it passes through |
-| `draw.line(x, y, z, x2, y2, z2, r, g, b)` | A line this frame, of 64 at most; in `frame()` |
-| `draw.line_from_view(right, down, forward, x, y, z, r, g, b)` | The same, from a place by the camera as this frame draws it |
-| `model.create(tag, x, y, z, owner)` | A model of a weapon's, a piece of equipment's, garbage's, a projectile's or scenery's tag (the map's or an add-on's) at the point, made on this machine alone, 16 at most: its handle, or nil. Its creation effect plays and its attachments (lights, looping sounds) are made. `owner` is a unit, whose it is |
-| `model.place(m, x, y, z, fx, fy, fz, ux, uy, uz)` | Puts it there, facing forward and up if given, its nodes as its model has them |
-| `model.node(m, node, x, y, z)` | Moves one of its nodes there until it is placed again, and that node's vertices with it: a rope between two nodes |
-| `model.node_from_view(m, node, right, down, forward)` | The same, this frame, from a place by the camera as it is drawn |
-| `model.face_view(m)` | Turns its nodes as the camera is, this frame |
-| `model.exists(m)`, `model.delete(m)` | Whether it is still there, and takes it away |
-| `settings` | The values of `[script]`, then those of a `settings.toml` beside the script, if there is one, over them: the player's own, in no checksum |
+```lisp
+(script static void frame
+    (begin))
+```
 
-The camera used for shooting stays the first-person one, whatever view is drawn. A
-scope does not zoom in a script's view.
-
-A model is only what its machine draws: the object is never updated, sent to
-another machine, picked up or hit, and moves only as its script puts it. One is
-made whatever the game type's weapons are. It is deleted before a game is saved
-and when its script stops, so a script whose model is gone (`model.exists`) makes it
-again if it still wants it. A grappling hook mutator draws its hook and rope with
-them, from its add-on (taken with `--also`: [addons.md](addons.md)).
-
-A client plays the host's mutators: the host sends its files (below, "Network
-games"), and a key naming the script by the first digits of the mutator's SHA-256,
-which the client runs. One without it plays without it, and `debug.txt` says so.
-
-A script is untrusted input, as a map is. It has Lua's base, string, table and math
-libraries, without what loads code (`load`, `dofile`, `loadfile`, `string.dump`) or
-reaches files, the system or the network. It has 4 MB of memory and two million
-instructions a call, and its file is at most 256 KB. One that fails or passes those
-is said in `debug.txt` and stopped until the game is run again.
+The runtime integration supplies the mutator's settings and game hooks. Use its
+registered HS functions rather than the retired dotted scripting API. Scripts
+sent by a host still require the player's permission under
+`network.mutator_host_scripts`; a script file is untrusted input, as a map is.
 
 ## Stock tags
 
@@ -677,7 +630,7 @@ it.
   none made, and the log says so.
 - Each machine's console and `debug.txt` name the mutators of the game.
 - The host sends the files of its mutators that have an add-on or a script: each
-  `mutator.toml`, `.lua`, `.cevehicle` and `.ceweapon`
+  `mutator.toml`, `.hsc`, `.cevehicle` and `.ceweapon`
   (`port/linux/game/mutator_share.c`). As a client joins, and for each game, the
   host lists them by their SHA-256s, in the order it plays them. The client plays
   those, in that order, in place of its own add-ons: those it has, by their SHA-256,

@@ -692,7 +692,14 @@ hs_typecasting_procedure typecasting_procedures[NUMBER_OF_HS_TYPES][NUMBER_OF_HS
 		hs_object_name_to_object_list, hs_object_name_to_object_list,
 	},
 };
+#include "mutator_hs.h"
 static struct hs_runtime_globals hs_runtime_globals;
+/* port: isolated evaluation owns the dispatch quota and result lifetime. */
+static boolean hs_isolated_running;
+static long hs_isolated_remaining;
+static long hs_isolated_steps;
+static boolean hs_isolated_failed;
+extern int hs_isolated_function_allowed(short index);
 
 /* per-type fallbacks used when an external global has no backing address */
 extern boolean const _hs_type_boolean_default;
@@ -1877,7 +1884,8 @@ void hs_return(
 
 	if (!TEST_FLAG(expression->flags, _hs_syntax_node_script_bit))
 	{
-		return_type = hs_function_get(expression->index)->return_type;
+		const struct mutator_hs_api *api = hs_isolated_running ? mutator_hs_api_get(expression->index) : NULL;
+			return_type = api ? api->return_type : hs_function_get(expression->index)->return_type;
 	}
 	else
 	{
@@ -2700,12 +2708,25 @@ static void hs_thread_main(
 
 	while (thread->stack!=(struct hs_stack_frame *)thread->stack_data &&
 		thread->sleep_until>=0 &&
-		(!game_in_progress() || thread->sleep_until<=game_time_get()) &&
+		(hs_isolated_running || !game_in_progress() || thread->sleep_until<=game_time_get()) &&
 		hs_runtime_globals.initialized)
 	{
 		struct hs_syntax_node *expression = hs_syntax_get(thread->stack->expression_index);
 		boolean initialize = TEST_FLAG(thread->flags, _hs_thread_in_function_call_bit);
 		long index_count;
+
+		/* port: budget is checked before every native evaluator dispatch. */
+		if (hs_isolated_running)
+		{
+			if (hs_isolated_remaining-- <= 0 ||
+				(!TEST_FLAG(expression->flags, _hs_syntax_node_script_bit) &&
+				 !hs_isolated_function_allowed(expression->index)))
+			{
+				hs_isolated_failed = TRUE;
+				break;
+			}
+			hs_isolated_steps++;
+		}
 
 		thread->stack->size = 0;
 		SET_FLAG(thread->flags, _hs_thread_in_function_call_bit, FALSE);
@@ -2716,7 +2737,23 @@ static void hs_thread_main(
 		index_count = TEST_FLAG(expression->flags, _hs_syntax_node_script_bit) ?
 			global_scenario_get()->hs_scripts.count :
 			hs_function_table_count;
-		if (expression->index<0 || expression->index>=index_count)
+		if (hs_isolated_running && mutator_hs_api_get(expression->index) &&
+			!TEST_FLAG(expression->flags, _hs_syntax_node_script_bit))
+		{
+			const struct mutator_hs_api *api = mutator_hs_api_get(expression->index);
+			long value = 0;
+			long *arguments = NULL;
+			if (api->argument_count)
+				arguments = hs_arguments_evaluate(thread_index, api->argument_count,
+					api->argument_types, initialize);
+			if (!api->argument_count || arguments)
+			{
+				if (!mutator_hs_api_call(expression->index, arguments, &value))
+				{ hs_isolated_failed = TRUE; break; }
+				hs_return(thread_index, value);
+			}
+		}
+		else if (expression->index<0 || expression->index>=index_count)
 		{
 			hs_syntax_error(thread_index);
 		}
@@ -2740,6 +2777,9 @@ static void hs_thread_main(
 		frames are let go, and a script's thread doesn't run again */
 		if (TEST_FLAG(thread->flags, _hs_thread_stack_overflow_bit))
 		{
+			/* port: retain failure before the ordinary scheduler clears flags. */
+			if (hs_isolated_running)
+				hs_isolated_failed = TRUE;
 			thread->stack = (struct hs_stack_frame *)thread->stack_data;
 			thread->flags = 0;
 			thread->sleep_until = thread->type==_hs_thread_type_script ? NONE : 0;
@@ -2756,7 +2796,8 @@ static void hs_thread_main(
 				thread->sleep_until = NONE;
 			}
 		}
-		else if (thread->type==_hs_thread_type_console_command)
+		else if (thread->type==_hs_thread_type_console_command &&
+			!hs_isolated_running)
 		{
 			hs_thread_delete(thread_index);
 		}
@@ -2765,6 +2806,56 @@ static void hs_thread_main(
 	hs_runtime_globals.executing_thread_index = NONE;
 
 	return;
+}
+
+/* port: use the native stack/evaluators, with private threads and no scheduler. */
+int hs_isolated_evaluate(long expression, struct data_array *threads,
+	long budget, long *value, long *steps)
+{
+	struct hs_runtime_globals saved = hs_runtime_globals;
+	struct data_array *saved_threads = hs_thread_data;
+	struct data_array *saved_globals = hs_global_data;
+	struct hs_thread_datum *thread;
+	long index;
+	int success = FALSE;
+
+	hs_thread_data = threads;
+	data_delete_all(threads);
+	if (mutator_hs_program_globals()) hs_global_data = mutator_hs_program_globals();
+	memset(&hs_runtime_globals, 0, sizeof(hs_runtime_globals));
+	hs_runtime_globals.initialized = TRUE;
+	hs_runtime_globals.executing_thread_index = NONE;
+	hs_isolated_running = TRUE;
+	hs_isolated_remaining = budget;
+	hs_isolated_steps = 0;
+	hs_isolated_failed = FALSE;
+	index = datum_new(threads);
+	if (index != NONE)
+	{
+		thread = hs_thread_get(index);
+		thread->stack = (struct hs_stack_frame *)thread->stack_data;
+		thread->stack->previous = NULL;
+		thread->stack->size = 0;
+		thread->stack->expression_index = NONE;
+		thread->type = _hs_thread_type_console_command;
+		thread->script_index = NONE;
+		thread->flags = 0;
+		thread->sleep_until = 0;
+		hs_evaluate(index, expression, &thread->result);
+		if (TEST_FLAG(thread->flags, _hs_thread_in_function_call_bit))
+			hs_thread_main(index);
+		success = !hs_isolated_failed &&
+			!TEST_FLAG(thread->flags, _hs_thread_stack_overflow_bit) &&
+			thread->stack == (struct hs_stack_frame *)thread->stack_data;
+		if (success)
+			*value = thread->result;
+	}
+	*steps = hs_isolated_steps;
+	hs_isolated_running = FALSE;
+	hs_runtime_globals = saved;
+	hs_thread_data = saved_threads;
+	hs_global_data = saved_globals;
+	return success;
 }
 
 static void hs_script_evaluate(

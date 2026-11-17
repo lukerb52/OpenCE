@@ -2,8 +2,8 @@
 GUEST_SETJMP.C
 
 setjmp and longjmp, which the guest's subset of musl does not build (its
-src/setjmp is assembly) and Lua's errors need (port/third_party/lua/ldo.c,
-the mutators' scripts). musl 1.2.5's src/setjmp/aarch64/setjmp.s and
+src/setjmp is assembly). These provide the C runtime's nonlocal jumps.
+musl 1.2.5's src/setjmp/aarch64/setjmp.s and
 longjmp.s (MIT licence: COPYRIGHT in its source), in the Darwin syntax the
 guest is compiled in, which tools/android_asm_convert.py makes ELF: the
 callee-saved registers, the stack pointer and the floating-point ones they

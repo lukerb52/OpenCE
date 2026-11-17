@@ -138,7 +138,7 @@ def test_compiled_conversions_are_replaced(tmp_path):
 
 def test_guest_setjmp_fills_the_guests_jmp_buf(tmp_path):
     """the guest's setjmp and longjmp (port/android/guest/runtime/guest_setjmp.c,
-    which Lua's errors need), through the guest's pipeline: their four names, the
+    the C runtime's nonlocal jumps), through the guest's pipeline: their four names, the
     32-bit buffer pointer zero-extended first, and every register saved and
     restored within the guest's __jmp_buf, at the same places"""
     clang, objdump = shutil.which("clang"), shutil.which("llvm-objdump")
