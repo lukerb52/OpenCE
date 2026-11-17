@@ -502,7 +502,7 @@ revert or saved-game load reads the config again, and the new values are
 sent again then. It ships with
 the rest of version 43, which stays 43.
 
-Version 50 combines the MCC agreement above with the mutator protocol and
+The combined version 50 includes the MCC agreement above with the mutator protocol and
 add-on variant options; peers built with either earlier protocol cannot join.
 
 `port/linux/network_format.txt` records the wire format of the current
