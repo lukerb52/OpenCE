@@ -38,6 +38,16 @@ COMPILES = {
                       "(script static void frame (helper))",
     "settings_and_state": "(script static void player_tick\n"
                           "    (state_set_real (game_player_current) 0 (settings_real \"range\")))",
+    # Large positive/negative salted datums, zero (a possible raw handle), and NONE.
+    # Compilation checks types only; --check-script does not execute these values.
+    "raw_long_handles": "(global long handle -2147418111)\n"
+                        "(script static void player_tick\n"
+                        "    (state_set_long (game_player_current) 5 handle)\n"
+                        "    (set handle (state_get_long (game_player_current) 5))\n"
+                        "    (model_exists handle) (object_velocity handle)\n"
+                        "    (state_set_long (game_player_current) 6 2147418113)\n"
+                        "    (state_set_long (game_player_current) 7 0)\n"
+                        "    (state_set_long (game_player_current) 4 -1))",
 }
 
 REFUSED = {
@@ -83,3 +93,63 @@ def test_unreadable(tmp_path):
 def test_writes_no_settings(tmp_path):
     check(tmp_path, COMPILES["lifecycle"])
     assert not (tmp_path / "config.toml").exists()
+
+
+def test_grappling_hook_raw_handles(tmp_path):
+    """Compile the optional sibling package and guard its handle dataflow.
+
+    Source checks, not a gameplay/runtime test: the checker never runs callbacks.
+    In particular arithmetic must not consume a handle, even indirectly through
+    state_get_long; native HS +/- return real and round salted datums.
+    """
+    import re
+
+    script = ROOT.parent / "clmb-mutator-repo/grappling_hook/main.hsc"
+    if not script.is_file():
+        pytest.skip("needs sibling clmb-mutator-repo grappling_hook package")
+    source = script.read_text()
+    run = run_game(tmp_path, script)
+    assert run.returncode == 0, run.stdout + run.stderr
+
+    # Parse just enough HS to examine nested arithmetic without matching comments
+    # or tag-name strings. No floating-point simulation pretends to run native HS.
+    tokens = iter(re.findall(r'"[^"\n]*"|[()]|[^\s()]+',
+                             re.sub(r";[^\n]*", "", source)))
+
+    def forms(tokens):
+        result = []
+        for token in tokens:
+            if token == ")":
+                return result
+            result.append(forms(tokens) if token == "(" else token)
+        return result
+
+    def has_handle(form):
+        if isinstance(form, str):
+            return form in {"u", "target", "parent", "moved", "head", "rope"}
+        if not form:
+            return False
+        if form[0] == "state_get_long":
+            return form[2:] in [["4"], ["5"], ["6"], ["7"]]
+        if form[0] in {"model_create", "result_object", "object_root", "object_parent", "player_unit"}:
+            return True
+        # Calls like object_acceleration_scale take handles but return real.
+        return form[0] in {"+", "-", "*", "/", "state_set_real"} and any(
+            has_handle(x) for x in form[1:])
+
+    def audit(form):
+        if not isinstance(form, list):
+            return
+        if form and form[0] in ["+", "-", "*", "/", "state_set_real"]:
+            assert not has_handle(form), form
+        for child in form:
+            audit(child)
+
+    audit(forms(tokens))
+    assert "(state_set_long p 5 parent) (state_set_long p 11 1)" in source
+    assert "(set moved (state_get_long p 5))" in source
+    assert "(model_delete (state_get_long p 6))" in source
+    assert "(model_delete (state_get_long p 7))" in source
+    assert "(if (= (state_get_long p 10) 0)" in source
+    assert "(if (= (state_get_long p 12) 1)" in source
+    assert "(state_set_long p 6 -1) (state_set_long p 7 -1)" in source

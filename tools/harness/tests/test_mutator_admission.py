@@ -25,6 +25,7 @@ typedef int boolean;
 #define TRUE 1
 #define FALSE 0
 #define MAXIMUM_SHARED_MUTATORS 2
+#define MAX(a,b) ((a)>(b)?(a):(b))
 #define _error_log 0
 #define _error_silent 0
 #define _distributed_message_mutator_share_done 1
@@ -38,7 +39,9 @@ typedef int boolean;
 struct file { unsigned long size; char name[32]; };
 struct port_mutator_share { char id[32]; int file_count; struct file files[3]; };
 static struct { int total, received, mutator, file, state, in_progress; int script_allowed[2];
-struct port_mutator_share entries[2]; unsigned long arrived, heard_at, fetching_at, asked; void *bytes; } mutator_share;
+struct port_mutator_share entries[2]; unsigned long arrived, heard_at, fetching_at, asked;
+int progress_ready, required[2][3]; unsigned long rate_at;
+unsigned long long required_bytes, received_bytes; void *bytes; } mutator_share;
 static int valid=1, has=1, script=0, add=1, downloads=1, failures, done, asks, active;
 #define error(...) ((void)0)
 static int port_mutators_share_valid(const void *p) { return valid; }
@@ -52,6 +55,7 @@ static unsigned long system_milliseconds(void) { return 123; }
 static void client_send(int type) { if(type==1) done++; }
 static int client_scripts_decided(void) { return 1; }
 static int port_mutators_share_file_has(const void *p, int index) { return 0; }
+static int port_mutators_share_store(const void *p, int index, void *bytes, unsigned long size) { has=1; return 1; }
 static void client_ask_file(void) { asks++; }
 static void mutator_share_fail(char const *reason) { failures++; active=0; mutator_share.state=_share_failed; }
 '''
@@ -66,7 +70,11 @@ script=failures=done=asks=active=0; }
 int main(void) {
 reset(); downloads=0; client_next_file(); CHECK(done==1 && active==1 && !failures);
 reset(); downloads=0; has=0; client_next_file(); CHECK(failures==1 && !done && !active);
-reset(); has=0; client_next_file(); CHECK(!done && !failures && asks==0 && mutator_share.state==_share_fetching); free(mutator_share.bytes);
+reset(); has=0; client_next_file(); CHECK(!done && !failures && asks==0 && mutator_share.state==_share_fetching); CHECK(mutator_share.required_bytes==12); free(mutator_share.bytes);
+reset(); has=0; mutator_share.received=0; client_next_file(); CHECK(!mutator_share.progress_ready && !mutator_share.required_bytes);
+reset(); client_next_file(); CHECK(mutator_share.required_bytes==0);
+reset(); has=0; mutator_share.entries[0].file_count=1; mutator_share.entries[0].files[0].size=0; client_next_file(); CHECK(done==1 && !failures && !mutator_share.bytes && mutator_share.required_bytes==0);
+reset(); has=0; mutator_share.entries[0].file_count=2; mutator_share.entries[0].files[1].size=24; client_next_file(); CHECK(mutator_share.required_bytes==28); CHECK(mutator_share.required[0][0] && mutator_share.required[0][1]); free(mutator_share.bytes);
 reset(); valid=0; client_next_file(); CHECK(failures==1 && !done);
 reset(); script=1; mutator_share.script_allowed[0]=0; client_next_file(); CHECK(failures==1 && !done);
 reset(); add=0; client_next_file(); CHECK(failures==1 && !done && !active);

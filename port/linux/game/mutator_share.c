@@ -32,6 +32,7 @@ host mutators is played.
 #include "cseries.h"
 #include "cseries/errors.h"
 #include "game/game.h"
+#include "interface/ui_widget.h"
 #include "main/console.h"
 #include "networking/network_game_globals.h"
 #include "networking/network_game_manager.h"
@@ -130,6 +131,16 @@ static struct
 	unsigned long arrived;
 	boolean asked;
 	unsigned long said_at;
+	/* Snapshot missing files only after the complete manifest arrives. Owned/cache
+	files never enter the denominator; completed downloads never leave it. */
+	boolean progress_ready;
+	unsigned long long required_bytes;
+	unsigned long long completed_bytes;
+	unsigned long long received_bytes;
+	unsigned long long rate_bytes;
+	unsigned long rate_at;
+	unsigned long rate;
+	boolean required[MAXIMUM_SHARED_MUTATORS][MAXIMUM_SHARED_FILES];
 	/* (the host) when each machine last said it was fetching, 0 once it is done */
 	unsigned long machine_asked_at[HALO_PORT_MAXIMUM_NETWORK_MACHINES];
 } mutator_share;
@@ -294,6 +305,35 @@ static boolean client_scripts_decided(
 static void client_next_file(
 	void)
 {
+	long index, file;
+
+	if (mutator_share.received != mutator_share.total)
+		return;
+	if (!mutator_share.progress_ready)
+	{
+		for (index = 0; index < mutator_share.received; index++)
+		{
+			struct port_mutator_share const *entry = &mutator_share.entries[index];
+
+			if (!port_mutators_share_valid(entry))
+			{
+				mutator_share_fail("The host advertised an invalid required mutator. Ask the host to repair its mutators.");
+				return;
+			}
+			if (port_mutators_share_has(entry))
+				continue;
+			for (file = 0; file < entry->file_count; file++)
+			{
+				if (!port_mutators_share_file_has(entry, file))
+				{
+					mutator_share.required[index][file] = TRUE;
+					mutator_share.required_bytes += entry->files[file].size;
+				}
+			}
+		}
+		mutator_share.progress_ready = TRUE;
+		mutator_share.rate_at = system_milliseconds();
+	}
 	if (!client_scripts_decided())
 		return;
 	for (; mutator_share.mutator < mutator_share.received; mutator_share.mutator++, mutator_share.file = 0)
@@ -319,7 +359,7 @@ static void client_next_file(
 		}
 		for (; mutator_share.file < entry->file_count; mutator_share.file++)
 		{
-			if (port_mutators_share_file_has(entry, mutator_share.file))
+			if (!mutator_share.required[mutator_share.mutator][mutator_share.file])
 				continue;
 			mutator_share.bytes = malloc(entry->files[mutator_share.file].size + 1);
 			if (!mutator_share.bytes)
@@ -327,7 +367,22 @@ static void client_next_file(
 				mutator_share_fail("Not enough memory for required mutator files. Free memory and reconnect.");
 				return;
 			}
+			/* Empty files have no wire blocks; still verify/store them. */
+			if (!entry->files[mutator_share.file].size)
+			{
+				int stored = port_mutators_share_store(entry, mutator_share.file, mutator_share.bytes, 0);
+				free(mutator_share.bytes);
+				mutator_share.bytes = NULL;
+				if (!stored)
+				{
+					mutator_share_fail("An empty required mutator file could not be verified or saved.");
+					return;
+				}
+				continue;
+			}
 			mutator_share.arrived = 0;
+			if (!mutator_share.received_bytes)
+				mutator_share.rate_at = system_milliseconds();
 			mutator_share.asked = FALSE;
 			mutator_share.state = _share_fetching;
 			mutator_share.heard_at = system_milliseconds();
@@ -351,6 +406,12 @@ static void client_reset(
 	mutator_share.mutator = 0;
 	mutator_share.file = 0;
 	mutator_share.prompt = 0;
+	mutator_share.progress_ready = FALSE;
+	mutator_share.required_bytes = mutator_share.completed_bytes = 0;
+	mutator_share.received_bytes = mutator_share.rate_bytes = 0;
+	mutator_share.rate_at = mutator_share.rate = 0;
+	mutator_share.arrived = 0;
+	csmemset(mutator_share.required, 0, sizeof(mutator_share.required));
 	csmemset(mutator_share.script_allowed, 0, sizeof(mutator_share.script_allowed));
 }
 
@@ -394,6 +455,33 @@ static void client_prompt_update(
 }
 
 /* the client's state, each game's asked for anew */
+static void client_rate_update(
+	void)
+{
+	unsigned long now = system_milliseconds();
+	unsigned long elapsed = now - mutator_share.rate_at;
+	unsigned long long bytes = mutator_share.received_bytes - mutator_share.rate_bytes;
+
+	if (mutator_share.state != _share_fetching || !map_share_mutator_connected())
+	{
+		mutator_share.rate = 0;
+		mutator_share.rate_at = now;
+		mutator_share.rate_bytes = mutator_share.received_bytes;
+		return;
+	}
+	if (elapsed >= 500)
+	{
+		unsigned long sample = (unsigned long)(bytes * 1000 / elapsed);
+
+		mutator_share.rate = mutator_share.rate ?
+			(unsigned long)(((unsigned long long)mutator_share.rate + sample) / 2) : sample;
+		if (now - mutator_share.heard_at > 2000)
+			mutator_share.rate = 0;
+		mutator_share.rate_at = now;
+		mutator_share.rate_bytes = mutator_share.received_bytes;
+	}
+}
+
 static void client_update(
 	void)
 {
@@ -438,6 +526,7 @@ static void client_update(
 		if (!mutator_share.asked)
 			mutator_share.asked = map_share_mutator_request(mutator_share.mutator, mutator_share.file, mutator_share.arrived);
 	}
+	client_rate_update();
 	if ((mutator_share.state == _share_asking || mutator_share.state == _share_fetching) &&
 		system_milliseconds() - mutator_share.heard_at > ANSWER_TIMEOUT)
 	{
@@ -499,6 +588,33 @@ boolean mutator_share_holds_players(
 	return mutator_share_busy() && (mutator_share.state == _share_asking || mutator_share.in_progress);
 }
 
+boolean mutator_share_download_text(
+	char *text,
+	unsigned long size)
+{
+	unsigned long long done = mutator_share.completed_bytes + mutator_share.arrived;
+	unsigned long long total = mutator_share.required_bytes;
+	long sources = mutator_share.state == _share_fetching && mutator_share.bytes &&
+		mutator_share.asked && map_share_mutator_connected() &&
+		system_milliseconds() - mutator_share.heard_at <= 2000 ? 1 : 0;
+
+	if (!share_client_game())
+		return FALSE;
+	if (mutator_share.state == _share_asking)
+		snprintf(text, size, "Asking the host for required mutators...");
+	else if (mutator_share.state == _share_fetching && mutator_share.progress_ready)
+	{
+		long percent = total ? (long)(MIN(done, total) * 100 / total) : 0;
+
+		snprintf(text, size, "Downloading mutators: %ld%% of %llu KB from %ld source%s (host), %lu KB/s",
+			percent, (total + 1023) >> 10, sources, sources == 1 ? "" : "s",
+			sources ? mutator_share.rate >> 10 : 0UL);
+	}
+	else
+		return FALSE;
+	return TRUE;
+}
+
 boolean mutator_share_prompt_open(
 	void)
 {
@@ -514,7 +630,7 @@ void mutator_share_prompt_text(
 
 	snprintf(question, size, "The host's mutator %s runs a native HS script.", mutator_share.entries[mutator_share.prompt].id);
 #if defined(HALO_ANDROID) || defined(HALO_WEB)
-	snprintf(answers, size, "Download and run it?  Tap left or A: yes   Tap right or B: no (%lu)",
+	snprintf(answers, size, "Tap left: YES / run     Tap right: NO (%lu)",
 		waited < PROMPT_TIMEOUT ? (PROMPT_TIMEOUT - waited) / 1000 : 0UL);
 #else
 	snprintf(answers, size, "Download and run it?  A or Enter: yes   B or Esc: no (%lu)", waited < PROMPT_TIMEOUT ? (PROMPT_TIMEOUT - waited) / 1000 : 0UL);
@@ -548,6 +664,7 @@ void mutator_share_block(
 	{
 		csmemcpy(mutator_share.bytes + mutator_share.arrived, bytes, size);
 		mutator_share.arrived += size;
+		mutator_share.received_bytes += size;
 	}
 	if (mutator_share.arrived < file_size)
 		return;
@@ -559,6 +676,8 @@ void mutator_share_block(
 	}
 	else
 		error(_error_silent, "mutators: fetched %s of the host's %s", entry->files[mutator_share.file].name, entry->id);
+	mutator_share.completed_bytes += file_size;
+	mutator_share.arrived = 0;
 	free(mutator_share.bytes);
 	mutator_share.bytes = NULL;
 	mutator_share.file++;

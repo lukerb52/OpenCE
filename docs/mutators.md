@@ -23,7 +23,12 @@ body vanish (`[death]`, below); its numbers can be scaled by options the host
 sets (`[[option]]`, below); it can add a vehicle (`format = 3`) or a weapon
 (`format = 4`), with every tag it uses, to the maps it is played on (an
 add-on: [addons.md](addons.md)), checked as a map's tags are; and it can run a
-native HS script (the scripts, below). The game refuses a mutator with a key, a
+native HS script (the scripts, below). Native mutator callbacks have a bounded
+4 KiB thread stack independent of campaign/checkpoint thread storage. Stack
+overflow stops the mutator through the existing script-failure path, reporting
+the mutator key, callback and VM reason rather than halting the game. Campaign
+HS retains its strict assertions and original stack limits.
+The game refuses a mutator with a key, a
 group or a field that it does not have, or a value outside its range.
 
 The game has no mutator's rules built in. What it offers is general, a field
@@ -84,6 +89,26 @@ scale = 2.5
 
 Every biped's head, the players' and the AI's, is drawn and hit at two and a
 half times its size.
+
+## Utility weapon add-ons
+
+A top-level `addon_weapon_menu = false` hides a `.ceweapon` add-on from
+custom-loadout weapon choices, without hiding its loaded tags, placements or
+script-created objects. For example:
+
+```toml
+id = "grappling_hook"
+format = 4
+addon = "grappling_hook.ceweapon"
+addon_weapon_menu = false
+```
+
+Omitting the key, or setting it to `true`, includes the weapon (the DMR's
+default). Only TOML booleans with a weapon add-on are accepted. This applies
+to local selected mutators and to the host's hash-checked manifests on clients,
+not to a client's independent menu preference. Visible weapon order defines
+variant slots on all machines; network version 51 separates this ordering
+from older builds. See [Add-ons](addons.md) for loading and slot semantics.
 
 ## Tag edits
 

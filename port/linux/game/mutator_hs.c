@@ -49,7 +49,25 @@ short mutator_hs_api_find(const char *name)
 int mutator_hs_api_call(short index, const long *arguments, long *value)
 {
     const struct mutator_hs_api *api = mutator_hs_api_get(index);
-    return api && api->call(mutator_hs_current->context, arguments, value);
+    long normalized[MUTATOR_HS_MAX_ARGUMENTS];
+    short k;
+
+    if (!api)
+        return FALSE;
+    /* HS evaluates a boolean or short argument into only the low bytes of
+     * its 32-bit slot; the rest is whatever the stack held before. Hand
+     * the host the value, not the slot, so `false` cannot read as nonzero. */
+    for (k = 0; k < api->argument_count && k < MUTATOR_HS_MAX_ARGUMENTS; k++)
+    {
+        long slot = arguments ? arguments[k] : 0;
+        switch (api->argument_types[k])
+        {
+        case _hs_type_boolean: normalized[k] = (*(const boolean *)&slot) != 0; break;
+        case _hs_type_short_integer: normalized[k] = *(const short *)&slot; break;
+        default: normalized[k] = slot; break;
+        }
+    }
+    return api->call(mutator_hs_current->context, api->argument_count ? normalized : arguments, value);
 }
 
 int hs_isolated_function_allowed(short index)
@@ -150,7 +168,7 @@ int mutator_hs_execute(const char *source, long length, short type,
     text[length] = 0;
     mutator_hs_busy = TRUE;
     syntax = mutator_hs_array(128, sizeof(struct hs_syntax_node));
-    threads = mutator_hs_array(1, 0x218);
+    threads = mutator_hs_array(1, 0x1018);
     scenario = (struct scenario *)calloc(1, sizeof(*scenario));
     if (!syntax || !threads || !scenario)
     {
@@ -206,7 +224,8 @@ static int mutator_hs_program_eval(struct mutator_hs_program *p,
     hs_syntax_data = saved_syntax; global_scenario = saved;
     global_scenario_index = saved_index;
     mutator_hs_current = NULL; mutator_hs_busy = FALSE;
-    if (!success) strcpy(result->error, "HS execution budget, stack or host failure");
+    if (!success) strcpy(result->error, hs_isolated_error() ?
+        hs_isolated_error() : "HS execution budget, stack or host failure");
     return success;
 }
 
@@ -222,7 +241,21 @@ int mutator_hs_program_call(struct mutator_hs_program *p, const char *name,
     scripts = (struct hs_script *)p->scenario.hs_scripts.address;
     for (i = 0; i < p->scenario.hs_scripts.count; i++)
         if (!strcmp(name, scripts[i].name))
-            return mutator_hs_program_eval(p, scripts[i].root_expression_index, budget, result);
+        {
+            int success = mutator_hs_program_eval(p, scripts[i].root_expression_index, budget, result);
+            if (!success) {
+                char detail[sizeof(result->error)];
+                strcpy(detail, result->error);
+                snprintf(result->error, sizeof(result->error), "callback %.32s: %.160s", name, detail);
+            }
+            return success;
+        }
+    /* Lifecycle hooks are optional. Helpers/unknown names remain errors. */
+    if (!strcmp(name, "startup") || !strcmp(name, "stop") ||
+        !strcmp(name, "frame") || !strcmp(name, "tick") ||
+        !strcmp(name, "player_tick") || !strcmp(name, "player_stop") ||
+        !strcmp(name, "player_frame"))
+        return TRUE;
     strcpy(result->error, "HS script not found");
     return FALSE;
 }
@@ -270,7 +303,7 @@ struct mutator_hs_program *mutator_hs_program_compile(const char *source,
     if (!p) goto invalid;
     p->source = (char *)malloc(length + 1);
     p->syntax = mutator_hs_array(4096, sizeof(struct hs_syntax_node));
-    p->threads = mutator_hs_array(1, 0x218);
+    p->threads = mutator_hs_array(1, 0x1018);
     p->globals = mutator_hs_array(hs_external_global_count + 64, 8);
     p->scenario.hs_globals.address = calloc(64, sizeof(struct hs_global));
     p->scenario.hs_scripts.address = calloc(64, sizeof(struct hs_script));

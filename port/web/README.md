@@ -131,7 +131,18 @@ The controls are the desktop builds' (refer to "Controls" in
   nor gyroscope aiming yet.
 
 The game keeps `config.toml`, the saved games and profiles (`save/`) and
-`debug.txt` in the browser's storage beside `maps/`. **Settings and data**
+`debug.txt` in the browser's storage beside `maps/`. Web links wrap `exit`
+(`web_shutdown.c`): the game worker cancels its frame loop and drains the
+normal C/C++ exit handlers before the real exit tears down the runtime.
+The cleanup registered before entering the game runs after the game's later
+shutdown handlers but before WasmFS's global destructor: it closes the debug
+stdio stream, flushes other stdio, and closes descriptors 3..4095 (WasmFS's
+file-table limit). This includes raw POSIX opens and the descriptors owned by
+Xbox file HANDLEs; flushing alone does not release OPFS access handles.
+It deliberately leaves stdio 0..2 and the persistent files in place. Keep
+`EXIT_RUNTIME=1`; keeping the runtime alive is not a substitute for closing
+files. A browser tab killed without a normal game exit cannot run this path.
+**Settings and data**
 exports the saved games, the profiles and `config.toml` as a zip (not the
 game's copies of the maps), downloads the log, and deletes the game
 data. The game's own Settings screens have the settings that apply in a

@@ -69,7 +69,10 @@ Raise it with any change to what the machines send each other. */
 /* Version 50 combines MCC admission, sharing and checkpoint agreement with
 mutator tag tables, scripts and add-on variant options. MCC per-axis damage
 impulses follow the damage direction. */
-#define HALO_PORT_NETWORK_VERSION 50
+/* Version 51 numbers add-on weapon variant slots among menu-visible weapons,
+not utility weapons hidden by addon_weapon_menu. Older builds would resolve
+those same slots to different weapons. */
+#define HALO_PORT_NETWORK_VERSION 51
 /* ... the advertisement's reserved bytes: the version (a little-endian word),
 then flags, then the game's kind (an OpenCE gametype's mode, and Hardcore:
 port/linux/game/game_modes.h's game_modes_kind), for the server browser */

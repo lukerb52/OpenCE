@@ -66,6 +66,8 @@ int port_mutators_addon_read(long index, void *buffer, unsigned long size);
 /* its kind (_port_mutator_addon_*), by its file's name, and its mutator's
 name (what the menus call its vehicle or weapon); 0 and NULL past them */
 int port_mutators_addon_kind(long index);
+/* Menu kind only; hidden utility weapons return -1, loading kind is unchanged. */
+int port_mutators_addon_menu_kind(long index);
 const char *port_mutators_addon_name(long index);
 /* the placements of the mutators on that can be played, in their order: how
 many, at most `maximum` */

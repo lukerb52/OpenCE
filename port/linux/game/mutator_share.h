@@ -16,6 +16,8 @@ void mutator_share_block(long mutator, long file, unsigned long offset, byte con
 /* whether a player is being asked about a host's script: the controller's and keys'
 presses are the question's, not the menus' or the game's */
 boolean mutator_share_prompt_open(void);
+/* Banner text for a host-only transfer; FALSE when inactive or consent is up. */
+boolean mutator_share_download_text(char *text, unsigned long size);
 /* the question's lines */
 void mutator_share_prompt_text(char *question, char *answers, unsigned long size);
 void mutator_share_update(void);

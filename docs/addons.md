@@ -55,6 +55,29 @@ weapon = 'bourrin\weapons\dmr\dmr'  # the weapon's tag (the add-on's)
 position = [31.0, -88.0, 0.5]
 ```
 
+A weapon may opt out of custom-loadout choices with the top-level boolean
+`addon_weapon_menu` (omitted or `true`: included, as the DMR is by default):
+
+```toml
+name = "Grappling hook"
+id = "grappling_hook"
+format = 4
+addon = "grappling_hook.ceweapon"
+addon_weapon_menu = false
+```
+
+This hides a utility weapon from loadout selectors; it does not disable its
+mutator, change its physical weapon kind, skip loading its tags, or suppress
+explicit placements or script visuals. The key is accepted only with a
+`.ceweapon` add-on; strings, numbers, arrays, and use without a weapon are
+refused. It is not a local preference: solo and hosted games use the selected
+manifests, and joining clients use the host's hash-checked manifests, including
+downloaded copies. Menu rows and variant weapon slots both count only visible
+weapons, in mutator order, even when an earlier weapon is absent from the map.
+Network version 51 is required: older builds count hidden weapons in those
+same variant slots and could otherwise select a different weapon. The packet
+layout is unchanged.
+
 An add-on's kind is its file's name's: `.cevehicle` or `.ceweapon` (any
 case), which the game checks against the file. A mutator cannot be played if
 its `addon` names a file that is not beside its `mutator.toml`, one larger

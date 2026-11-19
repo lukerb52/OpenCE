@@ -223,6 +223,13 @@ passing unit checks alone does not establish every-map compatibility.
 
 ## Versions
 
+Network version 51 filters utility weapon add-ons (`addon_weapon_menu = false`) out
+of the custom-loadout variant slot order on both menus and runtime lookups.
+It preserves the physical add-on order and all packet layouts. Version 50
+would count those hidden weapons and resolve the same slot to another weapon,
+so mixed-version admission must remain refused. Downloaded manifests use the
+same parser and host-ordered, hash-checked selection as local manifests.
+
 The native builds' network code has a version, an unsigned 16-bit number
 (`HALO_PORT_NETWORK_VERSION` in `port/linux/include/halo_port_limits.h`),
 raised with any change to what the machines send each other. A host puts it

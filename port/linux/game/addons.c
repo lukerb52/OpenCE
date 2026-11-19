@@ -320,6 +320,7 @@ struct port_mutator_place
 
 long port_mutators_addon_count(void);
 int port_mutators_addon_kind(long index);
+int port_mutators_addon_menu_kind(long index);
 unsigned long port_mutators_addon_size(long index, char *name, unsigned long name_size);
 int port_mutators_addon_read(long index, void *buffer, unsigned long size);
 long port_mutators_places(struct port_mutator_place *places, long maximum);
@@ -1849,9 +1850,11 @@ static long addon_slot(
 	long slot = 0;
 	long index;
 
+	if (port_mutators_addon_menu_kind(addon->port_index) != addon->kind)
+		return NONE;
 	for (index = 0; index < addon->port_index; index++)
 	{
-		if (port_mutators_addon_kind(index) == addon->kind)
+		if (port_mutators_addon_menu_kind(index) == addon->kind)
 			slot++;
 	}
 
@@ -2302,6 +2305,8 @@ long addons_weapon_definition(
 {
 	short index;
 
+	if (slot < 0)
+		return NONE;
 	for (index = 0; index < addons_globals.count; index++)
 	{
 		struct addon const *addon = &addons_globals.addons[index];

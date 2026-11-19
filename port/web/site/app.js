@@ -219,6 +219,7 @@ async function runChecks() {
 // ---------- the game data (xiso-worker.js)
 
 let dataReady = false;
+let dataStored = false;
 let launcherStorageActive = false;
 
 function formatBytes(bytes) {
@@ -227,10 +228,20 @@ function formatBytes(bytes) {
 
 async function refreshData() {
   dataReady = false;
+  dataStored = false;
   let text = 'No game data yet: choose your disc image of Halo: Combat Evolved for the Xbox.';
   try {
     const root = await navigator.storage.getDirectory();
+    // A failed import has no completion marker but still needs a cleanup button.
+    try {
+      const drive = await (await root.getDirectoryHandle('save')).getDirectoryHandle('z');
+      for await (const [name] of drive.entries()) {
+        if (/^cache\d+\.map$/i.test(name)) { dataStored = true; break; }
+      }
+    } catch { /* No map cache yet. */ }
     const maps = await root.getDirectoryHandle('maps');
+    dataStored = true;
+    text = 'Incomplete game data: delete the maps to reclaim space, then import again.';
     const marker = await (await maps.getFileHandle('.complete')).getFile();
     const complete = JSON.parse(await marker.text());
     text = `${complete.files.length} files of maps (${formatBytes(complete.bytes)}), ready.`;
@@ -239,7 +250,7 @@ async function refreshData() {
     // none, or a copy that did not finish
   }
   $('data-status').textContent = text;
-  $('delete-data').disabled = !dataReady;
+  $('delete-data').disabled = launcherStorageActive || !!mapImportWorker || gameStarted || !dataStored;
   await refreshStorage();
   updatePlay();
 }
@@ -318,7 +329,7 @@ function setImporting(importing) {
     $(panel.label).classList.toggle('disabled', busy);
     $(panel.input).disabled = busy;
   }
-  $('delete-data').disabled = busy || !dataReady;
+  $('delete-data').disabled = busy || gameStarted || !dataStored;
   $('play').disabled = busy || !canPlay();
 }
 
@@ -851,10 +862,22 @@ async function play() {
   } catch {
     // (a phone may still dim)
   }
+  let options = null;
+  let runtimeAttempted = false;
+  const releaseStoppedGame = () => {
+    // An abort/factory rejection can leave pthreads holding OPFS handles.
+    // Never hand ownership to another tab while those workers can still run.
+    if (runtimeAttempted) {
+      if (!options?.PThread?.terminateAllThreads) return;
+      options.PThread.terminateAllThreads();
+    }
+    void window.HaloMapStorage.stopGame();
+    if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+  };
   try {
     await prepareInit();
     await loadScript('halo.js');
-    const options = {
+    options = {
       canvas,
       arguments: gameArguments(),
       print: (text) => { logLine(text); console.log(text); },
@@ -895,8 +918,12 @@ async function play() {
         if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
         $('ask').hidden = false;
       },
-      onAbort: (what) => showFatal('The game stopped: ' + what),
+      onAbort: (what) => {
+        releaseStoppedGame();
+        showFatal('The game stopped: ' + what);
+      },
       onExit: (status) => {
+        releaseStoppedGame();
         if (status) showFatal(`The game stopped (status ${status}). The log below says why.`);
         else location.reload();
       },
@@ -904,11 +931,13 @@ async function play() {
     // (the module these options become, which p2p.js calls into as soon as
     // the game asks it for a connection)
     window.HaloP2P.attach(options);
+    runtimeAttempted = true;
     game = await window.createHalo(options);
     // the on-screen touch controls (touch.js), and the room's frames (net.js)
     window.HaloTouch.start(game, $('touch'));
     window.HaloNet.attach(game);
   } catch (error) {
+    releaseStoppedGame();
     showFatal(String(error && error.message ? error.message : error));
   }
 }

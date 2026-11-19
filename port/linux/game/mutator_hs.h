@@ -26,6 +26,7 @@ long hs_isolated_compile(char *source, long length, short type,
     struct data_array *syntax, char *error);
 int hs_isolated_evaluate(long expression, struct data_array *threads,
     long budget, long *value, long *steps);
+char const *hs_isolated_error(void);
 int hs_isolated_function_allowed(short index);
 /* Persistent programs use native (global TYPE NAME EXPR) and
  * (script static TYPE NAME EXPR...) declarations. Entry names are ordinary

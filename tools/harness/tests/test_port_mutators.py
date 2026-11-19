@@ -168,6 +168,11 @@ def generated(fault=None):
                     ('port_mutators_source.inc', source))
 
 
+def test_weapon_menu():
+    status, output = run(build('port_mutators', generated()), 'weapon_menu')
+    assert status == 0, output
+
+
 @pytest.mark.parametrize('case', ['stock', 'stock_unwritable', 'folders', 'scripts', 'addons', 'weapons', 'ids', 'menu'])
 def test_case(case):
     status, output = run(build('port_mutators', generated()), case)

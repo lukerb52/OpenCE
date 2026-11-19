@@ -176,6 +176,7 @@ struct port_mutator
 	the add-on's vehicles */
 	char addon_path[MAXIMUM_PATH_LENGTH];
 	int addon_kind;
+	int addon_weapon_menu_hidden;
 	long place_count;
 	struct port_mutator_place places[MAXIMUM_PLACES_PER_MUTATOR];
 	/* its options, and its tag edits' numbers they scale */
@@ -1187,7 +1188,7 @@ static void mutator_read(struct port_mutator *mutator, const char *folder, const
 	const char *path)
 {
 	static const char *const keys[] = { "name", "id", "version", "authors", "description", "format", "effects",
-		"option", "tags", "pose", "death", "explosion", "addon", "place", "script" };
+		"option", "tags", "pose", "death", "explosion", "addon", "addon_weapon_menu", "place", "script" };
 	toml_result_t result;
 	toml_datum_t value;
 	char reason[MAXIMUM_REFUSAL_LENGTH];
@@ -1299,6 +1300,14 @@ static void mutator_read(struct port_mutator *mutator, const char *folder, const
 			refuse(mutator, path, "a stock mutator has no addon");
 		else
 			addon_read(mutator, path, toml_text(result.toptab, "addon", mutator, path));
+	}
+	value = toml_get(result.toptab, "addon_weapon_menu");
+	if (value.type != TOML_UNKNOWN)
+	{
+		if (value.type != TOML_BOOLEAN || mutator->addon_kind != _port_mutator_addon_weapon)
+			refuse(mutator, path, "addon_weapon_menu must be a boolean with a .ceweapon addon");
+		else
+			mutator->addon_weapon_menu_hidden = !value.u.boolean;
 	}
 	value = toml_get(result.toptab, "place");
 	if (value.type != TOML_UNKNOWN)
@@ -1760,6 +1769,22 @@ char *port_mutators_script_read(const char *key, unsigned long *size)
 	size_t read_size = 0;
 	char *text = mutator ? config_file_read(mutator->script_path, &read_size) : NULL;
 
+	if (text)
+	{
+		unsigned char digest[SHA256_SIZE];
+		char script_hash[2 * SHA256_SIZE + 1], package_hash[2 * SHA256_SIZE + 1];
+		int i;
+		p2p_sha256(text, (int)read_size, digest);
+		for (i = 0; i < SHA256_SIZE; i++)
+			snprintf(script_hash + 2 * i, 3, "%02x", digest[i]);
+		package_hash[0] = 0;
+		if (mutator_digest(mutator))
+			for (i = 0; i < SHA256_SIZE; i++)
+				snprintf(package_hash + 2 * i, 3, "%02x", mutator->digest[i]);
+		platform_log("mutator scripts: key=%s version=%s path=%s bytes=%lu script_sha256=%s package_sha256=%s",
+			key, mutator->version, mutator->script_path, (unsigned long)read_size,
+			script_hash, package_hash[0] ? package_hash : "unavailable");
+	}
 	*size = (unsigned long)read_size;
 	return text;
 }
@@ -2602,6 +2627,14 @@ int port_mutators_addon_kind(long index)
 	const struct port_mutator *mutator = addon_mutator(index);
 
 	return mutator ? mutator->addon_kind : 0;
+}
+
+/* Keep physical addon kind/order intact for loading, placement and sharing.
+ * Only loadout enumeration uses the filtered kind. */
+int port_mutators_addon_menu_kind(long index)
+{
+	const struct port_mutator *mutator = addon_mutator(index);
+	return mutator && !mutator->addon_weapon_menu_hidden ? mutator->addon_kind : -1;
 }
 
 const char *port_mutators_addon_name(long index)

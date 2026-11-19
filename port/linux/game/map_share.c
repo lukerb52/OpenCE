@@ -3788,11 +3788,21 @@ void map_share_render(
 		return;
 	}
 	mcc_share_game_render();
-	if (download->state != _download_asking && download->state != _download_transferring)
-		return;
-	font_tag_index = interface_get_tag_index(_interface_font_terminal);
-	if (font_tag_index == NONE)
-		return;
+	/* Consent wins; an active map keeps its banner until complete, then mutators. */
+	if (download->state != _download_asking && download->state != _download_transferring &&
+		mutator_share_download_text(text, sizeof(text)))
+	{
+		font_tag_index = interface_get_tag_index(_interface_font_terminal);
+		if (font_tag_index == NONE)
+			return;
+	}
+	else
+	{
+		if (download->state != _download_asking && download->state != _download_transferring)
+			return;
+		font_tag_index = interface_get_tag_index(_interface_font_terminal);
+		if (font_tag_index == NONE)
+			return;
 	name = tag_name_strip_path(download->level_name);
 	base_length = map_share_name_base_length(name);
 	if (download->state == _download_asking)
@@ -3816,6 +3826,7 @@ void map_share_render(
 		snprintf(text, sizeof(text), "Downloading the map %.*s: %ld%% of %lu MB from %d player%s, %lu KB/s",
 			(int)base_length, name, MIN(percent, 100), (download->total_bytes + 0x80000) >> 20, (int)sources,
 			sources == 1 ? "" : "s", rate >> 10);
+	}
 	}
 	/* (at the top of the screen, above the menus' safe area, where the
 	lobby's title is) */

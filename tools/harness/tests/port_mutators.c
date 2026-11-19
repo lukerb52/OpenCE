@@ -75,7 +75,47 @@ int main(int argc, char **argv)
 	char text[1024];
 
 	CHECK(argc == 2, "case");
-	if (!strcmp(case_name, "stock"))
+	if (!strcmp(case_name, "weapon_menu"))
+	{
+		struct port_mutator parsed;
+		static char const *const flags[] = { "", "addon_weapon_menu = true\n",
+			"addon_weapon_menu = false\n", "addon_weapon_menu = 0\n",
+			"addon_weapon_menu = \"false\"\n", "addon_weapon_menu = []\n" };
+		long index;
+
+		file("/data/mutators/a_grapple/hook.ceweapon", "weapon");
+		file("/data/mutators/grapple/hook.ceweapon", "weapon");
+		file("/data/mutators/dmr/dmr.ceweapon", "weapon");
+		folder("a_grapple", "id = \"grapple\"\nformat = 4\naddon = \"hook.ceweapon\"\naddon_weapon_menu = false\n");
+		folder("dmr", "id = \"dmr\"\nformat = 4\naddon = \"dmr.ceweapon\"\n");
+		strcpy(setting, "grapple,dmr");
+		CHECK(port_mutators_scan() == 2, "both physical weapons enabled");
+		CHECK(port_mutators_addon_count() == 2 && port_mutators_addon_kind(0) == 2 &&
+			port_mutators_addon_kind(1) == 2, "hidden weapon retains loading kind and order");
+		CHECK(port_mutators_addon_menu_kind(0) == -1 && port_mutators_addon_menu_kind(1) == 2 &&
+			port_mutators_addon_menu_kind(2) == -1, "grapple hidden, DMR included by default, end sentinel");
+		/* The downloaded manifest paths call the same mutator_read. Exercise
+		 * its strict type checks independently of local selection. */
+		for (index = 0; index < 6; index++)
+		{
+			snprintf(text, sizeof(text), "id = \"grapple\"\nformat = 4\naddon = \"hook.ceweapon\"\n%s", flags[index]);
+			memset(&parsed, 0, sizeof(parsed));
+			mutator_read(&parsed, "grapple", text, strlen(text), "/data/mutators/grapple/mutator.toml");
+			CHECK(!!parsed.refusal[0] == (index >= 3), "strict boolean %ld: %s", index, parsed.refusal);
+			CHECK(parsed.addon_kind == 2, "physical kind unchanged");
+			if (index < 3)
+				CHECK(parsed.addon_weapon_menu_hidden == (index == 2), "boolean/default semantics");
+		}
+		memset(&parsed, 0, sizeof(parsed));
+		mutator_read(&parsed, "bad", "format = 4\naddon_weapon_menu = false\n", strlen("format = 4\naddon_weapon_menu = false\n"), "/data/mutators/bad/mutator.toml");
+		CHECK(parsed.refusal[0], "flag without a weapon refused");
+		file("/data/mutators/vehicle/car.cevehicle", "vehicle");
+		snprintf(text, sizeof(text), "format = 4\naddon = \"car.cevehicle\"\naddon_weapon_menu = true\n");
+		memset(&parsed, 0, sizeof(parsed));
+		mutator_read(&parsed, "vehicle", text, strlen(text), "/data/mutators/vehicle/mutator.toml");
+		CHECK(parsed.refusal[0], "flag on vehicle refused");
+	}
+	else if (!strcmp(case_name, "stock"))
 	{
 		static unsigned char pose[4096];
 		size_t size = 0;

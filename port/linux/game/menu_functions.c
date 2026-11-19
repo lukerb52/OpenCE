@@ -2909,6 +2909,7 @@ void port_mutators_turn(long index, int on);
 int port_mutators_save(void);
 void port_mutators_revert(void);
 int port_mutators_addon_kind(long index);
+int port_mutators_addon_menu_kind(long index);
 char const *port_mutators_addon_name(long index);
 long port_mutators_option_count(void);
 int port_mutators_option(long index, char *name, unsigned long size, long *value, long *minimum, long *maximum,
@@ -8141,7 +8142,7 @@ static long addon_of_kind(int kind, long place)
 
 	for (index = 0; (each = port_mutators_addon_kind(index)) != 0; index++)
 	{
-		if (each == kind && !place--)
+		if (each == kind && port_mutators_addon_menu_kind(index) == kind && !place--)
 			return index;
 	}
 	return NONE;

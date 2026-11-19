@@ -705,6 +705,8 @@ static boolean hs_isolated_running;
 static long hs_isolated_remaining;
 static long hs_isolated_steps;
 static boolean hs_isolated_failed;
+static char const *hs_isolated_fault;
+char const *hs_isolated_error(void) { return hs_isolated_fault; }
 extern int hs_isolated_function_allowed(short index);
 
 /* per-type fallbacks used when an external global has no backing address */
@@ -1431,9 +1433,10 @@ static boolean hs_stack_push(
 		((byte *)thread->stack+thread->stack->size+sizeof(struct hs_stack_frame));
 
 	/* port: MCC uses its own bound; Xbox/CE keep the inline stack limit. */
-	match_hs_assert("c:\\halo\\SOURCE\\hs\\hs_runtime.c", 0x35e, thread_index,
-		(byte *) (new_frame+1)<mcc_hs_stack_end(thread),
-		"stack overflow.");
+	if (!hs_isolated_running)
+		match_hs_assert("c:\\halo\\SOURCE\\hs\\hs_runtime.c", 0x35e, thread_index,
+			(byte *) (new_frame+1)<mcc_hs_stack_end(thread),
+			"stack overflow.");
 
 	/* port: a frame past the thread's stack isn't pushed (it would be
 	written over the next thread's datum): the thread is ended instead */
@@ -1461,6 +1464,13 @@ static void hs_stack_overflow(
 {
 	struct hs_thread_datum *thread = hs_thread_get(thread_index);
 
+	if (hs_isolated_running)
+	{
+		hs_isolated_failed = TRUE;
+		hs_isolated_fault = "native HS stack overflow (4096-byte isolated thread stack)";
+		SET_FLAG(thread->flags, _hs_thread_stack_overflow_bit, TRUE);
+		return;
+	}
 	if (!TEST_FLAG(thread->flags, _hs_thread_stack_overflow_bit))
 	{
 		error(_error_silent, "a problem occurred while executing the script %s: stack overflow. (it was stopped)",
@@ -2942,6 +2952,7 @@ int hs_isolated_evaluate(long expression, struct data_array *threads,
 	hs_isolated_remaining = budget;
 	hs_isolated_steps = 0;
 	hs_isolated_failed = FALSE;
+	hs_isolated_fault = NULL;
 	index = datum_new(threads);
 	if (index != NONE)
 	{
@@ -3050,9 +3061,10 @@ static void *hs_stack_allocate(
 	match_hs_assert("c:\\halo\\SOURCE\\hs\\hs_runtime.c", 0x37e, thread_index,
 		size, "attempt to allocate zero space from the stack.");
 	/* port: MCC uses its own bound; Xbox/CE keep the inline stack limit. */
-	match_hs_assert("c:\\halo\\SOURCE\\hs\\hs_runtime.c", 0x37f, thread_index,
-		frame->data+frame->size+size<=mcc_hs_stack_end(thread),
-		"stack overflow.");
+	if (!hs_isolated_running)
+		match_hs_assert("c:\\halo\\SOURCE\\hs\\hs_runtime.c", 0x37f, thread_index,
+			frame->data+frame->size+size<=mcc_hs_stack_end(thread),
+			"stack overflow.");
 
 	/* port: none past the thread's stack (hs_stack_overflow); the caller
 	returns on NULL */

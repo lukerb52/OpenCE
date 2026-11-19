@@ -72,6 +72,10 @@ struct mutator_script
 	long output[4];
 	char setting_strings[64][256];
 	short setting_string_count;
+	/* Bounded, per-script/map diagnostics: repeated frame attempts stay quiet. */
+	char model_failure_tags[8][256];
+	unsigned long model_failure_reasons[8];
+	short model_failure_count;
 	boolean kept;
 	boolean failed;
 	long current_player;
@@ -98,6 +102,8 @@ struct mutator_script_model
 	boolean used;
 	short script_index;
 	long object_index;
+	char tag[256];
+	unsigned long pose_logged;
 	/* this frame: a node by the camera as it is drawn (NONE for none), and
 	whether its nodes face the camera */
 	short view_node;
@@ -744,6 +750,9 @@ static int script_camera_view(struct script_arguments *state)
 
 /* ---------- models */
 
+static void script_model_failure(struct mutator_script *script, char const *tag,
+	short reason, char const *message);
+
 /* a script's models are objects it makes on its own machine: never sent, never
 updated, picked up or hit, and gone before a game is saved. It places and poses
 them itself, for what it draws */
@@ -784,6 +793,8 @@ static struct mutator_script_model *script_model_at(
 		object = object_try_and_get(model->object_index);
 		if (!object || !TEST_FLAG(object->object.flags, _object_cannot_be_activated_bit))
 		{
+			script_model_failure(script, model->tag, object ? 4 : 3,
+				object ? "live object lost script-only flag" : "object deleted after model_create");
 			script_model_forget(model);
 			return NULL;
 		}
@@ -849,6 +860,29 @@ static boolean script_unit_vector_argument(
 	return normalize3d(vector) > 0.0001f;
 }
 
+/* A tag can fail at several stages; report each reason only once for this
+script and tag, not once per frame or player. */
+static void script_model_failure(
+	struct mutator_script *script,
+	char const *tag,
+	short reason,
+	char const *message)
+{
+	short index;
+	for (index = 0; index < script->model_failure_count; index++)
+		if (!strcmp(script->model_failure_tags[index], tag))
+			break;
+	if (index == script->model_failure_count)
+	{
+		if (index == NUMBEROF(script->model_failure_tags)) return;
+		snprintf(script->model_failure_tags[index], sizeof(script->model_failure_tags[index]), "%s", tag);
+		script->model_failure_count++;
+	}
+	if (TEST_FLAG(script->model_failure_reasons[index], reason)) return;
+	SET_FLAG(script->model_failure_reasons[index], reason, TRUE);
+	error(_error_silent, "mutators: %s model '%s': %s", script->key, tag, message);
+}
+
 /* model.create(tag, x, y, z, owner): a weapon's, a piece of equipment's,
 garbage's, a projectile's or scenery's model at the point, its handle or nil.
 Its object's creation effect plays, and its attachments are made. The owner, a
@@ -874,7 +908,11 @@ static int script_model_create(
 			model = &mutator_scripts.models[index];
 	}
 	if (definition_index == NONE || !model)
+	{
+		script_model_failure(script, name, definition_index == NONE ? 0 : 1,
+			definition_index == NONE ? "tag not loaded (weap/eqip/garb/proj/scen; exact path required)" : "model registry full");
 		return 0;
+	}
 	if (argument_missing(state, 5) || !script_object_at(state, 5, &owner) ||
 		!object_try_and_get_and_verify_type(owner, _object_mask_unit))
 	{
@@ -888,7 +926,10 @@ static int script_model_create(
 	object_index = object_new(&data);
 	mutator_scripts.creating_model = FALSE;
 	if (object_index == NONE)
+	{
+		script_model_failure(script, name, 2, "object_new failed (tag runtime type, allocation, or constructor)");
 		return 0;
+	}
 	{
 		struct object_header_datum *header = object_header_get(object_index);
 		struct object_datum *object = object_get(object_index);
@@ -896,6 +937,9 @@ static int script_model_create(
 		/* (never updated: it stays as the script puts it, and does nothing
 		itself; never hit: it is in the clusters' lists of what is not) */
 		SET_FLAG(object->object.flags, _object_cannot_be_activated_bit, TRUE);
+		/* Projectile/garbage constructors request PVS deletion. A deliberately
+		inactive script visual must survive leaving the active clusters. */
+		SET_FLAG(object->object.flags, _object_deleted_when_deactivated_bit, FALSE);
 		SET_FLAG(object->object.flags, _object_shadowless_bit, TRUE);
 		SET_FLAG(header->flags, _object_header_being_created_bit, FALSE);
 		object_deactivate(object_index);
@@ -906,7 +950,12 @@ static int script_model_create(
 	model->used = TRUE;
 	model->script_index = (short)(script - mutator_scripts.scripts);
 	model->object_index = object_index;
+	snprintf(model->tag, sizeof(model->tag), "%s", name);
 	model->view_node = NONE;
+	model->pose_logged = 0;
+	error(_error_silent, "mutator models: %s created tag=%s definition=0x%08lx object=0x%08lx registry=%ld player=%ld nodes=%d position=(%g,%g,%g)",
+		script->key, name, definition_index, object_index, (long)(model - mutator_scripts.models),
+		script->current_player, script_model_node_count(object_index), data.position.x, data.position.y, data.position.z);
 	mutator_scripts_model_count++;
 	output_integer(state, object_index);
 	return 1;
@@ -957,6 +1006,13 @@ static int script_model_place(
 		upright = normalize3d(&up) > 0.0001f;
 	}
 	object_set_position(model->object_index, &position, faces ? &forward : NULL, upright ? &up : NULL);
+	if (!TEST_FLAG(model->pose_logged, 0))
+	{
+		SET_FLAG(model->pose_logged, 0, TRUE);
+		error(_error_silent, "mutator models: %s first place tag=%s object=0x%08lx registry=%ld player=%ld position=(%g,%g,%g)",
+			state->script->key, model->tag, model->object_index, (long)(model - mutator_scripts.models),
+			state->script->current_player, position.x, position.y, position.z);
+	}
 	return 0;
 }
 
@@ -986,6 +1042,13 @@ static int script_model_node(
 		nodes[node].position.x = script_finite_argument(state, 3);
 		nodes[node].position.y = script_finite_argument(state, 4);
 		nodes[node].position.z = script_finite_argument(state, 5);
+		if (node < 2 && !TEST_FLAG(model->pose_logged, node + 1))
+		{
+			SET_FLAG(model->pose_logged, node + 1, TRUE);
+			error(_error_silent, "mutator models: %s first node tag=%s object=0x%08lx registry=%ld player=%ld node=%d position=(%g,%g,%g) scale=%g",
+				state->script->key, model->tag, model->object_index, (long)(model - mutator_scripts.models),
+				state->script->current_player, node, nodes[node].position.x, nodes[node].position.y, nodes[node].position.z, nodes[node].scale);
+		}
 	}
 	script_model_bound(model->object_index);
 	return 0;
